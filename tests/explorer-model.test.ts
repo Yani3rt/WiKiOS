@@ -21,6 +21,23 @@ import type {
   ExplorerWorkspace,
 } from "../src/client/explorer-model";
 
+function assertReadonlyExplorerContracts(tab: ExplorerTab, workspace: ExplorerWorkspace) {
+  // @ts-expect-error ExplorerTab fields are immutable.
+  tab.slug = "changed";
+  // @ts-expect-error ExplorerTab fields are immutable.
+  tab.title = "Changed";
+  // @ts-expect-error ExplorerTab fields are immutable.
+  tab.file = "Changed.md";
+  // @ts-expect-error ExplorerWorkspace tabs cannot be replaced.
+  workspace.tabs = [];
+  // @ts-expect-error ExplorerWorkspace tabs cannot be mutated.
+  workspace.tabs.push(tab);
+  // @ts-expect-error ExplorerWorkspace activeSlug is immutable.
+  workspace.activeSlug = null;
+}
+
+void assertReadonlyExplorerContracts;
+
 const pages: ExplorerPage[] = [
   { file: "Root.md", slug: "Root", title: "Root", modifiedAt: 1 },
   { file: "guides/Zeta.md", slug: "guides/Zeta", title: "Zeta", modifiedAt: 2 },
@@ -174,7 +191,10 @@ describe("explorer workspace", () => {
   const beta: ExplorerTab = { slug: "beta", title: "Beta", file: "Beta.md" };
   const gamma: ExplorerTab = { slug: "gamma", title: "Gamma", file: "Gamma.md" };
 
-  function workspace(tabs: ExplorerTab[], activeSlug: string | null): ExplorerWorkspace {
+  function workspace(
+    tabs: readonly ExplorerTab[],
+    activeSlug: string | null,
+  ): ExplorerWorkspace {
     return { tabs, activeSlug };
   }
 
@@ -376,5 +396,29 @@ describe("explorer workspace", () => {
     serializeExplorerWorkspace(initial);
 
     expect(initial).toEqual(snapshot);
+  });
+
+  it("keeps prior workspace and tab objects unchanged across transitions", () => {
+    const frozenAlpha = Object.freeze({ ...alpha });
+    const frozenBeta = Object.freeze({ ...beta });
+    const frozenGamma = Object.freeze({ ...gamma });
+    const tabs = Object.freeze([frozenAlpha, frozenBeta, frozenGamma]);
+    const initial: ExplorerWorkspace = Object.freeze({ tabs, activeSlug: beta.slug });
+
+    const transitions = [
+      openExplorerTab(initial, alpha),
+      activateExplorerTab(initial, gamma.slug),
+      closeExplorerTab(initial, alpha.slug),
+      closeOtherExplorerTabs(initial, beta.slug),
+    ];
+
+    for (const next of transitions) {
+      expect(next).not.toBe(initial);
+      expect(next.tabs).not.toBe(initial.tabs);
+    }
+    expect(initial).toEqual({ tabs: [alpha, beta, gamma], activeSlug: beta.slug });
+    expect(initial.tabs[0]).toBe(frozenAlpha);
+    expect(initial.tabs[1]).toBe(frozenBeta);
+    expect(initial.tabs[2]).toBe(frozenGamma);
   });
 });

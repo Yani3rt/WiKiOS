@@ -1,14 +1,14 @@
 import type { ExplorerPage } from "../lib/wiki-shared";
 
 export interface ExplorerTab {
-  slug: string;
-  title: string;
-  file: string;
+  readonly slug: string;
+  readonly title: string;
+  readonly file: string;
 }
 
 export interface ExplorerWorkspace {
-  tabs: readonly ExplorerTab[];
-  activeSlug: string | null;
+  readonly tabs: readonly ExplorerTab[];
+  readonly activeSlug: string | null;
 }
 
 export const EXPLORER_STORAGE_KEY = "wiki-os:explorer-workspace";
