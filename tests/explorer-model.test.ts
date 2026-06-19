@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { ExplorerPage } from "../src/lib/wiki-shared";
 import {
@@ -7,6 +7,7 @@ import {
   filterExplorerPages,
   flattenVisibleTree,
 } from "../src/client/explorer-model";
+import type { ExplorerFolder } from "../src/client/explorer-model";
 
 const pages: ExplorerPage[] = [
   { file: "Root.md", slug: "Root", title: "Root", modifiedAt: 1 },
@@ -34,6 +35,27 @@ describe("explorer model", () => {
     });
   });
 
+  it("builds a broad tree without scanning sibling arrays", () => {
+    const broadPages: ExplorerPage[] = Array.from({ length: 256 }, (_, index) => {
+      const folder = `folder-${index.toString().padStart(3, "0")}`;
+      return {
+        file: `${folder}/Note.md`,
+        slug: `${folder}/Note`,
+        title: `Note ${index}`,
+        modifiedAt: index,
+      };
+    });
+    const findSpy = vi.spyOn(Array.prototype, "find");
+
+    const tree = buildExplorerTree(broadPages);
+    const siblingScans = findSpy.mock.calls.length;
+    findSpy.mockRestore();
+
+    expect(siblingScans).toBe(0);
+    expect(tree.folders).toHaveLength(256);
+    expect(tree.folders.flatMap((folder) => folder.pages)).toEqual(broadPages);
+  });
+
   it("flattens expanded folders with recursive counts and deterministic ordering", () => {
     const rows = flattenVisibleTree(
       buildExplorerTree(pages),
@@ -47,6 +69,35 @@ describe("explorer model", () => {
       { kind: "page", page: pages[1], depth: 1 },
       { kind: "page", page: pages[0], depth: 0 },
     ]);
+  });
+
+  it("reads each folder's pages at most once for counts and once for rows", () => {
+    const countPages: ExplorerPage[] = [
+      { file: "Root.md", slug: "Root", title: "Root", modifiedAt: 1 },
+      { file: "a/A.md", slug: "a/A", title: "A", modifiedAt: 2 },
+      { file: "a/b/B.md", slug: "a/b/B", title: "B", modifiedAt: 3 },
+      { file: "a/b/c/C.md", slug: "a/b/c/C", title: "C", modifiedAt: 4 },
+    ];
+    const tree = buildExplorerTree(countPages);
+    const pageReads = new Map<string, number>();
+
+    function trackPageReads(folder: ExplorerFolder) {
+      const folderPages = folder.pages;
+      Object.defineProperty(folder, "pages", {
+        configurable: true,
+        get() {
+          pageReads.set(folder.path, (pageReads.get(folder.path) ?? 0) + 1);
+          return folderPages;
+        },
+      });
+      folder.folders.forEach(trackPageReads);
+    }
+
+    trackPageReads(tree);
+    const rows = flattenVisibleTree(tree, new Set(["a", "a/b", "a/b/c"]));
+
+    expect(rows.filter((row) => row.kind === "folder").map((row) => row.count)).toEqual([3, 2, 1]);
+    expect([...pageReads.values()].every((reads) => reads <= 2)).toBe(true);
   });
 
   it("sorts folders before notes at each level and names locale-aware with base sensitivity", () => {

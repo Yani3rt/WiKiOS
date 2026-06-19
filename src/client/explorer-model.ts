@@ -25,6 +25,8 @@ function sortFolder(folder: ExplorerFolder) {
 
 export function buildExplorerTree(pages: ExplorerPage[]): ExplorerFolder {
   const root: ExplorerFolder = { name: "", path: "", folders: [], pages: [] };
+  const folderLookups = new WeakMap<ExplorerFolder, Map<string, ExplorerFolder>>();
+  folderLookups.set(root, new Map());
 
   for (const page of pages) {
     const parts = page.file.split("/");
@@ -34,10 +36,13 @@ export function buildExplorerTree(pages: ExplorerPage[]): ExplorerFolder {
 
     for (const name of folderNames) {
       currentPath = currentPath ? `${currentPath}/${name}` : name;
-      let child = current.folders.find((folder) => folder.name === name);
+      const folderLookup = folderLookups.get(current)!;
+      let child = folderLookup.get(name);
       if (!child) {
         child = { name, path: currentPath, folders: [], pages: [] };
         current.folders.push(child);
+        folderLookup.set(name, child);
+        folderLookups.set(child, new Map());
       }
       current = child;
     }
@@ -49,11 +54,15 @@ export function buildExplorerTree(pages: ExplorerPage[]): ExplorerFolder {
   return root;
 }
 
-function recursivePageCount(folder: ExplorerFolder): number {
-  return (
+function collectPageCounts(
+  folder: ExplorerFolder,
+  pageCounts: WeakMap<ExplorerFolder, number>,
+): number {
+  const count =
     folder.pages.length +
-    folder.folders.reduce((count, child) => count + recursivePageCount(child), 0)
-  );
+    folder.folders.reduce((total, child) => total + collectPageCounts(child, pageCounts), 0);
+  pageCounts.set(folder, count);
+  return count;
 }
 
 export function flattenVisibleTree(
@@ -61,6 +70,8 @@ export function flattenVisibleTree(
   expandedPaths: ReadonlySet<string>,
 ): ExplorerTreeRow[] {
   const rows: ExplorerTreeRow[] = [];
+  const pageCounts = new WeakMap<ExplorerFolder, number>();
+  collectPageCounts(tree, pageCounts);
 
   function visit(folder: ExplorerFolder, depth: number) {
     for (const child of folder.folders) {
@@ -69,7 +80,7 @@ export function flattenVisibleTree(
         path: child.path,
         name: child.name,
         depth,
-        count: recursivePageCount(child),
+        count: pageCounts.get(child)!,
       });
       if (expandedPaths.has(child.path)) visit(child, depth + 1);
     }
