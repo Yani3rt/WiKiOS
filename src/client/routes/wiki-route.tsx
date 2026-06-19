@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useRef } from "react";
 import { Link, redirect, useLoaderData, useNavigate, useRevalidator, type LoaderFunctionArgs } from "react-router-dom";
 
 import { NoteViewer } from "@/components/note-viewer";
@@ -21,6 +22,45 @@ function normalizeSplatParam(rawSplat: string | undefined) {
     .join("/");
 }
 
+type RevalidationState = ReturnType<typeof useRevalidator>["state"];
+
+export function createRevalidationRefreshController() {
+  const pendingResolvers = new Set<() => void>();
+  let sawLoading = false;
+
+  return {
+    requestRefresh(revalidate: () => void) {
+      return new Promise<void>((resolve) => {
+        pendingResolvers.add(resolve);
+        revalidate();
+      });
+    },
+    onStateChange(state: RevalidationState) {
+      if (state === "loading") {
+        sawLoading = true;
+        return;
+      }
+
+      if (state === "idle" && sawLoading) {
+        sawLoading = false;
+        const resolvers = [...pendingResolvers];
+        pendingResolvers.clear();
+        for (const resolve of resolvers) {
+          resolve();
+        }
+      }
+    },
+    dispose() {
+      const resolvers = [...pendingResolvers];
+      pendingResolvers.clear();
+      sawLoading = false;
+      for (const resolve of resolvers) {
+        resolve();
+      }
+    },
+  };
+}
+
 export async function loader({ params }: LoaderFunctionArgs) {
   const slug = normalizeSplatParam(params["*"]);
   try {
@@ -39,6 +79,26 @@ export function Component() {
   const config = useWikiConfig();
   const navigate = useNavigate();
   const { revalidate, state: revalidationState } = useRevalidator();
+  const refreshControllerRef = useRef<ReturnType<typeof createRevalidationRefreshController> | null>(null);
+
+  if (refreshControllerRef.current === null) {
+    refreshControllerRef.current = createRevalidationRefreshController();
+  }
+
+  const refreshPage = useMemo(
+    () => () => refreshControllerRef.current!.requestRefresh(revalidate),
+    [revalidate],
+  );
+
+  useEffect(() => {
+    refreshControllerRef.current?.onStateChange(revalidationState);
+  }, [revalidationState]);
+
+  useEffect(() => {
+    return () => {
+      refreshControllerRef.current?.dispose();
+    };
+  }, []);
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -77,8 +137,7 @@ export function Component() {
         <NoteViewer
           page={page}
           onNavigateNote={(slug) => navigate(`/wiki/${slug}`)}
-          onRefreshPage={() => revalidate()}
-          refreshing={revalidationState === "loading"}
+          onRefreshPage={refreshPage}
         />
       </main>
 

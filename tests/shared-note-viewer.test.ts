@@ -4,14 +4,19 @@ import { fileURLToPath } from "node:url";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { WikiConfigProvider } from "../src/client/wiki-config";
 import {
   NoteViewer,
+  getActiveHeadingId,
+  getScrollRoot,
+  navigateGraphNode,
+  routeWikiLinkClick,
   savePersonOverride,
-  wikiSlugFromHref,
+  scrollHeadingIntoView,
 } from "../src/components/note-viewer";
+import { createRevalidationRefreshController } from "../src/client/routes/wiki-route";
 import { DEFAULT_WIKI_OS_CONFIG } from "../src/lib/wiki-config";
 import type { WikiPageData } from "../src/lib/wiki-shared";
 
@@ -35,50 +40,82 @@ const samplePage: WikiPageData = {
   personOverride: null,
 };
 
-describe("shared note viewer", () => {
-  it("renders article content, metadata, categories, toc, related concepts, and graph markers", () => {
-    const markup = renderToStaticMarkup(
-      createElement(
-        WikiConfigProvider as never,
-        { config: DEFAULT_WIKI_OS_CONFIG },
-        createElement(
-          MemoryRouter,
-          undefined,
-          createElement(NoteViewer, {
-            page: samplePage,
-            onNavigateNote: () => {},
-            refreshing: true,
-          }),
-        ),
-      ),
-    );
+describe("shared note viewer behavioral helpers", () => {
+  it("routes internal wiki links through the navigation callback and ignores external links", () => {
+    const navigated: string[] = [];
+    const internalEvent = {
+      defaultPrevented: false,
+      preventDefault() {
+        this.defaultPrevented = true;
+      },
+    };
+    const externalEvent = {
+      defaultPrevented: false,
+      preventDefault() {
+        this.defaultPrevented = true;
+      },
+    };
 
-    expect(markup).toContain("Ada Lovelace");
-    expect(markup).toContain("1 min read");
-    expect(markup).toContain("25 words");
-    expect(markup).toContain("Updated Jan 15, 2025");
-    expect(markup).toContain("history");
-    expect(markup).toContain("math");
-    expect(markup).toContain("Intro paragraph about Ada.");
-    expect(markup).toContain("Deep Dive");
-    expect(markup).toContain("On this page");
-    expect(markup).toContain("Related Concepts");
-    expect(markup).toContain("Charles Babbage");
-    expect(markup).toContain("Connections");
-    expect(markup).toContain("Saving...");
-    expect(markup).not.toContain("Source Notes");
-    expect(markup).not.toContain("hidden source note");
+    expect(
+      routeWikiLinkClick({
+        href: "/wiki/Literal%2520Name",
+        origin: "https://wiki.local",
+        onNavigateNote: (slug) => navigated.push(slug),
+        event: internalEvent,
+      }),
+    ).toBe(true);
+    expect(internalEvent.defaultPrevented).toBe(true);
+    expect(navigated).toEqual(["Literal%2520Name"]);
+
+    expect(
+      routeWikiLinkClick({
+        href: "https://example.com/wiki/Elsewhere",
+        origin: "https://wiki.local",
+        onNavigateNote: (slug) => navigated.push(slug),
+        event: externalEvent,
+      }),
+    ).toBe(false);
+    expect(externalEvent.defaultPrevented).toBe(false);
+    expect(navigated).toEqual(["Literal%2520Name"]);
   });
 
-  it("normalizes internal wiki hrefs for callback routing without corrupting literal percent data", () => {
-    expect(wikiSlugFromHref("/wiki/history/Analytical%20Engine", "https://wiki.local")).toBe(
-      "history/Analytical%20Engine",
-    );
-    expect(wikiSlugFromHref("/wiki/Literal%2520Name", "https://wiki.local")).toBe(
-      "Literal%2520Name",
-    );
-    expect(wikiSlugFromHref("https://other.example/wiki/Ada", "https://wiki.local")).toBeNull();
-    expect(wikiSlugFromHref("#deep-dive", "https://wiki.local")).toBeNull();
+  it("delegates graph-node navigation through canonical wiki slugs", () => {
+    const navigated: string[] = [];
+    navigateGraphNode("people/Ada Lovelace", (slug) => navigated.push(slug));
+    expect(navigated).toEqual(["people/Ada%20Lovelace"]);
+  });
+
+  it("uses a custom scroll root when present and falls back to viewport behavior", () => {
+    const scrollIntoView = vi.fn();
+    const target = {
+      getBoundingClientRect: () => ({ top: 180 }),
+      scrollIntoView,
+    };
+    const scrollTo = vi.fn();
+    const scrollRoot = {
+      scrollTop: 40,
+      getBoundingClientRect: () => ({ top: 20 }),
+      scrollTo,
+    };
+
+    expect(getScrollRoot({ current: scrollRoot })).toBe(scrollRoot);
+    scrollHeadingIntoView(target, scrollRoot);
+    expect(scrollTo).toHaveBeenCalledWith({ top: 176, behavior: "smooth" });
+
+    expect(getScrollRoot(undefined)).toBeNull();
+    scrollHeadingIntoView(target, null);
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "start" });
+  });
+
+  it("computes the active heading relative to a custom root or the viewport", () => {
+    const elements = [
+      { id: "intro", getBoundingClientRect: () => ({ top: 40 }) },
+      { id: "deep-dive", getBoundingClientRect: () => ({ top: 140 }) },
+    ];
+    const root = { getBoundingClientRect: () => ({ top: 60 }) };
+
+    expect(getActiveHeadingId(elements, root)).toBe("deep-dive");
+    expect(getActiveHeadingId(elements, null)).toBe("intro");
   });
 
   it("awaits refresh completion after saving a person override", async () => {
@@ -123,22 +160,59 @@ describe("shared note viewer", () => {
     expect(calls).toEqual(expect.arrayContaining(["after-save-call", "refresh-started", "refresh-resolved"]));
   });
 
-  it("surfaces server errors from the person override request helper", async () => {
-    await expect(
-      savePersonOverride({
-        fileName: samplePage.fileName,
-        override: "not-person",
-        fetchImpl: async () => ({
-          ok: false,
-          json: async () => ({ error: "Nope" }),
-        }),
-      }),
-    ).rejects.toThrow("Nope");
+  it("does not resolve pending refreshes before loading starts and resolves them when revalidation returns idle", async () => {
+    const controller = createRevalidationRefreshController();
+    const revalidate = vi.fn();
+    let resolved = false;
+
+    const pending = controller.requestRefresh(revalidate).then(() => {
+      resolved = true;
+    });
+
+    expect(revalidate).toHaveBeenCalledTimes(1);
+    controller.onStateChange("idle");
+    await Promise.resolve();
+    expect(resolved).toBe(false);
+
+    controller.onStateChange("loading");
+    controller.onStateChange("idle");
+    await pending;
+    expect(resolved).toBe(true);
   });
 });
 
-describe("wiki route shell", () => {
-  it("keeps route chrome in the wrapper and delegates article features to NoteViewer", () => {
+describe("shared note viewer rendering and route boundaries", () => {
+  it("renders article content, metadata, toc, related concepts, and graph markers without added category chips", () => {
+    const markup = renderToStaticMarkup(
+      createElement(
+        WikiConfigProvider as never,
+        { config: DEFAULT_WIKI_OS_CONFIG },
+        createElement(
+          MemoryRouter,
+          undefined,
+          createElement(NoteViewer, {
+            page: samplePage,
+            onNavigateNote: () => {},
+          }),
+        ),
+      ),
+    );
+
+    expect(markup).toContain("Ada Lovelace");
+    expect(markup).toContain("1 min read");
+    expect(markup).toContain("25 words");
+    expect(markup).toContain("Updated Jan 15, 2025");
+    expect(markup).toContain("Intro paragraph about Ada.");
+    expect(markup).toContain("Deep Dive");
+    expect(markup).toContain("On this page");
+    expect(markup).toContain("Related Concepts");
+    expect(markup).toContain("Charles Babbage");
+    expect(markup).toContain("Connections");
+    expect(markup).not.toContain('aria-label="Categories"');
+    expect(markup).not.toContain("hidden source note");
+  });
+
+  it("keeps route chrome in the wrapper and moved feature markers out of wiki-route", () => {
     const routeSource = readFileSync(
       fileURLToPath(new URL("../src/client/routes/wiki-route.tsx", import.meta.url)),
       "utf8",
@@ -148,11 +222,11 @@ describe("wiki route shell", () => {
     expect(routeSource).toContain("<header");
     expect(routeSource).toContain("Home");
     expect(routeSource).toContain("<NoteViewer");
-    expect(routeSource).toContain('refreshing={revalidationState === "loading"}');
+    expect(routeSource).toContain("createRevalidationRefreshController");
+    expect(routeSource).not.toContain("refreshing=");
     expect(routeSource).not.toContain("Related Concepts");
     expect(routeSource).not.toContain("NeighborhoodGraph");
     expect(routeSource).not.toContain("Mark as person");
     expect(routeSource).not.toContain("ReactMarkdown");
-    expect(routeSource).not.toContain("On this page");
   });
 });

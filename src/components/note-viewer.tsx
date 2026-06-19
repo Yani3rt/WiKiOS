@@ -24,7 +24,6 @@ export interface NoteViewerProps {
   page: WikiPageData;
   onNavigateNote: (slug: string) => void;
   onRefreshPage?: () => void | Promise<void>;
-  refreshing?: boolean;
   scrollContainerRef?: RefObject<HTMLElement | null>;
 }
 
@@ -117,9 +116,36 @@ export function wikiSlugFromHref(href: string | undefined, origin: string) {
   }
 }
 
-function getInternalWikiSlug(href: string | undefined) {
-  if (typeof window === "undefined") return null;
-  return wikiSlugFromHref(href, window.location.origin);
+interface LinkNavigationEvent {
+  defaultPrevented: boolean;
+  preventDefault(): void;
+}
+
+interface RouteWikiLinkClickOptions {
+  href: string | undefined;
+  origin: string;
+  onNavigateNote: (slug: string) => void;
+  event: LinkNavigationEvent;
+}
+
+export function routeWikiLinkClick({
+  href,
+  origin,
+  onNavigateNote,
+  event,
+}: RouteWikiLinkClickOptions) {
+  if (event.defaultPrevented) return false;
+
+  const slug = wikiSlugFromHref(href, origin);
+  if (!slug) return false;
+
+  event.preventDefault();
+  onNavigateNote(slug);
+  return true;
+}
+
+export function navigateGraphNode(slug: string, onNavigateNote: (slug: string) => void) {
+  onNavigateNote(canonicalizeWikiRouteSlug(slug));
 }
 
 interface PersonOverrideResponse {
@@ -160,11 +186,34 @@ export async function savePersonOverride({
   await onRefreshPage?.();
 }
 
-function scrollToHeading(id: string, scrollContainerRef?: RefObject<HTMLElement | null>) {
-  const target = document.getElementById(id);
-  if (!target) return;
+interface ScrollRectLike {
+  top: number;
+}
 
-  const scrollRoot = scrollContainerRef?.current;
+interface ScrollContainerLike {
+  scrollTop: number;
+  getBoundingClientRect(): ScrollRectLike;
+  scrollTo(options: { top: number; behavior: "smooth" | "auto" }): void;
+}
+
+interface ScrollTargetLike {
+  getBoundingClientRect(): ScrollRectLike;
+  scrollIntoView(options: { behavior: "smooth"; block: "start" }): void;
+}
+
+interface HeadingElementLike {
+  id: string;
+  getBoundingClientRect(): ScrollRectLike;
+}
+
+export function getScrollRoot<T>(scrollContainerRef?: RefObject<T | null>): T | null {
+  return scrollContainerRef?.current ?? null;
+}
+
+export function scrollHeadingIntoView(
+  target: ScrollTargetLike,
+  scrollRoot: ScrollContainerLike | null,
+) {
   if (!scrollRoot) {
     target.scrollIntoView({ behavior: "smooth", block: "start" });
     return;
@@ -174,6 +223,30 @@ function scrollToHeading(id: string, scrollContainerRef?: RefObject<HTMLElement 
   const targetRect = target.getBoundingClientRect();
   const top = scrollRoot.scrollTop + targetRect.top - rootRect.top - 24;
   scrollRoot.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+}
+
+export function getActiveHeadingId(
+  elements: HeadingElementLike[],
+  scrollRoot: Pick<ScrollContainerLike, "getBoundingClientRect"> | null,
+) {
+  if (elements.length === 0) return null;
+
+  const topThreshold = scrollRoot ? scrollRoot.getBoundingClientRect().top + 100 : 100;
+  let current = elements[0]?.id ?? null;
+  for (const element of elements) {
+    if (element.getBoundingClientRect().top <= topThreshold) {
+      current = element.id;
+    }
+  }
+
+  return current;
+}
+
+function scrollToHeading(id: string, scrollContainerRef?: RefObject<HTMLElement | null>) {
+  const target = document.getElementById(id);
+  if (!target) return;
+
+  scrollHeadingIntoView(target, getScrollRoot(scrollContainerRef));
 }
 
 function TableOfContents({
@@ -229,19 +302,7 @@ function useActiveHeading(
       .filter((element): element is HTMLElement => element !== null);
 
     if (elements.length === 0) return;
-
-    const scrollRoot = scrollContainerRef?.current;
-    const topThreshold = scrollRoot
-      ? scrollRoot.getBoundingClientRect().top + 100
-      : 100;
-
-    let current = elements[0]?.id ?? null;
-    for (const element of elements) {
-      if (element.getBoundingClientRect().top <= topThreshold) {
-        current = element.id;
-      }
-    }
-    setActiveId(current);
+    setActiveId(getActiveHeadingId(elements, getScrollRoot(scrollContainerRef)));
   }, [headings, scrollContainerRef]);
 
   const observe = useCallback(() => {
@@ -254,7 +315,7 @@ function useActiveHeading(
     if (elements.length === 0) return;
 
     observer.current = new IntersectionObserver(updateActiveHeading, {
-      root: scrollContainerRef?.current ?? null,
+      root: getScrollRoot(scrollContainerRef),
       rootMargin: "-60px 0px -80% 0px",
       threshold: [0, 1],
     });
@@ -278,7 +339,7 @@ function useActiveHeading(
   }, [headings, observe, updateActiveHeading]);
 
   useEffect(() => {
-    const scrollRoot = scrollContainerRef?.current;
+    const scrollRoot = getScrollRoot(scrollContainerRef);
     const target: Window | HTMLElement = scrollRoot ?? window;
     const handleScroll = () => updateActiveHeading();
 
@@ -502,7 +563,6 @@ export function NoteViewer({
   page,
   onNavigateNote,
   onRefreshPage,
-  refreshing = false,
   scrollContainerRef,
 }: NoteViewerProps) {
   const config = useWikiConfig();
@@ -531,7 +591,7 @@ export function NoteViewer({
   }, [onNavigateNote]);
 
   useEffect(() => {
-    const scrollRoot = scrollContainerRef?.current;
+    const scrollRoot = getScrollRoot(scrollContainerRef);
     if (scrollRoot) {
       scrollRoot.scrollTo({ top: 0, behavior: "auto" });
       return;
@@ -540,7 +600,7 @@ export function NoteViewer({
     window.scrollTo(0, 0);
   }, [page.slug, scrollContainerRef]);
 
-  const personActionBusy = isUpdatingPerson || refreshing;
+  const personActionBusy = isUpdatingPerson;
 
   const markdownComponents = useMemo<Components>(
     () => ({
@@ -560,13 +620,13 @@ export function NoteViewer({
       a: ({ href, onClick, ...props }) => {
         const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
           onClick?.(event);
-          if (event.defaultPrevented) return;
-
-          const slug = getInternalWikiSlug(href);
-          if (!slug) return;
-
-          event.preventDefault();
-          onNavigateNoteRef.current(slug);
+          if (typeof window === "undefined") return;
+          routeWikiLinkClick({
+            href,
+            origin: window.location.origin,
+            onNavigateNote: onNavigateNoteRef.current,
+            event,
+          });
         };
 
         return <a href={href} onClick={handleClick} {...props} />;
@@ -576,17 +636,20 @@ export function NoteViewer({
   );
 
   const navigateToRelatedNote = useCallback(
-    (href: string) => {
-      const slug = getInternalWikiSlug(href);
-      if (!slug) return false;
-      onNavigateNote(slug);
-      return true;
-    },
+    (href: string, event: LinkNavigationEvent) =>
+      typeof window !== "undefined"
+        ? routeWikiLinkClick({
+            href,
+            origin: window.location.origin,
+            onNavigateNote,
+            event,
+          })
+        : false,
     [onNavigateNote],
   );
 
   const navigateToGraphNote = useCallback(
-    (slug: string) => onNavigateNote(canonicalizeWikiRouteSlug(slug)),
+    (slug: string) => navigateGraphNode(slug, onNavigateNote),
     [onNavigateNote],
   );
 
@@ -666,18 +729,6 @@ export function NoteViewer({
               </>
             ) : null}
           </div>
-          {page.categories.length > 0 ? (
-            <ul className="mt-4 flex flex-wrap gap-2" aria-label="Categories">
-              {page.categories.map((category) => (
-                <li
-                  key={category}
-                  className="rounded-full bg-[var(--muted)] px-2.5 py-1 text-xs text-[var(--foreground)]"
-                >
-                  {category}
-                </li>
-              ))}
-            </ul>
-          ) : null}
         </div>
       </div>
 
@@ -726,9 +777,7 @@ export function NoteViewer({
                   key={link.href}
                   to={link.href}
                   onClick={(event) => {
-                    if (navigateToRelatedNote(link.href)) {
-                      event.preventDefault();
-                    }
+                    navigateToRelatedNote(link.href, event);
                   }}
                   className="rounded-full border border-[var(--border)] bg-white px-3.5 py-1.5 text-sm transition-[color,background-color,transform] duration-150 hover:bg-[var(--secondary)] active:scale-[0.97]"
                 >
