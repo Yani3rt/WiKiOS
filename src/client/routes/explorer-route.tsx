@@ -220,21 +220,29 @@ function sameSet(left: ReadonlySet<string>, right: ReadonlySet<string>) {
   return true;
 }
 
-function usePrefersReducedMotion() {
-  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+function useMediaQuery(query: string) {
+  const [matches, setMatches] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const updatePreference = () => setPrefersReducedMotion(mediaQuery.matches);
+    const mediaQuery = window.matchMedia(query);
+    const updateMatches = () => setMatches(mediaQuery.matches);
 
-    updatePreference();
-    mediaQuery.addEventListener("change", updatePreference);
-    return () => mediaQuery.removeEventListener("change", updatePreference);
-  }, []);
+    updateMatches();
+    mediaQuery.addEventListener("change", updateMatches);
+    return () => mediaQuery.removeEventListener("change", updateMatches);
+  }, [query]);
 
-  return prefersReducedMotion;
+  return matches;
+}
+
+function usePrefersReducedMotion() {
+  return useMediaQuery("(prefers-reduced-motion: reduce)");
+}
+
+export function isExplorerSidebarInteractive(sidebarOpen: boolean, isDesktop: boolean) {
+  return sidebarOpen || isDesktop;
 }
 
 interface ExplorerStorageReader {
@@ -299,9 +307,11 @@ export async function loader() {
 export function ExplorerHeader({
   sidebarOpen,
   onToggleSidebar,
+  toggleButtonRef,
 }: {
   sidebarOpen: boolean;
   onToggleSidebar: () => void;
+  toggleButtonRef?: RefObject<HTMLButtonElement | null>;
 }) {
   return (
     <header className="flex h-16 items-center justify-between border-b border-[var(--border)] px-4 md:px-5">
@@ -316,6 +326,7 @@ export function ExplorerHeader({
         </div>
       </Link>
       <button
+        ref={toggleButtonRef}
         type="button"
         className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm md:hidden"
         aria-expanded={sidebarOpen}
@@ -675,7 +686,11 @@ export function Component() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [readerState, setReaderState] = useState<ReaderState>({ slug: null, status: "idle" });
   const workspaceFocusRef = useRef<HTMLElement>(null);
+  const sidebarRef = useRef<HTMLElement>(null);
+  const toggleButtonRef = useRef<HTMLButtonElement>(null);
   const prefersReducedMotion = usePrefersReducedMotion();
+  const isDesktopSidebar = useMediaQuery("(min-width: 768px)");
+  const sidebarInteractive = isExplorerSidebarInteractive(sidebarOpen, isDesktopSidebar);
 
   useEffect(() => setHydrated(true), []);
 
@@ -689,6 +704,17 @@ export function Component() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [sidebarOpen]);
+
+  useEffect(() => {
+    if (sidebarInteractive) {
+      sidebarRef.current?.removeAttribute("inert");
+      return;
+    }
+
+    const focusWasInsideDrawer = sidebarRef.current?.contains(document.activeElement) ?? false;
+    sidebarRef.current?.setAttribute("inert", "");
+    if (focusWasInsideDrawer) toggleButtonRef.current?.focus();
+  }, [sidebarInteractive]);
 
   useEffect(() => {
     if (!hydrated || typeof window === "undefined") return;
@@ -763,7 +789,11 @@ export function Component() {
 
   return (
     <main className="flex min-h-screen flex-col bg-[var(--background)] text-[var(--foreground)]">
-      <ExplorerHeader sidebarOpen={sidebarOpen} onToggleSidebar={() => setSidebarOpen((open) => !open)} />
+      <ExplorerHeader
+        sidebarOpen={sidebarOpen}
+        toggleButtonRef={toggleButtonRef}
+        onToggleSidebar={() => setSidebarOpen((open) => !open)}
+      />
       <div className="flex min-h-0 flex-1">
         <button
           type="button"
@@ -775,7 +805,9 @@ export function Component() {
           onClick={() => setSidebarOpen(false)}
         />
         <aside
+          ref={sidebarRef}
           id="explorer-sidebar"
+          aria-hidden={!sidebarInteractive}
           className={`fixed inset-y-16 left-0 z-40 w-[18.5rem] max-w-[calc(100vw-2rem)] border-r border-[var(--border)] bg-[var(--background)] shadow-[0_18px_48px_-24px_rgba(21,19,26,0.4)] md:static md:inset-auto md:z-auto md:w-[19rem] md:max-w-none md:translate-x-0 md:shadow-none ${
             sidebarOpen ? "translate-x-0" : "-translate-x-[calc(100%+1rem)]"
           } ${prefersReducedMotion ? "transition-none" : "transition-transform duration-200 ease-out"} motion-reduce:transition-none`}

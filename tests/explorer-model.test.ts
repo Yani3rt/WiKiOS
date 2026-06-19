@@ -181,11 +181,32 @@ describe("explorer route registration", () => {
     expect(routeSource).toContain('aria-label="Toggle note tree"');
     expect(routeSource).toContain("explorer-sidebar-backdrop");
     expect(routeSource).toContain("prefers-reduced-motion: reduce");
-    expect(routeSource).toContain('matchMedia("(prefers-reduced-motion: reduce)")');
+    expect(routeSource).toContain('useMediaQuery("(prefers-reduced-motion: reduce)")');
     expect(routeSource).toContain('aria-controls="explorer-sidebar"');
     expect(routeSource).toContain('aria-expanded={sidebarOpen}');
     expect(globalsSource).toContain(".explorer-scrollbar");
     expect(globalsSource).toContain(".explorer-sidebar-backdrop");
+  });
+
+  it("removes the closed mobile drawer from focus while preserving desktop interactivity", async () => {
+    const routeSource = readFileSync(
+      fileURLToPath(new URL("../src/client/routes/explorer-route.tsx", import.meta.url)),
+      "utf8",
+    );
+    const routeModule = (await import("../src/client/routes/explorer-route")) as unknown as {
+      isExplorerSidebarInteractive?: (sidebarOpen: boolean, isDesktop: boolean) => boolean;
+    };
+
+    expect(routeModule.isExplorerSidebarInteractive).toBeTypeOf("function");
+    expect(routeModule.isExplorerSidebarInteractive!(false, false)).toBe(false);
+    expect(routeModule.isExplorerSidebarInteractive!(true, false)).toBe(true);
+    expect(routeModule.isExplorerSidebarInteractive!(false, true)).toBe(true);
+    expect(routeSource).toContain('useMediaQuery("(min-width: 768px)")');
+    expect(routeSource).toContain('sidebarRef.current?.setAttribute("inert", "")');
+    expect(routeSource).toContain('sidebarRef.current?.removeAttribute("inert")');
+    expect(routeSource).toContain('aria-hidden={!sidebarInteractive}');
+    expect(routeSource).toContain("toggleButtonRef.current?.focus()");
+    expect(routeSource).toContain("sidebarRef.current?.contains(document.activeElement)");
   });
 
   it("canonicalizes encoded metadata and restored tabs without corrupting literal percent data", async () => {
