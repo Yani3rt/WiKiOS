@@ -2,12 +2,24 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { ExplorerPage } from "../src/lib/wiki-shared";
 import {
+  EMPTY_EXPLORER_WORKSPACE,
+  EXPLORER_STORAGE_KEY,
+  activateExplorerTab,
   buildExplorerTree,
+  closeExplorerTab,
+  closeOtherExplorerTabs,
   collectFolderPaths,
   filterExplorerPages,
   flattenVisibleTree,
+  openExplorerTab,
+  parseExplorerWorkspace,
+  serializeExplorerWorkspace,
 } from "../src/client/explorer-model";
-import type { ExplorerFolder } from "../src/client/explorer-model";
+import type {
+  ExplorerFolder,
+  ExplorerTab,
+  ExplorerWorkspace,
+} from "../src/client/explorer-model";
 
 const pages: ExplorerPage[] = [
   { file: "Root.md", slug: "Root", title: "Root", modifiedAt: 1 },
@@ -154,5 +166,161 @@ describe("explorer model", () => {
       "guides",
       "guides/nested",
     ]);
+  });
+});
+
+describe("explorer workspace", () => {
+  const alpha: ExplorerTab = { slug: "alpha", title: "Alpha", file: "Alpha.md" };
+  const beta: ExplorerTab = { slug: "beta", title: "Beta", file: "Beta.md" };
+  const gamma: ExplorerTab = { slug: "gamma", title: "Gamma", file: "Gamma.md" };
+
+  function workspace(tabs: ExplorerTab[], activeSlug: string | null): ExplorerWorkspace {
+    return { tabs, activeSlug };
+  }
+
+  it("opens, deduplicates, and activates tabs in deterministic order", () => {
+    const openedAlpha = openExplorerTab(EMPTY_EXPLORER_WORKSPACE, {
+      ...alpha,
+      modifiedAt: 1,
+    });
+    const reopenedAlpha = openExplorerTab(
+      workspace([alpha, beta], beta.slug),
+      alpha,
+    );
+    const openedBeta = openExplorerTab(openedAlpha, beta);
+
+    expect(openedAlpha).toEqual(workspace([alpha], alpha.slug));
+    expect(reopenedAlpha).toEqual(workspace([alpha, beta], alpha.slug));
+    expect(openedBeta).toEqual(workspace([alpha, beta], beta.slug));
+  });
+
+  it("activates existing tabs and ignores unknown slugs", () => {
+    const initial = workspace([alpha, beta], alpha.slug);
+
+    expect(activateExplorerTab(initial, beta.slug)).toEqual(
+      workspace([alpha, beta], beta.slug),
+    );
+    expect(activateExplorerTab(initial, "unknown")).toBe(initial);
+  });
+
+  it("closes an inactive tab without changing the active tab", () => {
+    expect(closeExplorerTab(workspace([alpha, beta], alpha.slug), beta.slug)).toEqual(
+      workspace([alpha], alpha.slug),
+    );
+  });
+
+  it("selects the immediate left tab when closing an active tab", () => {
+    expect(closeExplorerTab(workspace([alpha, beta], beta.slug), beta.slug)).toEqual(
+      workspace([alpha], alpha.slug),
+    );
+    expect(
+      closeExplorerTab(workspace([alpha, beta, gamma], beta.slug), beta.slug),
+    ).toEqual(workspace([alpha, gamma], alpha.slug));
+  });
+
+  it("selects the next tab when closing the active first tab", () => {
+    expect(
+      closeExplorerTab(workspace([alpha, beta, gamma], alpha.slug), alpha.slug),
+    ).toEqual(workspace([beta, gamma], beta.slug));
+  });
+
+  it("clears the active slug when closing the final tab", () => {
+    expect(closeExplorerTab(workspace([alpha], alpha.slug), alpha.slug)).toEqual(
+      EMPTY_EXPLORER_WORKSPACE,
+    );
+  });
+
+  it("closes other tabs and activates the retained existing tab", () => {
+    const initial = workspace([alpha, beta, gamma], alpha.slug);
+
+    expect(closeOtherExplorerTabs(initial, beta.slug)).toEqual(
+      workspace([beta], beta.slug),
+    );
+    expect(closeOtherExplorerTabs(initial, "unknown")).toBe(initial);
+  });
+
+  it("serializes version one and restores valid workspaces", () => {
+    const initial = workspace([alpha, beta], beta.slug);
+    const serialized = serializeExplorerWorkspace(initial);
+
+    expect(EXPLORER_STORAGE_KEY).toBe("wiki-os:explorer-workspace");
+    expect(JSON.parse(serialized)).toEqual({ version: 1, ...initial });
+    expect(parseExplorerWorkspace(serialized)).toEqual(initial);
+  });
+
+  it.each(["{", "null", "[]", JSON.stringify({ version: 99, tabs: [] })])(
+    "falls back safely for invalid persisted input %s",
+    (serialized) => {
+      expect(parseExplorerWorkspace(serialized)).toEqual(EMPTY_EXPLORER_WORKSPACE);
+    },
+  );
+
+  it("discards malformed tabs while retaining valid tabs", () => {
+    const serialized = JSON.stringify({
+      version: 1,
+      tabs: [
+        alpha,
+        null,
+        { slug: "", title: "Empty slug", file: "Empty.md" },
+        { slug: "missing-title", file: "Missing.md" },
+        { slug: "wrong-file", title: "Wrong file", file: 42 },
+        beta,
+      ],
+      activeSlug: beta.slug,
+    });
+
+    expect(parseExplorerWorkspace(serialized)).toEqual(workspace([alpha, beta], beta.slug));
+  });
+
+  it("removes duplicate slugs while preserving the first tab", () => {
+    const duplicateAlpha = { slug: alpha.slug, title: "Other Alpha", file: "Other.md" };
+    const serialized = JSON.stringify({
+      version: 1,
+      tabs: [alpha, duplicateAlpha, beta],
+      activeSlug: alpha.slug,
+    });
+
+    expect(parseExplorerWorkspace(serialized)).toEqual(workspace([alpha, beta], alpha.slug));
+  });
+
+  it("accepts activeSlug only when retained and otherwise selects the first tab", () => {
+    expect(
+      parseExplorerWorkspace(
+        JSON.stringify({ version: 1, tabs: [alpha, beta], activeSlug: beta.slug }),
+      ),
+    ).toEqual(workspace([alpha, beta], beta.slug));
+    expect(
+      parseExplorerWorkspace(
+        JSON.stringify({ version: 1, tabs: [alpha, beta], activeSlug: "unknown" }),
+      ),
+    ).toEqual(workspace([alpha, beta], alpha.slug));
+    expect(
+      parseExplorerWorkspace(JSON.stringify({ version: 1, tabs: [], activeSlug: alpha.slug })),
+    ).toEqual(EMPTY_EXPLORER_WORKSPACE);
+  });
+
+  it("allocates fallbacks so callers cannot mutate the shared empty workspace", () => {
+    const first = parseExplorerWorkspace("not json");
+    (first.tabs as ExplorerTab[]).push(alpha);
+    const second = parseExplorerWorkspace("not json");
+
+    expect(first).not.toBe(EMPTY_EXPLORER_WORKSPACE);
+    expect(first.tabs).toEqual([alpha]);
+    expect(second).toEqual(EMPTY_EXPLORER_WORKSPACE);
+    expect(second.tabs).not.toBe(first.tabs);
+    expect(EMPTY_EXPLORER_WORKSPACE).toEqual({ tabs: [], activeSlug: null });
+  });
+
+  it("does not mutate workspace inputs", () => {
+    const initial = workspace([alpha, beta, gamma], beta.slug);
+    const snapshot = structuredClone(initial);
+
+    openExplorerTab(initial, alpha);
+    activateExplorerTab(initial, gamma.slug);
+    closeExplorerTab(initial, alpha.slug);
+    closeOtherExplorerTabs(initial, beta.slug);
+    serializeExplorerWorkspace(initial);
+
+    expect(initial).toEqual(snapshot);
   });
 });

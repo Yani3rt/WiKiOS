@@ -1,5 +1,132 @@
 import type { ExplorerPage } from "../lib/wiki-shared";
 
+export interface ExplorerTab {
+  slug: string;
+  title: string;
+  file: string;
+}
+
+export interface ExplorerWorkspace {
+  tabs: readonly ExplorerTab[];
+  activeSlug: string | null;
+}
+
+export const EXPLORER_STORAGE_KEY = "wiki-os:explorer-workspace";
+
+const EXPLORER_STORAGE_VERSION = 1;
+
+export const EMPTY_EXPLORER_WORKSPACE: ExplorerWorkspace = Object.freeze({
+  tabs: Object.freeze([]) as readonly ExplorerTab[],
+  activeSlug: null,
+});
+
+function emptyExplorerWorkspace(): ExplorerWorkspace {
+  return { tabs: [], activeSlug: null };
+}
+
+export function openExplorerTab(
+  workspace: ExplorerWorkspace,
+  page: Pick<ExplorerPage, "slug" | "title" | "file">,
+): ExplorerWorkspace {
+  if (workspace.tabs.some((tab) => tab.slug === page.slug)) {
+    if (workspace.activeSlug === page.slug) return workspace;
+    return { tabs: [...workspace.tabs], activeSlug: page.slug };
+  }
+
+  const tab: ExplorerTab = { slug: page.slug, title: page.title, file: page.file };
+  return { tabs: [...workspace.tabs, tab], activeSlug: tab.slug };
+}
+
+export function activateExplorerTab(
+  workspace: ExplorerWorkspace,
+  slug: string,
+): ExplorerWorkspace {
+  if (workspace.activeSlug === slug || !workspace.tabs.some((tab) => tab.slug === slug)) {
+    return workspace;
+  }
+  return { tabs: [...workspace.tabs], activeSlug: slug };
+}
+
+export function closeExplorerTab(
+  workspace: ExplorerWorkspace,
+  slug: string,
+): ExplorerWorkspace {
+  const closingIndex = workspace.tabs.findIndex((tab) => tab.slug === slug);
+  if (closingIndex === -1) return workspace;
+
+  const tabs = workspace.tabs.filter((tab) => tab.slug !== slug);
+  if (workspace.activeSlug !== slug) return { tabs, activeSlug: workspace.activeSlug };
+  if (tabs.length === 0) return emptyExplorerWorkspace();
+
+  const nextActiveIndex = closingIndex > 0 ? closingIndex - 1 : 0;
+  return { tabs, activeSlug: tabs[nextActiveIndex].slug };
+}
+
+export function closeOtherExplorerTabs(
+  workspace: ExplorerWorkspace,
+  slug: string,
+): ExplorerWorkspace {
+  const retainedTab = workspace.tabs.find((tab) => tab.slug === slug);
+  if (!retainedTab) return workspace;
+  return { tabs: [retainedTab], activeSlug: slug };
+}
+
+export function serializeExplorerWorkspace(workspace: ExplorerWorkspace): string {
+  return JSON.stringify({
+    version: EXPLORER_STORAGE_VERSION,
+    tabs: workspace.tabs,
+    activeSlug: workspace.activeSlug,
+  });
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function isExplorerTab(value: unknown): value is ExplorerTab {
+  return (
+    isRecord(value) &&
+    isNonEmptyString(value.slug) &&
+    isNonEmptyString(value.title) &&
+    isNonEmptyString(value.file)
+  );
+}
+
+export function parseExplorerWorkspace(serialized: string): ExplorerWorkspace {
+  let persisted: unknown;
+  try {
+    persisted = JSON.parse(serialized);
+  } catch {
+    return emptyExplorerWorkspace();
+  }
+
+  if (
+    !isRecord(persisted) ||
+    persisted.version !== EXPLORER_STORAGE_VERSION ||
+    !Array.isArray(persisted.tabs)
+  ) {
+    return emptyExplorerWorkspace();
+  }
+
+  const seenSlugs = new Set<string>();
+  const tabs = persisted.tabs.filter((tab): tab is ExplorerTab => {
+    if (!isExplorerTab(tab) || seenSlugs.has(tab.slug)) return false;
+    seenSlugs.add(tab.slug);
+    return true;
+  });
+  if (tabs.length === 0) return emptyExplorerWorkspace();
+
+  const activeSlug =
+    isNonEmptyString(persisted.activeSlug) && seenSlugs.has(persisted.activeSlug)
+      ? persisted.activeSlug
+      : tabs[0].slug;
+  return { tabs, activeSlug };
+}
+
 export interface ExplorerFolder {
   name: string;
   path: string;
