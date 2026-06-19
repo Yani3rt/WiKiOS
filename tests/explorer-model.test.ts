@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
 import { describe, expect, it, vi } from "vitest";
 
 import type { ExplorerPage } from "../src/lib/wiki-shared";
@@ -37,6 +40,22 @@ function assertReadonlyExplorerContracts(tab: ExplorerTab, workspace: ExplorerWo
 }
 
 void assertReadonlyExplorerContracts;
+
+describe("explorer route registration", () => {
+  it("registers the lazy explorer route before the wiki route", () => {
+    const routerSource = readFileSync(
+      fileURLToPath(new URL("../src/client/router.tsx", import.meta.url)),
+      "utf8",
+    );
+    const explorerPathIndex = routerSource.indexOf('path: "/explorer/*"');
+    const explorerImportIndex = routerSource.indexOf('import("./routes/explorer-route")');
+    const wikiPathIndex = routerSource.indexOf('path: "/wiki/*"');
+
+    expect(explorerPathIndex).toBeGreaterThan(-1);
+    expect(explorerImportIndex).toBeGreaterThan(explorerPathIndex);
+    expect(wikiPathIndex).toBeGreaterThan(explorerImportIndex);
+  });
+});
 
 const pages: ExplorerPage[] = [
   { file: "Root.md", slug: "Root", title: "Root", modifiedAt: 1 },

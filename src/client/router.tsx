@@ -18,6 +18,10 @@ export const router = createBrowserRouter([
     lazy: () => import("./routes/graph-route"),
   },
   {
+    path: "/explorer/*",
+    lazy: () => import("./routes/explorer-route"),
+  },
+  {
     path: "/wiki/*",
     lazy: () => import("./routes/wiki-route"),
   },
