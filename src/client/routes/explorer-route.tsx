@@ -1,4 +1,14 @@
 import {
+  ChevronDown,
+  ChevronRight,
+  ChevronsDownUp,
+  ChevronsUpDown,
+  House,
+  PanelLeft,
+  Search,
+  X,
+} from "lucide-react";
+import {
   useCallback,
   useEffect,
   useMemo,
@@ -17,7 +27,7 @@ import {
 import ReactMarkdown, { type Components } from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
-
+import { Link } from "react-router-dom";
 import type { ExplorerPage, WikiPageData } from "@/lib/wiki-shared";
 
 import { fetchJson, isSetupRequiredResponse } from "../api";
@@ -29,6 +39,7 @@ import {
   closeExplorerTab,
   closeOtherExplorerTabs,
   collectFolderPaths,
+  filterExplorerPages,
   flattenVisibleTree,
   openExplorerTab,
   parseExplorerWorkspace,
@@ -182,6 +193,50 @@ function decodeMarkdownLinkSlug(encodedSlug: string) {
     .join("/");
 }
 
+function folderAncestorsForSlug(slug: string | null) {
+  if (!slug) return [];
+
+  const segments = slug.split("/").filter(Boolean);
+  const paths: string[] = [];
+  let current = "";
+  for (const segment of segments.slice(0, -1)) {
+    current = current ? `${current}/${segment}` : segment;
+    paths.push(current);
+  }
+  return paths;
+}
+
+function initialExpandedPaths(tree: ReturnType<typeof buildExplorerTree>, activeSlug: string | null) {
+  const activeAncestors = folderAncestorsForSlug(activeSlug);
+  if (activeAncestors.length > 0) return new Set(activeAncestors);
+  return new Set(tree.folders.map((folder) => folder.path));
+}
+
+function sameSet(left: ReadonlySet<string>, right: ReadonlySet<string>) {
+  if (left.size !== right.size) return false;
+  for (const value of left) {
+    if (!right.has(value)) return false;
+  }
+  return true;
+}
+
+function usePrefersReducedMotion() {
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const updatePreference = () => setPrefersReducedMotion(mediaQuery.matches);
+
+    updatePreference();
+    mediaQuery.addEventListener("change", updatePreference);
+    return () => mediaQuery.removeEventListener("change", updatePreference);
+  }, []);
+
+  return prefersReducedMotion;
+}
+
 interface ExplorerStorageReader {
   getItem(key: string): string | null;
 }
@@ -249,19 +304,27 @@ export function ExplorerHeader({
   onToggleSidebar: () => void;
 }) {
   return (
-    <header className="flex h-14 items-center justify-between border-b border-[var(--border)] px-4">
-      <div>
-        <p className="text-xs uppercase tracking-wider text-[var(--muted-foreground)]">WikiOS</p>
-        <h1 className="font-display text-lg">Note Explorer</h1>
-      </div>
+    <header className="flex h-16 items-center justify-between border-b border-[var(--border)] px-4 md:px-5">
+      <Link
+        to="/"
+        className="rounded-md px-1 py-1 text-left transition-colors hover:text-[var(--teal)]"
+      >
+        <p className="text-xs uppercase tracking-[0.22em] text-[var(--muted-foreground)]">WikiOS</p>
+        <div className="mt-0.5 flex items-center gap-2">
+          <House className="h-4 w-4 text-[var(--muted-foreground)]" />
+          <h1 className="font-display text-lg">Note Explorer</h1>
+        </div>
+      </Link>
       <button
         type="button"
-        className="rounded border border-[var(--border)] px-3 py-1.5 text-sm md:hidden"
+        className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm md:hidden"
         aria-expanded={sidebarOpen}
         aria-controls="explorer-sidebar"
+        aria-label="Toggle note tree"
         onClick={onToggleSidebar}
       >
-        {sidebarOpen ? "Hide notes" : "Show notes"}
+        <PanelLeft className="h-4 w-4" />
+        Notes
       </button>
     </header>
   );
@@ -276,14 +339,36 @@ export function ExplorerSidebar({
   activeSlug: string | null;
   onSelect: (page: ExplorerPage) => void;
 }) {
-  const tree = useMemo(() => buildExplorerTree(pages), [pages]);
+  const [query, setQuery] = useState("");
+  const filteredPages = useMemo(() => filterExplorerPages(pages, query), [pages, query]);
+  const tree = useMemo(() => buildExplorerTree(filteredPages), [filteredPages]);
   const [expandedPaths, setExpandedPaths] = useState<ReadonlySet<string>>(
-    () => new Set(collectFolderPaths(tree)),
+    () => initialExpandedPaths(tree, activeSlug),
   );
+  const allFolderPaths = useMemo(() => collectFolderPaths(tree), [tree]);
   const rows = useMemo(
     () => flattenVisibleTree(tree, expandedPaths),
     [expandedPaths, tree],
   );
+  const visibleCount = filteredPages.length;
+  const hasFilter = query.trim().length > 0;
+
+  useEffect(() => {
+    const availablePaths = new Set(allFolderPaths);
+    const preferred =
+      hasFilter
+        ? new Set(allFolderPaths)
+        : initialExpandedPaths(tree, activeSlug);
+
+    setExpandedPaths((current) => {
+      const next = new Set<string>();
+      for (const path of current) {
+        if (availablePaths.has(path)) next.add(path);
+      }
+      for (const path of preferred) next.add(path);
+      return sameSet(current, next) ? current : next;
+    });
+  }, [activeSlug, allFolderPaths, hasFilter, tree]);
 
   const toggleFolder = (path: string) => {
     setExpandedPaths((current) => {
@@ -295,36 +380,101 @@ export function ExplorerSidebar({
   };
 
   return (
-    <nav aria-label="Notes" className="h-full overflow-y-auto p-2">
-      {rows.map((row) =>
-        row.kind === "folder" ? (
-          <button
-            key={`folder:${row.path}`}
-            type="button"
-            className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-[var(--muted)]"
-            style={{ paddingLeft: `${0.5 + row.depth * 0.875}rem` }}
-            aria-expanded={expandedPaths.has(row.path)}
-            onClick={() => toggleFolder(row.path)}
+    <nav aria-label="Notes" className="flex h-full min-h-0 flex-col">
+      <div className="border-b border-[var(--border)] px-3 py-3">
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--muted-foreground)]" />
+          <input
+            type="search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Filter titles or paths"
+            aria-label="Filter notes"
+            className="w-full rounded-full border border-[var(--border)] bg-[var(--card)] py-2 pl-9 pr-10 text-sm outline-none transition-shadow focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
+          />
+          {query ? (
+            <button
+              type="button"
+              aria-label="Clear note filter"
+              className="absolute right-2 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)]"
+              onClick={() => setQuery("")}
+            >
+              <X className="h-4 w-4" />
+            </button>
+          ) : null}
+        </div>
+        <div className="mt-3 flex items-center justify-between gap-2">
+          <p
+            className="text-xs text-[var(--muted-foreground)]"
+            role="status"
+            aria-live="polite"
           >
-            <span aria-hidden="true">{expandedPaths.has(row.path) ? "▾" : "▸"}</span>
-            <span className="truncate">{row.name}</span>
-            <span className="ml-auto text-xs text-[var(--muted-foreground)]">{row.count}</span>
-          </button>
+            {visibleCount} {visibleCount === 1 ? "note" : "notes"}
+          </p>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              aria-label="Expand all folders"
+              className="rounded-full px-2.5 py-1.5 text-xs text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)]"
+              onClick={() => setExpandedPaths(new Set(collectFolderPaths(tree)))}
+            >
+              <ChevronsUpDown className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              aria-label="Collapse all folders"
+              className="rounded-full px-2.5 py-1.5 text-xs text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)]"
+              onClick={() => setExpandedPaths(new Set())}
+            >
+              <ChevronsDownUp className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+      </div>
+      <div className="explorer-scrollbar min-h-0 flex-1 overflow-y-auto px-2 py-2">
+        {rows.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-[var(--border)] bg-[var(--card)] px-4 py-6 text-center text-sm text-[var(--muted-foreground)]">
+            {hasFilter ? "No notes match this filter yet." : "No notes are available in this view."}
+          </div>
         ) : (
-          <button
-            key={row.page.slug}
-            type="button"
-            className={`w-full truncate rounded px-2 py-1.5 text-left text-sm hover:bg-[var(--muted)] ${
-              activeSlug === row.page.slug ? "bg-[var(--muted)] font-medium" : ""
-            }`}
-            style={{ paddingLeft: `${1.75 + row.depth * 0.875}rem` }}
-            aria-current={activeSlug === row.page.slug ? "page" : undefined}
-            onClick={() => onSelect(row.page)}
-          >
-            {row.page.title}
-          </button>
-        ),
-      )}
+          rows.map((row) =>
+            row.kind === "folder" ? (
+              <button
+                key={`folder:${row.path}`}
+                type="button"
+                className="flex w-full items-center gap-2 rounded-xl px-2 py-1.5 text-left text-sm hover:bg-[var(--muted)]"
+                style={{ paddingLeft: `${0.5 + row.depth * 0.875}rem` }}
+                aria-expanded={expandedPaths.has(row.path)}
+                onClick={() => toggleFolder(row.path)}
+              >
+                {expandedPaths.has(row.path) ? (
+                  <ChevronDown aria-hidden="true" className="h-4 w-4 shrink-0 text-[var(--muted-foreground)]" />
+                ) : (
+                  <ChevronRight aria-hidden="true" className="h-4 w-4 shrink-0 text-[var(--muted-foreground)]" />
+                )}
+                <span className="truncate">{row.name}</span>
+                <span className="ml-auto text-xs text-[var(--muted-foreground)]">{row.count}</span>
+              </button>
+            ) : (
+              <button
+                key={row.page.slug}
+                type="button"
+                className={`w-full rounded-xl px-2 py-1.5 text-left text-sm hover:bg-[var(--muted)] ${
+                  activeSlug === row.page.slug
+                    ? "bg-[var(--accent)] font-medium text-[var(--foreground)] shadow-[inset_0_0_0_1px_rgba(196,167,231,0.35)]"
+                    : "text-[var(--foreground)]"
+                }`}
+                style={{ paddingLeft: `${1.75 + row.depth * 0.875}rem` }}
+                aria-current={activeSlug === row.page.slug ? "page" : undefined}
+                onClick={() => onSelect(row.page)}
+              >
+                <div className="truncate">{row.page.title}</div>
+                <div className="truncate text-xs text-[var(--muted-foreground)]">{row.page.slug}</div>
+              </button>
+            ),
+          )
+        )}
+      </div>
     </nav>
   );
 }
@@ -363,7 +513,11 @@ export function ExplorerTabs({
   if (workspace.tabs.length === 0) return null;
 
   return (
-    <div className="flex min-h-11 overflow-x-auto border-b border-[var(--border)]" role="tablist" aria-label="Open notes">
+    <div
+      className="explorer-scrollbar flex min-h-11 overflow-x-auto border-b border-[var(--border)] bg-[var(--card)]/80"
+      role="tablist"
+      aria-label="Open notes"
+    >
       {workspace.tabs.map((tab, index) => {
         const active = tab.slug === workspace.activeSlug;
         const handleTabKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
@@ -403,7 +557,7 @@ export function ExplorerTabs({
               <button
                 type="button"
                 className="px-2 text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
-                aria-label={`Close other tabs except ${tab.title}`}
+                aria-label={`Close other notes except ${tab.title}`}
                 title="Close other tabs"
                 onClick={() => onCloseOthers(tab.slug)}
               >
@@ -521,8 +675,20 @@ export function Component() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [readerState, setReaderState] = useState<ReaderState>({ slug: null, status: "idle" });
   const workspaceFocusRef = useRef<HTMLElement>(null);
+  const prefersReducedMotion = usePrefersReducedMotion();
 
   useEffect(() => setHydrated(true), []);
+
+  useEffect(() => {
+    if (!sidebarOpen) return;
+
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") setSidebarOpen(false);
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [sidebarOpen]);
 
   useEffect(() => {
     if (!hydrated || typeof window === "undefined") return;
@@ -599,16 +765,27 @@ export function Component() {
     <main className="flex min-h-screen flex-col bg-[var(--background)] text-[var(--foreground)]">
       <ExplorerHeader sidebarOpen={sidebarOpen} onToggleSidebar={() => setSidebarOpen((open) => !open)} />
       <div className="flex min-h-0 flex-1">
+        <button
+          type="button"
+          aria-hidden={!sidebarOpen}
+          tabIndex={sidebarOpen ? 0 : -1}
+          className={`explorer-sidebar-backdrop fixed inset-0 z-30 md:hidden ${
+            sidebarOpen ? "opacity-100" : "pointer-events-none opacity-0"
+          } ${prefersReducedMotion ? "transition-none" : "transition-opacity duration-200"} motion-reduce:transition-none`}
+          onClick={() => setSidebarOpen(false)}
+        />
         <aside
           id="explorer-sidebar"
-          className={`${sidebarOpen ? "block" : "hidden"} w-72 shrink-0 border-r border-[var(--border)] bg-[var(--background)] md:block`}
+          className={`fixed inset-y-16 left-0 z-40 w-[18.5rem] max-w-[calc(100vw-2rem)] border-r border-[var(--border)] bg-[var(--background)] shadow-[0_18px_48px_-24px_rgba(21,19,26,0.4)] md:static md:inset-auto md:z-auto md:w-[19rem] md:max-w-none md:translate-x-0 md:shadow-none ${
+            sidebarOpen ? "translate-x-0" : "-translate-x-[calc(100%+1rem)]"
+          } ${prefersReducedMotion ? "transition-none" : "transition-transform duration-200 ease-out"} motion-reduce:transition-none`}
         >
           <ExplorerSidebar pages={pages} activeSlug={workspace.activeSlug} onSelect={selectPage} />
         </aside>
         <section
           ref={workspaceFocusRef}
           tabIndex={-1}
-          className="flex min-w-0 flex-1 flex-col"
+          className="flex min-w-0 flex-1 flex-col md:min-w-[30rem]"
           aria-label="Explorer workspace"
         >
           <ExplorerTabs

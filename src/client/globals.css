@@ -296,6 +296,33 @@ html {
   background: var(--teal);
 }
 
+.explorer-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(133, 185, 201, 0.65) transparent;
+}
+
+.explorer-scrollbar::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.explorer-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.explorer-scrollbar::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(133, 185, 201, 0.92), rgba(196, 167, 231, 0.88));
+  background-clip: padding-box;
+}
+
+.explorer-sidebar-backdrop {
+  background: rgba(21, 19, 26, 0.24);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -308,5 +335,9 @@ html {
     animation: none;
     opacity: 1;
     transform: none;
+  }
+
+  .explorer-sidebar-backdrop {
+    transition: none !important;
   }
 }

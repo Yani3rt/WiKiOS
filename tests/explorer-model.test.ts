@@ -160,6 +160,34 @@ describe("explorer route registration", () => {
     expect(routeSource).toContain("fallbackFocusRef.current?.focus()");
   });
 
+  it("adds explorer entrypoints and polished responsive sidebar affordances", () => {
+    const routeSource = readFileSync(
+      fileURLToPath(new URL("../src/client/routes/explorer-route.tsx", import.meta.url)),
+      "utf8",
+    );
+    const searchBoxSource = readFileSync(
+      fileURLToPath(new URL("../src/components/search-box.tsx", import.meta.url)),
+      "utf8",
+    );
+    const globalsSource = readFileSync(
+      fileURLToPath(new URL("../src/client/globals.css", import.meta.url)),
+      "utf8",
+    );
+
+    expect(searchBoxSource).toContain('to="/explorer"');
+    expect(routeSource).toContain('aria-label="Filter notes"');
+    expect(routeSource).toContain('aria-label="Expand all folders"');
+    expect(routeSource).toContain('aria-label="Collapse all folders"');
+    expect(routeSource).toContain('aria-label="Toggle note tree"');
+    expect(routeSource).toContain("explorer-sidebar-backdrop");
+    expect(routeSource).toContain("prefers-reduced-motion: reduce");
+    expect(routeSource).toContain('matchMedia("(prefers-reduced-motion: reduce)")');
+    expect(routeSource).toContain('aria-controls="explorer-sidebar"');
+    expect(routeSource).toContain('aria-expanded={sidebarOpen}');
+    expect(globalsSource).toContain(".explorer-scrollbar");
+    expect(globalsSource).toContain(".explorer-sidebar-backdrop");
+  });
+
   it("canonicalizes encoded metadata and restored tabs without corrupting literal percent data", async () => {
     const routeModule = (await import("../src/client/routes/explorer-route")) as unknown as {
       normalizeExplorerSlug?: (splat: string | undefined) => string;
