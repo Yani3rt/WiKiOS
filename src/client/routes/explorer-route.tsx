@@ -71,12 +71,26 @@ export function normalizeExplorerSlug(rawSplat: string | undefined) {
     .join("/");
 }
 
-export function encodeExplorerSlug(slug: string) {
+function encodeExplorerSlug(slug: string, rounds: number) {
   return slug
     .split("/")
     .filter(Boolean)
-    .map((part) => encodeURIComponent(part))
+    .map((part) => {
+      let encoded = part;
+      for (let index = 0; index < rounds; index += 1) {
+        encoded = encodeURIComponent(encoded);
+      }
+      return encoded;
+    })
     .join("/");
+}
+
+export function encodeExplorerRouteSlug(slug: string) {
+  return encodeExplorerSlug(slug, 1);
+}
+
+export function encodeExplorerApiSlug(slug: string) {
+  return encodeExplorerSlug(slug, 2);
 }
 
 function canonicalExplorerSlugFromFile(file: string) {
@@ -117,7 +131,7 @@ export function normalizeExplorerWorkspaceSlugs(
 }
 
 function explorerPath(slug: string | null) {
-  return slug ? `/explorer/${encodeExplorerSlug(slug)}` : "/explorer";
+  return slug ? `/explorer/${encodeExplorerRouteSlug(slug)}` : "/explorer";
 }
 
 function fallbackTab(slug: string): ExplorerTab {
@@ -433,6 +447,12 @@ export function ExplorerReader({
   hasTabs: boolean;
   onWikiLink: (slug: string) => void;
 }) {
+  const onWikiLinkRef = useRef(onWikiLink);
+
+  useEffect(() => {
+    onWikiLinkRef.current = onWikiLink;
+  }, [onWikiLink]);
+
   const markdownComponents = useMemo<Components>(
     () => ({
       ...markdownBaseComponents,
@@ -443,7 +463,7 @@ export function ExplorerReader({
           const url = new URL(href, window.location.origin);
           if (url.origin === window.location.origin && url.pathname.startsWith("/wiki/")) {
             event.preventDefault();
-            onWikiLink(
+            onWikiLinkRef.current(
               decodeMarkdownLinkSlug(url.pathname.slice("/wiki/".length)),
             );
           }
@@ -451,7 +471,7 @@ export function ExplorerReader({
         return <a href={href} onClick={handleClick} {...props} />;
       },
     }),
-    [onWikiLink],
+    [],
   );
 
   if (state.status === "idle") return <ExplorerEmptyState hasTabs={hasTabs} />;
@@ -531,7 +551,7 @@ export function Component() {
 
     const controller = new AbortController();
     setReaderState({ slug, status: "loading" });
-    fetchJson<WikiPageData>(`/api/wiki/${encodeExplorerSlug(slug)}`, { signal: controller.signal })
+    fetchJson<WikiPageData>(`/api/wiki/${encodeExplorerApiSlug(slug)}`, { signal: controller.signal })
       .then((page) => setReaderState({ slug, status: "ready", page }))
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;

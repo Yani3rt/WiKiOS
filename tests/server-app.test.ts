@@ -570,4 +570,59 @@ describe("server app", () => {
       await rm(tempDir, { recursive: true, force: true });
     }
   });
+
+  it("retrieves literal-percent filenames only when the wiki API path is encoded for both decode layers", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "wiki-ui-literal-percent-"));
+    const root = path.join(tempDir, "vault");
+    const setupConfigPath = path.join(tempDir, "config.json");
+    process.env.WIKIOS_INDEX_DB = path.join(tempDir, "wiki.sqlite");
+
+    try {
+      await mkdir(root, { recursive: true });
+      await writeFile(
+        path.join(root, "Reading People.md"),
+        "# Reading People\n\nOrdinary spaces should still resolve.\n",
+      );
+      await writeFile(
+        path.join(root, "Literal%20Name.md"),
+        "# Literal%20Name\n\nLiteral percent names require extra API encoding.\n",
+      );
+
+      const server = await loadServerModule({ setupConfigPath });
+      const app = await server.buildServer({ logger: false, serveClient: false });
+      await app.ready();
+
+      await app.inject({
+        method: "POST",
+        url: "/api/setup/config",
+        payload: { wikiRoot: root },
+      });
+
+      const ordinary = await app.inject({ method: "GET", url: "/api/wiki/Reading%20People" });
+      const literalWrong = await app.inject({ method: "GET", url: "/api/wiki/Literal%2520Name" });
+      const literalCorrect = await app.inject({
+        method: "GET",
+        url: "/api/wiki/Literal%252520Name",
+      });
+
+      expect(ordinary.statusCode).toBe(200);
+      expect(ordinary.json()).toMatchObject({
+        slug: "Reading%20People",
+        fileName: "Reading People.md",
+      });
+
+      expect(literalWrong.statusCode).toBe(404);
+
+      expect(literalCorrect.statusCode).toBe(200);
+      expect(literalCorrect.json()).toMatchObject({
+        slug: "Literal%2520Name",
+        fileName: "Literal%20Name.md",
+      });
+
+      await app.close();
+    } finally {
+      delete process.env.WIKIOS_INDEX_DB;
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
 });

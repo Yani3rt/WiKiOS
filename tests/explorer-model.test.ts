@@ -59,16 +59,21 @@ describe("explorer route registration", () => {
   it("preserves already-decoded literal percent data and encodes URL segments once", async () => {
     const routeModule = (await import("../src/client/routes/explorer-route")) as unknown as {
       normalizeExplorerSlug?: (splat: string | undefined) => string;
-      encodeExplorerSlug?: (slug: string) => string;
+      encodeExplorerRouteSlug?: (slug: string) => string;
+      encodeExplorerApiSlug?: (slug: string) => string;
     };
 
     expect(routeModule.normalizeExplorerSlug).toBeTypeOf("function");
-    expect(routeModule.encodeExplorerSlug).toBeTypeOf("function");
+    expect(routeModule.encodeExplorerRouteSlug).toBeTypeOf("function");
+    expect(routeModule.encodeExplorerApiSlug).toBeTypeOf("function");
     expect(routeModule.normalizeExplorerSlug!("folder/literal%20data")).toBe(
       "folder/literal%20data",
     );
-    expect(routeModule.encodeExplorerSlug!("folder/literal%20data")).toBe(
+    expect(routeModule.encodeExplorerRouteSlug!("folder/literal%20data")).toBe(
       "folder/literal%2520data",
+    );
+    expect(routeModule.encodeExplorerApiSlug!("folder/literal%20data")).toBe(
+      "folder/literal%252520data",
     );
   });
 
@@ -162,6 +167,8 @@ describe("explorer route registration", () => {
       normalizeExplorerWorkspaceSlugs?: (
         workspace: ExplorerWorkspace,
       ) => ExplorerWorkspace;
+      encodeExplorerRouteSlug?: (slug: string) => string;
+      encodeExplorerApiSlug?: (slug: string) => string;
     };
     const metadata: ExplorerPage[] = [
       {
@@ -189,6 +196,8 @@ describe("explorer route registration", () => {
     expect(routeModule.normalizeExplorerPages).toBeTypeOf("function");
     expect(routeModule.normalizeExplorerWorkspaceSlugs).toBeTypeOf("function");
     expect(routeModule.normalizeExplorerSlug).toBeTypeOf("function");
+    expect(routeModule.encodeExplorerRouteSlug).toBeTypeOf("function");
+    expect(routeModule.encodeExplorerApiSlug).toBeTypeOf("function");
     const normalizedPages = routeModule.normalizeExplorerPages!(metadata);
     const normalizedWorkspace = routeModule.normalizeExplorerWorkspaceSlugs!(restored);
 
@@ -212,6 +221,24 @@ describe("explorer route registration", () => {
         (page) => page.slug === routeModule.normalizeExplorerSlug!("notes/Reading People"),
       ),
     ).toBe(normalizedPages[0]);
+    expect(routeModule.encodeExplorerRouteSlug!("notes/Reading People")).toBe(
+      "notes/Reading%20People",
+    );
+    expect(routeModule.encodeExplorerApiSlug!("notes/Reading People")).toBe(
+      "notes/Reading%2520People",
+    );
+    expect(routeModule.encodeExplorerRouteSlug!("notes/Literal%20Name")).toBe(
+      "notes/Literal%2520Name",
+    );
+    expect(routeModule.encodeExplorerApiSlug!("notes/Literal%20Name")).toBe(
+      "notes/Literal%252520Name",
+    );
+    expect(routeModule.encodeExplorerRouteSlug!("guides/nested/Alpha")).toBe(
+      "guides/nested/Alpha",
+    );
+    expect(routeModule.encodeExplorerApiSlug!("guides/nested/Alpha")).toBe(
+      "guides/nested/Alpha",
+    );
   });
 
   it("survives unavailable and quota-limited localStorage", async () => {
