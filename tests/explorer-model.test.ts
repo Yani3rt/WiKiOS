@@ -55,6 +55,70 @@ describe("explorer route registration", () => {
     expect(explorerImportIndex).toBeGreaterThan(explorerPathIndex);
     expect(wikiPathIndex).toBeGreaterThan(explorerImportIndex);
   });
+
+  it("preserves already-decoded literal percent data and encodes URL segments once", async () => {
+    const routeModule = (await import("../src/client/routes/explorer-route")) as unknown as {
+      normalizeExplorerSlug?: (splat: string | undefined) => string;
+      encodeExplorerSlug?: (slug: string) => string;
+    };
+
+    expect(routeModule.normalizeExplorerSlug).toBeTypeOf("function");
+    expect(routeModule.encodeExplorerSlug).toBeTypeOf("function");
+    expect(routeModule.normalizeExplorerSlug!("folder/literal%20data")).toBe(
+      "folder/literal%20data",
+    );
+    expect(routeModule.encodeExplorerSlug!("folder/literal%20data")).toBe(
+      "folder/literal%2520data",
+    );
+  });
+
+  it("navigates only for active-tab changes or route synchronization", async () => {
+    const routeModule = (await import("../src/client/routes/explorer-route")) as unknown as {
+      shouldNavigateExplorerTransition?: (
+        current: ExplorerWorkspace,
+        next: ExplorerWorkspace,
+        routeSlug: string | null,
+      ) => boolean;
+    };
+    const alpha = { slug: "alpha", title: "Alpha", file: "Alpha.md" };
+    const beta = { slug: "beta", title: "Beta", file: "Beta.md" };
+    const current = { tabs: [alpha, beta], activeSlug: alpha.slug };
+    const noOpActivation = activateExplorerTab(current, alpha.slug);
+    const inactiveClose = closeExplorerTab(current, beta.slug);
+    const activeChange = activateExplorerTab(current, beta.slug);
+
+    expect(routeModule.shouldNavigateExplorerTransition).toBeTypeOf("function");
+    expect(routeModule.shouldNavigateExplorerTransition!(current, noOpActivation, "alpha")).toBe(false);
+    expect(routeModule.shouldNavigateExplorerTransition!(current, inactiveClose, "alpha")).toBe(false);
+    expect(routeModule.shouldNavigateExplorerTransition!(current, activeChange, "alpha")).toBe(true);
+    expect(routeModule.shouldNavigateExplorerTransition!(current, noOpActivation, "beta")).toBe(true);
+  });
+
+  it("supports automatic-activation keyboard movement and complete tab relationships", async () => {
+    const routeModule = (await import("../src/client/routes/explorer-route")) as unknown as {
+      getNextExplorerTabIndex?: (
+        key: string,
+        currentIndex: number,
+        tabCount: number,
+      ) => number | null;
+    };
+    const routerSource = readFileSync(
+      fileURLToPath(new URL("../src/client/routes/explorer-route.tsx", import.meta.url)),
+      "utf8",
+    );
+
+    expect(routeModule.getNextExplorerTabIndex).toBeTypeOf("function");
+    expect(routeModule.getNextExplorerTabIndex!("ArrowRight", 2, 3)).toBe(0);
+    expect(routeModule.getNextExplorerTabIndex!("ArrowLeft", 0, 3)).toBe(2);
+    expect(routeModule.getNextExplorerTabIndex!("Home", 2, 3)).toBe(0);
+    expect(routeModule.getNextExplorerTabIndex!("End", 0, 3)).toBe(2);
+    expect(routeModule.getNextExplorerTabIndex!("Enter", 1, 3)).toBeNull();
+    expect(routerSource).toContain('role="tabpanel"');
+    expect(routerSource).toContain("aria-controls={explorerPanelId(tab.slug)}");
+    expect(routerSource).toContain("aria-labelledby={explorerTabId(tab.slug)}");
+    expect(routerSource).toContain("tabIndex={active || (!workspace.activeSlug && index === 0) ? 0 : -1}");
+    expect(routerSource).toContain("hidden={!active}");
+  });
 });
 
 const pages: ExplorerPage[] = [

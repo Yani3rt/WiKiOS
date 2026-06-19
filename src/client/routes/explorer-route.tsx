@@ -3,6 +3,7 @@ import {
   useEffect,
   useMemo,
   useState,
+  type KeyboardEvent,
   type MouseEvent,
 } from "react";
 import {
@@ -45,23 +46,14 @@ type ReaderState =
   | { status: "missing" }
   | { status: "error" };
 
-function safeDecode(value: string) {
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    return value;
-  }
-}
-
-function slugFromSplat(rawSplat: string | undefined) {
+export function normalizeExplorerSlug(rawSplat: string | undefined) {
   return (rawSplat ?? "")
     .split("/")
     .filter(Boolean)
-    .map(safeDecode)
     .join("/");
 }
 
-function encodeSlug(slug: string) {
+export function encodeExplorerSlug(slug: string) {
   return slug
     .split("/")
     .filter(Boolean)
@@ -70,12 +62,41 @@ function encodeSlug(slug: string) {
 }
 
 function explorerPath(slug: string | null) {
-  return slug ? `/explorer/${encodeSlug(slug)}` : "/explorer";
+  return slug ? `/explorer/${encodeExplorerSlug(slug)}` : "/explorer";
 }
 
 function fallbackTab(slug: string): ExplorerTab {
   const finalSegment = slug.split("/").at(-1) || slug;
-  return { slug, title: safeDecode(finalSegment), file: `${slug}.md` };
+  return { slug, title: finalSegment, file: `${slug}.md` };
+}
+
+export function shouldNavigateExplorerTransition(
+  current: ExplorerWorkspace,
+  next: ExplorerWorkspace,
+  routeSlug: string | null,
+) {
+  return current.activeSlug !== next.activeSlug || next.activeSlug !== routeSlug;
+}
+
+export function getNextExplorerTabIndex(
+  key: string,
+  currentIndex: number,
+  tabCount: number,
+) {
+  if (tabCount <= 0) return null;
+  if (key === "ArrowRight") return (currentIndex + 1) % tabCount;
+  if (key === "ArrowLeft") return (currentIndex - 1 + tabCount) % tabCount;
+  if (key === "Home") return 0;
+  if (key === "End") return tabCount - 1;
+  return null;
+}
+
+function explorerTabId(slug: string) {
+  return `explorer-tab-${encodeURIComponent(slug)}`;
+}
+
+function explorerPanelId(slug: string) {
+  return `explorer-panel-${encodeURIComponent(slug)}`;
 }
 
 function readStoredWorkspace(): ExplorerWorkspace {
@@ -204,16 +225,34 @@ export function ExplorerTabs({
 
   return (
     <div className="flex min-h-11 overflow-x-auto border-b border-[var(--border)]" role="tablist" aria-label="Open notes">
-      {workspace.tabs.map((tab) => {
+      {workspace.tabs.map((tab, index) => {
         const active = tab.slug === workspace.activeSlug;
+        const handleTabKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
+          const nextIndex = getNextExplorerTabIndex(
+            event.key,
+            index,
+            workspace.tabs.length,
+          );
+          if (nextIndex === null) return;
+
+          event.preventDefault();
+          const nextTab = workspace.tabs[nextIndex];
+          document.getElementById(explorerTabId(nextTab.slug))?.focus();
+          onActivate(nextTab.slug);
+        };
+
         return (
           <div key={tab.slug} className="flex shrink-0 items-center border-r border-[var(--border)]">
             <button
               type="button"
               role="tab"
+              id={explorerTabId(tab.slug)}
+              aria-controls={explorerPanelId(tab.slug)}
               aria-selected={active}
+              tabIndex={active || (!workspace.activeSlug && index === 0) ? 0 : -1}
               className={`h-full max-w-52 truncate px-3 text-sm ${active ? "bg-[var(--background)] font-medium" : "bg-[var(--muted)]"}`}
               onClick={() => onActivate(tab.slug)}
+              onKeyDown={handleTabKeyDown}
             >
               {tab.title}
             </button>
@@ -305,7 +344,7 @@ export function ExplorerReader({
                 const url = new URL(href, window.location.origin);
                 if (url.origin === window.location.origin && url.pathname.startsWith("/wiki/")) {
                   event.preventDefault();
-                  onWikiLink(slugFromSplat(url.pathname.slice("/wiki/".length)));
+                  onWikiLink(url.pathname.slice("/wiki/".length));
                 }
               };
               return <a href={href} onClick={handleClick} {...props} />;
@@ -323,7 +362,7 @@ export function Component() {
   const pages = useLoaderData() as ExplorerPage[];
   const params = useParams();
   const navigate = useNavigate();
-  const urlSlug = slugFromSplat(params["*"]);
+  const urlSlug = normalizeExplorerSlug(params["*"]);
   const pageBySlug = useMemo(() => new Map(pages.map((page) => [page.slug, page])), [pages]);
   const [workspace, setWorkspace] = useState<ExplorerWorkspace>(readStoredWorkspace);
   const [hydrated, setHydrated] = useState(false);
@@ -355,7 +394,7 @@ export function Component() {
 
     const controller = new AbortController();
     setReaderState({ status: "loading" });
-    fetchJson<WikiPageData>(`/api/wiki/${encodeSlug(slug)}`, { signal: controller.signal })
+    fetchJson<WikiPageData>(`/api/wiki/${encodeExplorerSlug(slug)}`, { signal: controller.signal })
       .then((page) => setReaderState({ status: "ready", page }))
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
@@ -372,9 +411,11 @@ export function Component() {
     (transition: (current: ExplorerWorkspace) => ExplorerWorkspace) => {
       const next = transition(workspace);
       setWorkspace(next);
-      navigate(explorerPath(next.activeSlug));
+      if (shouldNavigateExplorerTransition(workspace, next, urlSlug || null)) {
+        navigate(explorerPath(next.activeSlug));
+      }
     },
-    [navigate, workspace],
+    [navigate, urlSlug, workspace],
   );
 
   const selectPage = (page: ExplorerPage) => {
@@ -399,13 +440,37 @@ export function Component() {
             onClose={(slug) => transitionAndNavigate((current) => closeExplorerTab(current, slug))}
             onCloseOthers={(slug) => transitionAndNavigate((current) => closeOtherExplorerTabs(current, slug))}
           />
-          <div className="min-h-0 flex-1 overflow-y-auto">
-            <ExplorerReader
-              state={readerState}
-              hasTabs={workspace.tabs.length > 0}
-              onWikiLink={(slug) => navigate(explorerPath(slug))}
-            />
-          </div>
+          {workspace.tabs.map((tab) => {
+            const active = tab.slug === workspace.activeSlug;
+            return (
+              <div
+                key={tab.slug}
+                id={explorerPanelId(tab.slug)}
+                role="tabpanel"
+                aria-labelledby={explorerTabId(tab.slug)}
+                tabIndex={active ? 0 : -1}
+                hidden={!active}
+                className="min-h-0 flex-1 overflow-y-auto"
+              >
+                {active ? (
+                  <ExplorerReader
+                    state={readerState}
+                    hasTabs
+                    onWikiLink={(encodedSlug) => navigate(`/explorer/${encodedSlug}`)}
+                  />
+                ) : null}
+              </div>
+            );
+          })}
+          {!workspace.activeSlug ? (
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <ExplorerReader
+                state={readerState}
+                hasTabs={workspace.tabs.length > 0}
+                onWikiLink={(encodedSlug) => navigate(`/explorer/${encodedSlug}`)}
+              />
+            </div>
+          ) : null}
         </section>
       </div>
     </main>
