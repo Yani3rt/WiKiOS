@@ -58,6 +58,7 @@ export type {
   PageSummary,
   CategoryInfo,
   HomepageData,
+  ExplorerPage,
   GraphNode,
   GraphEdge,
   GraphData,
@@ -392,6 +393,10 @@ export async function getWikiStats() {
 
 export async function getHomepageData() {
   return queries.getHomepageData();
+}
+
+export async function getExplorerPages() {
+  return queries.getExplorerPages();
 }
 
 export async function getGraphData() {

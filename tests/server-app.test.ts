@@ -64,6 +64,7 @@ describe("server app", () => {
       const version = await app.inject({ method: "GET", url: "/api/version" });
       const reindex = await app.inject({ method: "POST", url: "/api/admin/reindex" });
       const home = await app.inject({ method: "GET", url: "/api/home" });
+      const explorer = await app.inject({ method: "GET", url: "/api/explorer" });
       const search = await app.inject({ method: "GET", url: "/api/search?q=alpha" });
       const wiki = await app.inject({ method: "GET", url: "/api/wiki/Alpha" });
       const missing = await app.inject({ method: "GET", url: "/api/wiki/Missing" });
@@ -124,6 +125,22 @@ describe("server app", () => {
       expect(home.json().totalPages).toBe(2);
       expect(home.json().topConnected[0]?.file).toBe("Beta.md");
 
+      expect(explorer.statusCode).toBe(200);
+      expect(explorer.json()).toEqual([
+        {
+          file: "Alpha.md",
+          slug: "Alpha",
+          title: "Alpha",
+          modifiedAt: expect.any(Number),
+        },
+        {
+          file: "Beta.md",
+          slug: "Beta",
+          title: "Beta",
+          modifiedAt: expect.any(Number),
+        },
+      ]);
+
       expect(search.statusCode).toBe(200);
       expect(search.json().results[0]?.file).toBe("Alpha.md");
 
@@ -183,6 +200,7 @@ describe("server app", () => {
       const setupStatus = await app.inject({ method: "GET", url: "/api/setup/status" });
       const healthBefore = await app.inject({ method: "GET", url: "/api/health" });
       const homeBefore = await app.inject({ method: "GET", url: "/api/home" });
+      const explorerBefore = await app.inject({ method: "GET", url: "/api/explorer" });
       const setupResponse = await app.inject({
         method: "POST",
         url: "/api/setup/config",
@@ -213,6 +231,12 @@ describe("server app", () => {
 
       expect(homeBefore.statusCode).toBe(409);
       expect(homeBefore.json()).toMatchObject({
+        code: "SETUP_REQUIRED",
+        error: "Vault setup required",
+      });
+
+      expect(explorerBefore.statusCode).toBe(409);
+      expect(explorerBefore.json()).toMatchObject({
         code: "SETUP_REQUIRED",
         error: "Vault setup required",
       });

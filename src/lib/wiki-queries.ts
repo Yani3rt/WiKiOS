@@ -8,6 +8,7 @@ import {
 import { getTopicEmoji, getTopicLabel, isTopicHidden, type WikiOsConfig } from "./wiki-config";
 import {
   type CategoryInfo,
+  type ExplorerPage,
   type GraphData,
   type HomepageData,
   type PageSummary,
@@ -105,6 +106,7 @@ export interface WikiQueries {
   searchWiki(query: string): Promise<SearchResult[]>;
   getWikiStats(): Promise<WikiStats>;
   getHomepageData(): Promise<HomepageData>;
+  getExplorerPages(): Promise<ExplorerPage[]>;
   getGraphData(): Promise<GraphData>;
   getWikiPage(slugParts: string[]): Promise<WikiPageData>;
   getWikiIndexStatus(): Promise<WikiIndexStatus>;
@@ -444,6 +446,21 @@ export async function getHomepageData(deps: WikiQueryDependencies): Promise<Home
   return derived.homepage;
 }
 
+export async function getExplorerPages(deps: WikiQueryDependencies): Promise<ExplorerPage[]> {
+  await prepareRead(deps);
+
+  return deps
+    .getDb()
+    .prepare(
+      `
+        SELECT file, slug, title, modified_at AS modifiedAt
+        FROM pages
+        ORDER BY file COLLATE NOCASE ASC, file ASC
+      `,
+    )
+    .all() as ExplorerPage[];
+}
+
 export async function getGraphData(deps: WikiQueryDependencies): Promise<GraphData> {
   await prepareRead(deps);
 
@@ -679,6 +696,7 @@ export function createWikiQueries(deps: WikiQueryDependencies): WikiQueries {
     searchWiki: (query) => searchWiki(deps, query),
     getWikiStats: () => getWikiStats(deps),
     getHomepageData: () => getHomepageData(deps),
+    getExplorerPages: () => getExplorerPages(deps),
     getGraphData: () => getGraphData(deps),
     getWikiPage: (slugParts) => getWikiPage(deps, slugParts),
     getWikiIndexStatus: () => getWikiIndexStatus(deps),

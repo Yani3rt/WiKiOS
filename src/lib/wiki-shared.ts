@@ -11,6 +11,13 @@ export interface SearchResult {
   matches: SearchMatch[];
 }
 
+export interface ExplorerPage {
+  file: string;
+  slug: string;
+  title: string;
+  modifiedAt: number;
+}
+
 export interface BacklinkStat {
   page: string;
   count: number;

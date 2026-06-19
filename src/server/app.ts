@@ -18,6 +18,7 @@ import {
 } from "./wiki-runtime";
 import { isFinderFolderPickerAvailable, pickFolderWithFinder } from "./folder-picker";
 import {
+  getExplorerPages,
   getWikiRootPath,
   getGraphData,
   getHomepageData,
@@ -368,6 +369,14 @@ export async function buildServer({
       return await getHomepageData();
     } catch (error) {
       return replyForWikiError(error, reply, "Homepage data failed");
+    }
+  });
+
+  app.get("/api/explorer", async (_request, reply) => {
+    try {
+      return await getExplorerPages();
+    } catch (error) {
+      return replyForWikiError(error, reply, "Explorer data failed");
     }
   });
 

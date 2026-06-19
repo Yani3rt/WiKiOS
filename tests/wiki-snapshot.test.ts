@@ -53,6 +53,50 @@ afterEach(() => {
 });
 
 describe("wiki snapshot", () => {
+  it("lists explorer page metadata in deterministic path order", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "wiki-ui-"));
+
+    try {
+      const rootPath = path.join(root, "Root.md");
+      const alphaPath = path.join(root, "guides", "Alpha.md");
+      const betaPath = path.join(root, "guides", "nested", "Beta.md");
+
+      await mkdir(path.dirname(betaPath), { recursive: true });
+      await writeFile(rootPath, "# Root Note\n\nRoot page.\n");
+      await writeFile(alphaPath, "# Alpha Guide\n\nAlpha page.\n");
+      await writeFile(betaPath, "# Beta Guide\n\nBeta page.\n");
+
+      await utimes(rootPath, new Date("2024-01-01T00:00:00Z"), new Date("2024-01-01T00:00:00Z"));
+      await utimes(alphaPath, new Date("2024-01-02T00:00:00Z"), new Date("2024-01-02T00:00:00Z"));
+      await utimes(betaPath, new Date("2024-01-03T00:00:00Z"), new Date("2024-01-03T00:00:00Z"));
+
+      const wiki = await loadWikiModule(root);
+
+      await expect(wiki.getExplorerPages()).resolves.toEqual([
+        {
+          file: "guides/Alpha.md",
+          slug: "guides/Alpha",
+          title: "Alpha",
+          modifiedAt: Date.parse("2024-01-02T00:00:00Z"),
+        },
+        {
+          file: "guides/nested/Beta.md",
+          slug: "guides/nested/Beta",
+          title: "Beta",
+          modifiedAt: Date.parse("2024-01-03T00:00:00Z"),
+        },
+        {
+          file: "Root.md",
+          slug: "Root",
+          title: "Root",
+          modifiedAt: Date.parse("2024-01-01T00:00:00Z"),
+        },
+      ]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("derives homepage and article data from the cached snapshot", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "wiki-ui-"));
 
