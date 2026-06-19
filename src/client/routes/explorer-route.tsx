@@ -2,9 +2,11 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type KeyboardEvent,
   type MouseEvent,
+  type RefObject,
 } from "react";
 import {
   redirect,
@@ -40,11 +42,19 @@ const remarkPlugins = [remarkGfm];
 const rehypePlugins = [rehypeHighlight];
 
 type ReaderState =
-  | { status: "idle" }
-  | { status: "loading" }
-  | { status: "ready"; page: WikiPageData }
-  | { status: "missing" }
-  | { status: "error" };
+  | { slug: null; status: "idle" }
+  | { slug: string; status: "loading" }
+  | { slug: string; status: "ready"; page: WikiPageData }
+  | { slug: string; status: "missing" }
+  | { slug: string; status: "error" };
+
+export function selectExplorerReaderState(
+  activeSlug: string | null,
+  state: ReaderState,
+): ReaderState {
+  if (!activeSlug) return { slug: null, status: "idle" };
+  return state.slug === activeSlug ? state : { slug: activeSlug, status: "loading" };
+}
 
 export function normalizeExplorerSlug(rawSplat: string | undefined) {
   return (rawSplat ?? "")
@@ -97,6 +107,20 @@ function explorerTabId(slug: string) {
 
 function explorerPanelId(slug: string) {
   return `explorer-panel-${encodeURIComponent(slug)}`;
+}
+
+function decodeMarkdownLinkSlug(encodedSlug: string) {
+  return encodedSlug
+    .split("/")
+    .filter(Boolean)
+    .map((part) => {
+      try {
+        return decodeURIComponent(part);
+      } catch {
+        return part;
+      }
+    })
+    .join("/");
 }
 
 function readStoredWorkspace(): ExplorerWorkspace {
@@ -212,15 +236,35 @@ export function ExplorerSidebar({
 
 export function ExplorerTabs({
   workspace,
+  fallbackFocusRef,
   onActivate,
   onClose,
   onCloseOthers,
 }: {
   workspace: ExplorerWorkspace;
+  fallbackFocusRef: RefObject<HTMLElement | null>;
   onActivate: (slug: string) => void;
   onClose: (slug: string) => void;
   onCloseOthers: (slug: string) => void;
 }) {
+  const tabRefs = useRef(new Map<string, HTMLButtonElement>());
+  const previousTabCount = useRef(workspace.tabs.length);
+
+  useEffect(() => {
+    const removedTabs = workspace.tabs.length < previousTabCount.current;
+    previousTabCount.current = workspace.tabs.length;
+    if (!removedTabs) return;
+
+    const frame = requestAnimationFrame(() => {
+      if (workspace.activeSlug) {
+        tabRefs.current.get(workspace.activeSlug)?.focus();
+      } else {
+        fallbackFocusRef.current?.focus();
+      }
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [fallbackFocusRef, workspace.activeSlug, workspace.tabs.length]);
+
   if (workspace.tabs.length === 0) return null;
 
   return (
@@ -250,6 +294,10 @@ export function ExplorerTabs({
               aria-controls={explorerPanelId(tab.slug)}
               aria-selected={active}
               tabIndex={active || (!workspace.activeSlug && index === 0) ? 0 : -1}
+              ref={(element) => {
+                if (element) tabRefs.current.set(tab.slug, element);
+                else tabRefs.current.delete(tab.slug);
+              }}
               className={`h-full max-w-52 truncate px-3 text-sm ${active ? "bg-[var(--background)] font-medium" : "bg-[var(--muted)]"}`}
               onClick={() => onActivate(tab.slug)}
               onKeyDown={handleTabKeyDown}
@@ -344,7 +392,9 @@ export function ExplorerReader({
                 const url = new URL(href, window.location.origin);
                 if (url.origin === window.location.origin && url.pathname.startsWith("/wiki/")) {
                   event.preventDefault();
-                  onWikiLink(url.pathname.slice("/wiki/".length));
+                  onWikiLink(
+                    decodeMarkdownLinkSlug(url.pathname.slice("/wiki/".length)),
+                  );
                 }
               };
               return <a href={href} onClick={handleClick} {...props} />;
@@ -367,7 +417,8 @@ export function Component() {
   const [workspace, setWorkspace] = useState<ExplorerWorkspace>(readStoredWorkspace);
   const [hydrated, setHydrated] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [readerState, setReaderState] = useState<ReaderState>({ status: "idle" });
+  const [readerState, setReaderState] = useState<ReaderState>({ slug: null, status: "idle" });
+  const workspaceFocusRef = useRef<HTMLElement>(null);
 
   useEffect(() => setHydrated(true), []);
 
@@ -388,21 +439,25 @@ export function Component() {
   useEffect(() => {
     const slug = workspace.activeSlug;
     if (!slug) {
-      setReaderState({ status: "idle" });
+      setReaderState({ slug: null, status: "idle" });
       return;
     }
 
     const controller = new AbortController();
-    setReaderState({ status: "loading" });
+    setReaderState({ slug, status: "loading" });
     fetchJson<WikiPageData>(`/api/wiki/${encodeExplorerSlug(slug)}`, { signal: controller.signal })
-      .then((page) => setReaderState({ status: "ready", page }))
+      .then((page) => setReaderState({ slug, status: "ready", page }))
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
         if (isSetupRequiredResponse(error)) {
           navigate("/setup");
           return;
         }
-        setReaderState(error instanceof Response && error.status === 404 ? { status: "missing" } : { status: "error" });
+        setReaderState(
+          error instanceof Response && error.status === 404
+            ? { slug, status: "missing" }
+            : { slug, status: "error" },
+        );
       });
     return () => controller.abort();
   }, [navigate, workspace.activeSlug]);
@@ -418,10 +473,21 @@ export function Component() {
     [navigate, urlSlug, workspace],
   );
 
-  const selectPage = (page: ExplorerPage) => {
-    setSidebarOpen(false);
-    transitionAndNavigate((current) => openExplorerTab(current, page));
-  };
+  const selectSlug = useCallback(
+    (slug: string) => {
+      setSidebarOpen(false);
+      transitionAndNavigate((current) =>
+        openExplorerTab(current, pageBySlug.get(slug) ?? fallbackTab(slug)),
+      );
+    },
+    [pageBySlug, transitionAndNavigate],
+  );
+
+  const selectPage = (page: ExplorerPage) => selectSlug(page.slug);
+  const visibleReaderState = selectExplorerReaderState(
+    workspace.activeSlug,
+    readerState,
+  );
 
   return (
     <main className="flex min-h-screen flex-col bg-[var(--background)] text-[var(--foreground)]">
@@ -433,9 +499,15 @@ export function Component() {
         >
           <ExplorerSidebar pages={pages} activeSlug={workspace.activeSlug} onSelect={selectPage} />
         </aside>
-        <section className="flex min-w-0 flex-1 flex-col" aria-label="Explorer workspace">
+        <section
+          ref={workspaceFocusRef}
+          tabIndex={-1}
+          className="flex min-w-0 flex-1 flex-col"
+          aria-label="Explorer workspace"
+        >
           <ExplorerTabs
             workspace={workspace}
+            fallbackFocusRef={workspaceFocusRef}
             onActivate={(slug) => transitionAndNavigate((current) => activateExplorerTab(current, slug))}
             onClose={(slug) => transitionAndNavigate((current) => closeExplorerTab(current, slug))}
             onCloseOthers={(slug) => transitionAndNavigate((current) => closeOtherExplorerTabs(current, slug))}
@@ -454,9 +526,9 @@ export function Component() {
               >
                 {active ? (
                   <ExplorerReader
-                    state={readerState}
+                    state={visibleReaderState}
                     hasTabs
-                    onWikiLink={(encodedSlug) => navigate(`/explorer/${encodedSlug}`)}
+                    onWikiLink={selectSlug}
                   />
                 ) : null}
               </div>
@@ -465,9 +537,9 @@ export function Component() {
           {!workspace.activeSlug ? (
             <div className="min-h-0 flex-1 overflow-y-auto">
               <ExplorerReader
-                state={readerState}
+                state={visibleReaderState}
                 hasTabs={workspace.tabs.length > 0}
-                onWikiLink={(encodedSlug) => navigate(`/explorer/${encodedSlug}`)}
+                onWikiLink={selectSlug}
               />
             </div>
           ) : null}

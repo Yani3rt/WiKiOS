@@ -119,6 +119,41 @@ describe("explorer route registration", () => {
     expect(routerSource).toContain("tabIndex={active || (!workspace.activeSlug && index === 0) ? 0 : -1}");
     expect(routerSource).toContain("hidden={!active}");
   });
+
+  it("never exposes reader state belonging to a previously active slug", async () => {
+    const routeModule = (await import("../src/client/routes/explorer-route")) as unknown as {
+      selectExplorerReaderState?: (
+        activeSlug: string | null,
+        state: { slug: string | null; status: string },
+      ) => { slug: string | null; status: string };
+    };
+    const alphaReady = { slug: "alpha", status: "ready" };
+
+    expect(routeModule.selectExplorerReaderState).toBeTypeOf("function");
+    expect(routeModule.selectExplorerReaderState!("alpha", alphaReady)).toBe(alphaReady);
+    expect(routeModule.selectExplorerReaderState!("beta", alphaReady)).toEqual({
+      slug: "beta",
+      status: "loading",
+    });
+    expect(routeModule.selectExplorerReaderState!(null, alphaReady)).toEqual({
+      slug: null,
+      status: "idle",
+    });
+  });
+
+  it("guards markdown self-links and restores focus after tab removal", () => {
+    const routeSource = readFileSync(
+      fileURLToPath(new URL("../src/client/routes/explorer-route.tsx", import.meta.url)),
+      "utf8",
+    );
+
+    expect(routeSource).toContain("onWikiLink={selectSlug}");
+    expect(routeSource).not.toContain("onWikiLink={(encodedSlug) => navigate");
+    expect(routeSource).toContain("const tabRefs = useRef(new Map<string, HTMLButtonElement>())");
+    expect(routeSource).toContain("requestAnimationFrame(() =>");
+    expect(routeSource).toContain("tabRefs.current.get(workspace.activeSlug)?.focus()");
+    expect(routeSource).toContain("fallbackFocusRef.current?.focus()");
+  });
 });
 
 const pages: ExplorerPage[] = [
