@@ -38,7 +38,7 @@ export function Component() {
   const page = useLoaderData() as WikiPageData;
   const config = useWikiConfig();
   const navigate = useNavigate();
-  const { revalidate } = useRevalidator();
+  const { revalidate, state: revalidationState } = useRevalidator();
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -78,6 +78,7 @@ export function Component() {
           page={page}
           onNavigateNote={(slug) => navigate(`/wiki/${slug}`)}
           onRefreshPage={() => revalidate()}
+          refreshing={revalidationState === "loading"}
         />
       </main>
 

@@ -24,6 +24,7 @@ export interface NoteViewerProps {
   page: WikiPageData;
   onNavigateNote: (slug: string) => void;
   onRefreshPage?: () => void | Promise<void>;
+  refreshing?: boolean;
   scrollContainerRef?: RefObject<HTMLElement | null>;
 }
 
@@ -87,7 +88,7 @@ function splitContentSections(markdown: string) {
   };
 }
 
-function canonicalizeWikiRouteSlug(rawSlug: string) {
+export function canonicalizeWikiRouteSlug(rawSlug: string) {
   return rawSlug
     .split("/")
     .filter(Boolean)
@@ -101,12 +102,12 @@ function canonicalizeWikiRouteSlug(rawSlug: string) {
     .join("/");
 }
 
-function getInternalWikiSlug(href: string | undefined) {
-  if (!href || typeof window === "undefined") return null;
+export function wikiSlugFromHref(href: string | undefined, origin: string) {
+  if (!href || href.startsWith("#")) return null;
 
   try {
-    const url = new URL(href, window.location.origin);
-    if (url.origin !== window.location.origin || !url.pathname.startsWith("/wiki/")) {
+    const url = new URL(href, origin);
+    if (url.origin !== origin || !url.pathname.startsWith("/wiki/")) {
       return null;
     }
 
@@ -114,6 +115,49 @@ function getInternalWikiSlug(href: string | undefined) {
   } catch {
     return null;
   }
+}
+
+function getInternalWikiSlug(href: string | undefined) {
+  if (typeof window === "undefined") return null;
+  return wikiSlugFromHref(href, window.location.origin);
+}
+
+interface PersonOverrideResponse {
+  ok: boolean;
+  json(): Promise<unknown>;
+}
+
+interface SavePersonOverrideOptions {
+  fileName: string;
+  override: "person" | "not-person" | null;
+  onRefreshPage?: () => void | Promise<void>;
+  fetchImpl?: (input: RequestInfo | URL, init?: RequestInit) => Promise<PersonOverrideResponse>;
+}
+
+export async function savePersonOverride({
+  fileName,
+  override,
+  onRefreshPage,
+  fetchImpl = fetch,
+}: SavePersonOverrideOptions) {
+  const response = await fetchImpl("/api/setup/person-override", {
+    method: "POST",
+    headers: {
+      accept: "application/json",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      file: fileName,
+      override,
+    }),
+  });
+
+  const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+  if (!response.ok) {
+    throw new Error(payload?.error ?? "Could not update person override");
+  }
+
+  await onRefreshPage?.();
 }
 
 function scrollToHeading(id: string, scrollContainerRef?: RefObject<HTMLElement | null>) {
@@ -458,6 +502,7 @@ export function NoteViewer({
   page,
   onNavigateNote,
   onRefreshPage,
+  refreshing = false,
   scrollContainerRef,
 }: NoteViewerProps) {
   const config = useWikiConfig();
@@ -495,7 +540,7 @@ export function NoteViewer({
     window.scrollTo(0, 0);
   }, [page.slug, scrollContainerRef]);
 
-  const personActionBusy = isUpdatingPerson;
+  const personActionBusy = isUpdatingPerson || refreshing;
 
   const markdownComponents = useMemo<Components>(
     () => ({
@@ -551,24 +596,11 @@ export function NoteViewer({
       setPersonOverrideError(null);
 
       try {
-        const response = await fetch("/api/setup/person-override", {
-          method: "POST",
-          headers: {
-            accept: "application/json",
-            "content-type": "application/json",
-          },
-          body: JSON.stringify({
-            file: page.fileName,
-            override: nextOverride,
-          }),
+        await savePersonOverride({
+          fileName: page.fileName,
+          override: nextOverride,
+          onRefreshPage,
         });
-
-        const payload = (await response.json().catch(() => null)) as { error?: string } | null;
-        if (!response.ok) {
-          throw new Error(payload?.error ?? "Could not update person override");
-        }
-
-        await onRefreshPage?.();
       } catch (error) {
         setPersonOverrideError(
           error instanceof Error ? error.message : "Could not update person override",
@@ -634,6 +666,18 @@ export function NoteViewer({
               </>
             ) : null}
           </div>
+          {page.categories.length > 0 ? (
+            <ul className="mt-4 flex flex-wrap gap-2" aria-label="Categories">
+              {page.categories.map((category) => (
+                <li
+                  key={category}
+                  className="rounded-full bg-[var(--muted)] px-2.5 py-1 text-xs text-[var(--foreground)]"
+                >
+                  {category}
+                </li>
+              ))}
+            </ul>
+          ) : null}
         </div>
       </div>
 
