@@ -154,6 +154,97 @@ describe("explorer route registration", () => {
     expect(routeSource).toContain("tabRefs.current.get(workspace.activeSlug)?.focus()");
     expect(routeSource).toContain("fallbackFocusRef.current?.focus()");
   });
+
+  it("canonicalizes encoded metadata and restored tabs without corrupting literal percent data", async () => {
+    const routeModule = (await import("../src/client/routes/explorer-route")) as unknown as {
+      normalizeExplorerSlug?: (splat: string | undefined) => string;
+      normalizeExplorerPages?: (pages: ExplorerPage[]) => ExplorerPage[];
+      normalizeExplorerWorkspaceSlugs?: (
+        workspace: ExplorerWorkspace,
+      ) => ExplorerWorkspace;
+    };
+    const metadata: ExplorerPage[] = [
+      {
+        file: "notes/Reading People.md",
+        slug: "notes/Reading%20People",
+        title: "Reading People",
+        modifiedAt: 1,
+      },
+      {
+        file: "notes/Literal%20Name.md",
+        slug: "notes/Literal%2520Name",
+        title: "Literal percent",
+        modifiedAt: 2,
+      },
+    ];
+    const restored: ExplorerWorkspace = {
+      tabs: [
+        { ...metadata[0] },
+        { ...metadata[0], slug: "notes/Reading People" },
+        { ...metadata[1] },
+      ],
+      activeSlug: "notes/Literal%2520Name",
+    };
+
+    expect(routeModule.normalizeExplorerPages).toBeTypeOf("function");
+    expect(routeModule.normalizeExplorerWorkspaceSlugs).toBeTypeOf("function");
+    expect(routeModule.normalizeExplorerSlug).toBeTypeOf("function");
+    const normalizedPages = routeModule.normalizeExplorerPages!(metadata);
+    const normalizedWorkspace = routeModule.normalizeExplorerWorkspaceSlugs!(restored);
+
+    expect(normalizedPages.map((page) => page.slug)).toEqual([
+      "notes/Reading People",
+      "notes/Literal%20Name",
+    ]);
+    expect(normalizedWorkspace).toEqual({
+      tabs: [
+        { slug: "notes/Reading People", title: "Reading People", file: "notes/Reading People.md" },
+        { slug: "notes/Literal%20Name", title: "Literal percent", file: "notes/Literal%20Name.md" },
+      ],
+      activeSlug: "notes/Literal%20Name",
+    });
+    expect(openExplorerTab(normalizedWorkspace, normalizedPages[0])).toEqual({
+      tabs: normalizedWorkspace.tabs,
+      activeSlug: "notes/Reading People",
+    });
+    expect(
+      normalizedPages.find(
+        (page) => page.slug === routeModule.normalizeExplorerSlug!("notes/Reading People"),
+      ),
+    ).toBe(normalizedPages[0]);
+  });
+
+  it("survives unavailable and quota-limited localStorage", async () => {
+    const routeModule = (await import("../src/client/routes/explorer-route")) as unknown as {
+      readExplorerWorkspaceStorage?: (storage: { getItem(key: string): string | null }) => ExplorerWorkspace;
+      writeExplorerWorkspaceStorage?: (
+        storage: { setItem(key: string, value: string): void },
+        workspace: ExplorerWorkspace,
+      ) => boolean;
+    };
+    const unavailable = {
+      getItem() {
+        throw new Error("storage unavailable");
+      },
+    };
+    const quotaLimited = {
+      setItem() {
+        throw new Error("quota exceeded");
+      },
+    };
+
+    expect(routeModule.readExplorerWorkspaceStorage).toBeTypeOf("function");
+    expect(routeModule.writeExplorerWorkspaceStorage).toBeTypeOf("function");
+    expect(routeModule.readExplorerWorkspaceStorage!(unavailable)).toEqual(
+      EMPTY_EXPLORER_WORKSPACE,
+    );
+    expect(
+      routeModule.writeExplorerWorkspaceStorage!(
+        quotaLimited,
+        EMPTY_EXPLORER_WORKSPACE,
+      ),
+    ).toBe(false);
+  });
 });
 
 const pages: ExplorerPage[] = [

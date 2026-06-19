@@ -14,7 +14,7 @@ import {
   useNavigate,
   useParams,
 } from "react-router-dom";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { type Components } from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
 
@@ -40,6 +40,14 @@ import { RouteErrorBoundary } from "../route-error-boundary";
 
 const remarkPlugins = [remarkGfm];
 const rehypePlugins = [rehypeHighlight];
+const markdownBaseComponents: Components = {
+  h1: (props) => <h1 className="mb-4 scroll-mt-20 text-3xl" {...props} />,
+  h2: (props) => <h2 className="font-display mb-3 mt-10 scroll-mt-20 text-xl" {...props} />,
+  h3: (props) => <h3 className="font-display mb-2 mt-7 scroll-mt-20 text-lg" {...props} />,
+  p: (props) => <p className="mb-4 leading-[1.8]" {...props} />,
+  ul: (props) => <ul className="mb-4 list-disc pl-6 leading-[1.8]" {...props} />,
+  ol: (props) => <ol className="mb-4 list-decimal pl-6 leading-[1.8]" {...props} />,
+};
 
 type ReaderState =
   | { slug: null; status: "idle" }
@@ -69,6 +77,43 @@ export function encodeExplorerSlug(slug: string) {
     .filter(Boolean)
     .map((part) => encodeURIComponent(part))
     .join("/");
+}
+
+function canonicalExplorerSlugFromFile(file: string) {
+  return file
+    .replace(/\.md$/iu, "")
+    .split("/")
+    .filter(Boolean)
+    .join("/");
+}
+
+export function normalizeExplorerPages(pages: ExplorerPage[]) {
+  return pages.map((page) => ({
+    ...page,
+    slug: canonicalExplorerSlugFromFile(page.file),
+  }));
+}
+
+export function normalizeExplorerWorkspaceSlugs(
+  workspace: ExplorerWorkspace,
+): ExplorerWorkspace {
+  const tabs: ExplorerTab[] = [];
+  const seenSlugs = new Set<string>();
+  let activeSlug: string | null = null;
+
+  for (const tab of workspace.tabs) {
+    const slug = canonicalExplorerSlugFromFile(tab.file);
+    if (tab.slug === workspace.activeSlug) activeSlug = slug;
+    if (seenSlugs.has(slug)) continue;
+    seenSlugs.add(slug);
+    tabs.push({ slug, title: tab.title, file: tab.file });
+  }
+
+  if (tabs.length === 0) return { tabs: [], activeSlug: null };
+  return {
+    tabs,
+    activeSlug: activeSlug && seenSlugs.has(activeSlug) ? activeSlug : tabs[0].slug,
+  };
 }
 
 function explorerPath(slug: string | null) {
@@ -123,10 +168,46 @@ function decodeMarkdownLinkSlug(encodedSlug: string) {
     .join("/");
 }
 
+interface ExplorerStorageReader {
+  getItem(key: string): string | null;
+}
+
+interface ExplorerStorageWriter {
+  setItem(key: string, value: string): void;
+}
+
+export function readExplorerWorkspaceStorage(
+  storage: ExplorerStorageReader,
+): ExplorerWorkspace {
+  try {
+    const stored = storage.getItem(EXPLORER_STORAGE_KEY);
+    return stored
+      ? normalizeExplorerWorkspaceSlugs(parseExplorerWorkspace(stored))
+      : EMPTY_EXPLORER_WORKSPACE;
+  } catch {
+    return EMPTY_EXPLORER_WORKSPACE;
+  }
+}
+
+export function writeExplorerWorkspaceStorage(
+  storage: ExplorerStorageWriter,
+  workspace: ExplorerWorkspace,
+) {
+  try {
+    storage.setItem(EXPLORER_STORAGE_KEY, serializeExplorerWorkspace(workspace));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function readStoredWorkspace(): ExplorerWorkspace {
   if (typeof window === "undefined") return EMPTY_EXPLORER_WORKSPACE;
-  const stored = window.localStorage.getItem(EXPLORER_STORAGE_KEY);
-  return stored ? parseExplorerWorkspace(stored) : EMPTY_EXPLORER_WORKSPACE;
+  try {
+    return readExplorerWorkspaceStorage(window.localStorage);
+  } catch {
+    return EMPTY_EXPLORER_WORKSPACE;
+  }
 }
 
 function formatDate(timestamp: number) {
@@ -352,6 +433,27 @@ export function ExplorerReader({
   hasTabs: boolean;
   onWikiLink: (slug: string) => void;
 }) {
+  const markdownComponents = useMemo<Components>(
+    () => ({
+      ...markdownBaseComponents,
+      a: ({ href, onClick, ...props }) => {
+        const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
+          onClick?.(event);
+          if (event.defaultPrevented || !href) return;
+          const url = new URL(href, window.location.origin);
+          if (url.origin === window.location.origin && url.pathname.startsWith("/wiki/")) {
+            event.preventDefault();
+            onWikiLink(
+              decodeMarkdownLinkSlug(url.pathname.slice("/wiki/".length)),
+            );
+          }
+        };
+        return <a href={href} onClick={handleClick} {...props} />;
+      },
+    }),
+    [onWikiLink],
+  );
+
   if (state.status === "idle") return <ExplorerEmptyState hasTabs={hasTabs} />;
   if (state.status === "loading") return <p className="p-8 text-sm text-[var(--muted-foreground)]">Loading note…</p>;
   if (state.status === "missing") return <p className="p-8">This note could not be found.</p>;
@@ -378,28 +480,7 @@ export function ExplorerReader({
         <ReactMarkdown
           remarkPlugins={remarkPlugins}
           rehypePlugins={rehypePlugins}
-          components={{
-            h1: (props) => <h1 className="mb-4 scroll-mt-20 text-3xl" {...props} />,
-            h2: (props) => <h2 className="font-display mb-3 mt-10 scroll-mt-20 text-xl" {...props} />,
-            h3: (props) => <h3 className="font-display mb-2 mt-7 scroll-mt-20 text-lg" {...props} />,
-            p: (props) => <p className="mb-4 leading-[1.8]" {...props} />,
-            ul: (props) => <ul className="mb-4 list-disc pl-6 leading-[1.8]" {...props} />,
-            ol: (props) => <ol className="mb-4 list-decimal pl-6 leading-[1.8]" {...props} />,
-            a: ({ href, onClick, ...props }) => {
-              const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
-                onClick?.(event);
-                if (event.defaultPrevented || !href) return;
-                const url = new URL(href, window.location.origin);
-                if (url.origin === window.location.origin && url.pathname.startsWith("/wiki/")) {
-                  event.preventDefault();
-                  onWikiLink(
-                    decodeMarkdownLinkSlug(url.pathname.slice("/wiki/".length)),
-                  );
-                }
-              };
-              return <a href={href} onClick={handleClick} {...props} />;
-            },
-          }}
+          components={markdownComponents}
         >
           {page.contentMarkdown}
         </ReactMarkdown>
@@ -409,7 +490,8 @@ export function ExplorerReader({
 }
 
 export function Component() {
-  const pages = useLoaderData() as ExplorerPage[];
+  const loadedPages = useLoaderData() as ExplorerPage[];
+  const pages = useMemo(() => normalizeExplorerPages(loadedPages), [loadedPages]);
   const params = useParams();
   const navigate = useNavigate();
   const urlSlug = normalizeExplorerSlug(params["*"]);
@@ -424,7 +506,11 @@ export function Component() {
 
   useEffect(() => {
     if (!hydrated || typeof window === "undefined") return;
-    window.localStorage.setItem(EXPLORER_STORAGE_KEY, serializeExplorerWorkspace(workspace));
+    try {
+      writeExplorerWorkspaceStorage(window.localStorage, workspace);
+    } catch {
+      // Storage access can be unavailable in restricted browser contexts.
+    }
   }, [hydrated, workspace]);
 
   useEffect(() => {
