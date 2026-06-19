@@ -245,6 +245,10 @@ export function isExplorerSidebarInteractive(sidebarOpen: boolean, isDesktop: bo
   return sidebarOpen || isDesktop;
 }
 
+export function isExplorerModalActive(sidebarOpen: boolean, isDesktop: boolean) {
+  return sidebarOpen && !isDesktop;
+}
+
 interface ExplorerStorageReader {
   getItem(key: string): string | null;
 }
@@ -345,10 +349,12 @@ export function ExplorerSidebar({
   pages,
   activeSlug,
   onSelect,
+  filterInputRef,
 }: {
   pages: ExplorerPage[];
   activeSlug: string | null;
   onSelect: (page: ExplorerPage) => void;
+  filterInputRef?: RefObject<HTMLInputElement | null>;
 }) {
   const [query, setQuery] = useState("");
   const filteredPages = useMemo(() => filterExplorerPages(pages, query), [pages, query]);
@@ -396,6 +402,7 @@ export function ExplorerSidebar({
         <div className="relative">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--muted-foreground)]" />
           <input
+            ref={filterInputRef}
             type="search"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
@@ -685,12 +692,15 @@ export function Component() {
   const [hydrated, setHydrated] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [readerState, setReaderState] = useState<ReaderState>({ slug: null, status: "idle" });
-  const workspaceFocusRef = useRef<HTMLElement>(null);
+  const workspaceRef = useRef<HTMLElement>(null);
   const sidebarRef = useRef<HTMLElement>(null);
   const toggleButtonRef = useRef<HTMLButtonElement>(null);
+  const filterInputRef = useRef<HTMLInputElement>(null);
+  const sidebarCloseFocusTargetRef = useRef<"toggle" | "workspace">("toggle");
   const prefersReducedMotion = usePrefersReducedMotion();
   const isDesktopSidebar = useMediaQuery("(min-width: 768px)");
   const sidebarInteractive = isExplorerSidebarInteractive(sidebarOpen, isDesktopSidebar);
+  const sidebarModalActive = isExplorerModalActive(sidebarOpen, isDesktopSidebar);
 
   useEffect(() => setHydrated(true), []);
 
@@ -698,7 +708,10 @@ export function Component() {
     if (!sidebarOpen) return;
 
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key === "Escape") setSidebarOpen(false);
+      if (event.key === "Escape") {
+        sidebarCloseFocusTargetRef.current = "toggle";
+        setSidebarOpen(false);
+      }
     };
 
     window.addEventListener("keydown", handleKeyDown);
@@ -715,6 +728,20 @@ export function Component() {
     sidebarRef.current?.setAttribute("inert", "");
     if (focusWasInsideDrawer) toggleButtonRef.current?.focus();
   }, [sidebarInteractive]);
+
+  useEffect(() => {
+    if (sidebarModalActive) {
+      workspaceRef.current?.setAttribute("inert", "");
+      filterInputRef.current?.focus();
+      return;
+    }
+
+    workspaceRef.current?.removeAttribute("inert");
+    if (sidebarCloseFocusTargetRef.current === "workspace") {
+      workspaceRef.current?.focus();
+      sidebarCloseFocusTargetRef.current = "toggle";
+    }
+  }, [sidebarModalActive]);
 
   useEffect(() => {
     if (!hydrated || typeof window === "undefined") return;
@@ -773,6 +800,7 @@ export function Component() {
 
   const selectSlug = useCallback(
     (slug: string) => {
+      sidebarCloseFocusTargetRef.current = "workspace";
       setSidebarOpen(false);
       transitionAndNavigate((current) =>
         openExplorerTab(current, pageBySlug.get(slug) ?? fallbackTab(slug)),
@@ -792,37 +820,49 @@ export function Component() {
       <ExplorerHeader
         sidebarOpen={sidebarOpen}
         toggleButtonRef={toggleButtonRef}
-        onToggleSidebar={() => setSidebarOpen((open) => !open)}
+        onToggleSidebar={() => {
+          sidebarCloseFocusTargetRef.current = "toggle";
+          setSidebarOpen((open) => !open);
+        }}
       />
       <div className="flex min-h-0 flex-1">
-        <button
-          type="button"
-          aria-hidden={!sidebarOpen}
-          tabIndex={sidebarOpen ? 0 : -1}
+        <div
+          aria-hidden="true"
           className={`explorer-sidebar-backdrop fixed inset-0 z-30 md:hidden ${
             sidebarOpen ? "opacity-100" : "pointer-events-none opacity-0"
           } ${prefersReducedMotion ? "transition-none" : "transition-opacity duration-200"} motion-reduce:transition-none`}
-          onClick={() => setSidebarOpen(false)}
+          onClick={() => {
+            sidebarCloseFocusTargetRef.current = "toggle";
+            setSidebarOpen(false);
+          }}
         />
         <aside
           ref={sidebarRef}
           id="explorer-sidebar"
           aria-hidden={!sidebarInteractive}
+          aria-modal={sidebarModalActive}
+          role="dialog"
           className={`fixed inset-y-16 left-0 z-40 w-[18.5rem] max-w-[calc(100vw-2rem)] border-r border-[var(--border)] bg-[var(--background)] shadow-[0_18px_48px_-24px_rgba(21,19,26,0.4)] md:static md:inset-auto md:z-auto md:w-[19rem] md:max-w-none md:translate-x-0 md:shadow-none ${
             sidebarOpen ? "translate-x-0" : "-translate-x-[calc(100%+1rem)]"
           } ${prefersReducedMotion ? "transition-none" : "transition-transform duration-200 ease-out"} motion-reduce:transition-none`}
         >
-          <ExplorerSidebar pages={pages} activeSlug={workspace.activeSlug} onSelect={selectPage} />
+          <ExplorerSidebar
+            pages={pages}
+            activeSlug={workspace.activeSlug}
+            onSelect={selectPage}
+            filterInputRef={filterInputRef}
+          />
         </aside>
         <section
-          ref={workspaceFocusRef}
+          ref={workspaceRef}
           tabIndex={-1}
-          className="flex min-w-0 flex-1 flex-col md:min-w-[30rem]"
+          aria-hidden={sidebarModalActive}
+          className="flex min-w-0 flex-1 flex-col md:min-w-0"
           aria-label="Explorer workspace"
         >
           <ExplorerTabs
             workspace={workspace}
-            fallbackFocusRef={workspaceFocusRef}
+            fallbackFocusRef={workspaceRef}
             onActivate={(slug) => transitionAndNavigate((current) => activateExplorerTab(current, slug))}
             onClose={(slug) => transitionAndNavigate((current) => closeExplorerTab(current, slug))}
             onCloseOthers={(slug) => transitionAndNavigate((current) => closeOtherExplorerTabs(current, slug))}

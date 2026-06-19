@@ -209,6 +209,32 @@ describe("explorer route registration", () => {
     expect(routeSource).toContain("sidebarRef.current?.contains(document.activeElement)");
   });
 
+  it("treats the open mobile drawer as modal without causing md overflow", async () => {
+    const routeSource = readFileSync(
+      fileURLToPath(new URL("../src/client/routes/explorer-route.tsx", import.meta.url)),
+      "utf8",
+    );
+    const routeModule = (await import("../src/client/routes/explorer-route")) as unknown as {
+      isExplorerModalActive?: (sidebarOpen: boolean, isDesktop: boolean) => boolean;
+    };
+
+    expect(routeModule.isExplorerModalActive).toBeTypeOf("function");
+    expect(routeModule.isExplorerModalActive!(true, false)).toBe(true);
+    expect(routeModule.isExplorerModalActive!(false, false)).toBe(false);
+    expect(routeModule.isExplorerModalActive!(true, true)).toBe(false);
+    expect(routeSource).toContain('workspaceRef.current?.setAttribute("inert", "")');
+    expect(routeSource).toContain('workspaceRef.current?.removeAttribute("inert")');
+    expect(routeSource).toContain('aria-hidden={sidebarModalActive}');
+    expect(routeSource).toContain('filterInputRef.current?.focus()');
+    expect(routeSource).toContain('role="dialog"');
+    expect(routeSource).toContain('aria-modal={sidebarModalActive}');
+    expect(routeSource).not.toContain("<button\n          type=\"button\"\n          aria-hidden={!sidebarOpen}");
+    expect(routeSource).toContain("<div");
+    expect(routeSource).toContain('aria-hidden="true"');
+    expect(routeSource).toContain("sidebarCloseFocusTargetRef.current = \"toggle\"");
+    expect(routeSource).toContain('className="flex min-w-0 flex-1 flex-col md:min-w-0"');
+  });
+
   it("canonicalizes encoded metadata and restored tabs without corrupting literal percent data", async () => {
     const routeModule = (await import("../src/client/routes/explorer-route")) as unknown as {
       normalizeExplorerSlug?: (splat: string | undefined) => string;
