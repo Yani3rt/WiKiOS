@@ -12,10 +12,7 @@ export type ExplorerTreeRow =
   | { kind: "page"; page: ExplorerPage; depth: number };
 
 function compareNames(left: string, right: string) {
-  return (
-    left.localeCompare(right, undefined, { sensitivity: "base" }) ||
-    left.localeCompare(right, undefined, { sensitivity: "variant" })
-  );
+  return left.localeCompare(right, undefined, { sensitivity: "base" });
 }
 
 function sortFolder(folder: ExplorerFolder) {

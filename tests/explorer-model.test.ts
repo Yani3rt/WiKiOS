@@ -67,6 +67,20 @@ describe("explorer model", () => {
     ]);
   });
 
+  it("preserves source order for names that are equivalent at base sensitivity", () => {
+    const baseEquivalentPages = [
+      { file: "résumé.md", slug: "resume-accented", title: "résumé", modifiedAt: 8 },
+      { file: "resume.md", slug: "resume", title: "resume", modifiedAt: 9 },
+    ];
+
+    const rows = flattenVisibleTree(buildExplorerTree(baseEquivalentPages), new Set());
+
+    expect(rows.map((row) => (row.kind === "page" ? row.page.title : row.name))).toEqual([
+      "résumé",
+      "resume",
+    ]);
+  });
+
   it("filters title and extension-free file path case-insensitively", () => {
     expect(filterExplorerPages(pages, "alpha")).toEqual([pages[2]]);
     expect(filterExplorerPages(pages, "GUIDES")).toEqual([pages[1], pages[2]]);
