@@ -26,7 +26,7 @@ function emptyExplorerWorkspace(): ExplorerWorkspace {
 
 export function openExplorerTab(
   workspace: ExplorerWorkspace,
-  page: Pick<ExplorerPage, "slug" | "title" | "file">,
+  page: ExplorerPage | ExplorerTab,
 ): ExplorerWorkspace {
   if (workspace.tabs.some((tab) => tab.slug === page.slug)) {
     if (workspace.activeSlug === page.slug) return workspace;
@@ -68,6 +68,7 @@ export function closeOtherExplorerTabs(
 ): ExplorerWorkspace {
   const retainedTab = workspace.tabs.find((tab) => tab.slug === slug);
   if (!retainedTab) return workspace;
+  if (workspace.tabs.length === 1 && workspace.activeSlug === slug) return workspace;
   return { tabs: [retainedTab], activeSlug: slug };
 }
 

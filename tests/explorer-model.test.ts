@@ -194,6 +194,19 @@ describe("explorer workspace", () => {
     expect(openedBeta).toEqual(workspace([alpha, beta], beta.slug));
   });
 
+  it("accepts a complete ExplorerPage and preserves an already-active workspace", () => {
+    const initial = workspace([alpha], alpha.slug);
+
+    expect(
+      openExplorerTab(initial, {
+        file: alpha.file,
+        slug: alpha.slug,
+        title: alpha.title,
+        modifiedAt: 1,
+      }),
+    ).toBe(initial);
+  });
+
   it("activates existing tabs and ignores unknown slugs", () => {
     const initial = workspace([alpha, beta], alpha.slug);
 
@@ -201,6 +214,12 @@ describe("explorer workspace", () => {
       workspace([alpha, beta], beta.slug),
     );
     expect(activateExplorerTab(initial, "unknown")).toBe(initial);
+  });
+
+  it("preserves the workspace when activating the already-active tab", () => {
+    const initial = workspace([alpha, beta], alpha.slug);
+
+    expect(activateExplorerTab(initial, alpha.slug)).toBe(initial);
   });
 
   it("closes an inactive tab without changing the active tab", () => {
@@ -230,6 +249,12 @@ describe("explorer workspace", () => {
     );
   });
 
+  it("preserves the workspace when closing an unknown tab", () => {
+    const initial = workspace([alpha, beta], alpha.slug);
+
+    expect(closeExplorerTab(initial, "unknown")).toBe(initial);
+  });
+
   it("closes other tabs and activates the retained existing tab", () => {
     const initial = workspace([alpha, beta, gamma], alpha.slug);
 
@@ -237,6 +262,12 @@ describe("explorer workspace", () => {
       workspace([beta], beta.slug),
     );
     expect(closeOtherExplorerTabs(initial, "unknown")).toBe(initial);
+  });
+
+  it("preserves a sole requested tab when closing other tabs", () => {
+    const initial = workspace([alpha], alpha.slug);
+
+    expect(closeOtherExplorerTabs(initial, alpha.slug)).toBe(initial);
   });
 
   it("serializes version one and restores valid workspaces", () => {
@@ -255,6 +286,14 @@ describe("explorer workspace", () => {
     },
   );
 
+  it.each([
+    JSON.stringify({ version: 1, activeSlug: null }),
+    JSON.stringify({ version: 1, tabs: null, activeSlug: null }),
+    JSON.stringify({ version: 1, tabs: {}, activeSlug: null }),
+  ])("falls back safely when tabs are missing or not an array: %s", (serialized) => {
+    expect(parseExplorerWorkspace(serialized)).toEqual(EMPTY_EXPLORER_WORKSPACE);
+  });
+
   it("discards malformed tabs while retaining valid tabs", () => {
     const serialized = JSON.stringify({
       version: 1,
@@ -270,6 +309,21 @@ describe("explorer workspace", () => {
     });
 
     expect(parseExplorerWorkspace(serialized)).toEqual(workspace([alpha, beta], beta.slug));
+  });
+
+  it("discards tabs with whitespace-only slug, title, or file fields", () => {
+    const serialized = JSON.stringify({
+      version: 1,
+      tabs: [
+        { slug: " \t", title: "Whitespace slug", file: "Slug.md" },
+        { slug: "whitespace-title", title: "\n ", file: "Title.md" },
+        { slug: "whitespace-file", title: "Whitespace file", file: "   " },
+        alpha,
+      ],
+      activeSlug: "whitespace-title",
+    });
+
+    expect(parseExplorerWorkspace(serialized)).toEqual(workspace([alpha], alpha.slug));
   });
 
   it("removes duplicate slugs while preserving the first tab", () => {
