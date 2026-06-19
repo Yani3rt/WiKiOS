@@ -36,6 +36,7 @@ afterEach(() => {
   delete process.env.WIKI_ROOT;
   delete process.env.WIKIOS_FORCE_WIKI_ROOT;
   delete process.env.WIKIOS_ADMIN_TOKEN;
+  delete process.env.WIKIOS_INDEX_DB;
   delete process.env.WIKIOS_SETUP_CONFIG;
   vi.doUnmock("../src/server/folder-picker");
   vi.resetModules();
@@ -575,8 +576,6 @@ describe("server app", () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "wiki-ui-literal-percent-"));
     const root = path.join(tempDir, "vault");
     const setupConfigPath = path.join(tempDir, "config.json");
-    process.env.WIKIOS_INDEX_DB = path.join(tempDir, "wiki.sqlite");
-
     try {
       await mkdir(root, { recursive: true });
       await writeFile(
