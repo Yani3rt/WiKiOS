@@ -323,6 +323,56 @@ html {
   -webkit-backdrop-filter: blur(2px);
 }
 
+.explorer-note-viewer-shell {
+  container-type: inline-size;
+  container-name: explorer-note-viewer;
+}
+
+@container explorer-note-viewer (max-width: 63.99rem) {
+  .explorer-note-viewer-shell .note-viewer-mobile-toc {
+    display: block !important;
+  }
+
+  .explorer-note-viewer-shell .note-viewer-side-rail {
+    display: none !important;
+  }
+
+  .explorer-note-viewer-shell .note-viewer-inline-graph {
+    display: block;
+  }
+}
+
+@container explorer-note-viewer (min-width: 64rem) {
+  .explorer-note-viewer-shell .note-viewer-layout {
+    max-width: none;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 13rem;
+    column-gap: 2rem;
+    align-items: start;
+  }
+
+  .explorer-note-viewer-shell .note-viewer-main {
+    min-width: 0;
+  }
+
+  .explorer-note-viewer-shell .note-viewer-mobile-toc {
+    display: none !important;
+  }
+
+  .explorer-note-viewer-shell .note-viewer-side-rail {
+    position: sticky;
+    top: 2rem;
+    right: auto;
+    display: block !important;
+    width: 13rem;
+    align-self: start;
+  }
+
+  .explorer-note-viewer-shell .note-viewer-side-rail > div {
+    position: static;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

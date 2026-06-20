@@ -608,7 +608,7 @@ export function ExplorerReader({
   const { page } = state;
   return (
     <div
-      className="animate-in mx-auto w-full max-w-3xl px-4 pt-4 sm:px-6 sm:pt-8 lg:px-8"
+      className="explorer-note-viewer-shell animate-in mx-auto w-full max-w-6xl px-4 pt-4 sm:px-6 sm:pt-8 lg:px-8"
       style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 4rem)" }}
     >
       <NoteViewer
@@ -855,7 +855,7 @@ export function Component() {
                 aria-labelledby={explorerTabId(tab.slug)}
                 tabIndex={active ? 0 : -1}
                 hidden={!active}
-                className="min-h-0 flex-1 overflow-y-auto"
+                className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
                 ref={active ? workspaceScrollRef : undefined}
               >
                 {active ? (
@@ -873,7 +873,7 @@ export function Component() {
           {!workspace.activeSlug ? (
             <div
               ref={workspaceScrollRef}
-              className="min-h-0 flex-1 overflow-y-auto"
+              className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
             >
               <ExplorerReader
                 state={visibleReaderState}

@@ -786,60 +786,86 @@ export function NoteViewer({
         </div>
       </div>
 
-      {filteredHeadings.length > 0 ? (
-        <div className="mb-6 rounded-lg border border-[var(--border)] bg-white px-4 py-3 lg:hidden">
-          <p className="mb-2 text-xs font-medium uppercase tracking-wider text-[var(--muted-foreground)]">
-            On this page
-          </p>
-          <div className="flex flex-wrap gap-x-4 gap-y-1">
-            {filteredHeadings.filter((heading) => heading.level <= 2).map((heading) => (
-              <a
-                key={heading.id}
-                href={`#${heading.id}`}
-                onClick={(event) => handleTocHeadingClick(event, heading.id, scrollContainerRef)}
-                className="text-sm text-[var(--muted-foreground)] transition-colors duration-150 hover:text-[var(--foreground)]"
-              >
-                {heading.text}
-              </a>
-            ))}
-          </div>
+      {filteredHeadings.length > 0 || page.neighbors.length > 0 ? (
+        <div
+          className="note-viewer-mobile-toc mb-6 rounded-lg border border-[var(--border)] bg-white px-4 py-3 lg:hidden"
+          data-note-viewer-mobile-toc="true"
+        >
+          {filteredHeadings.length > 0 ? (
+            <>
+              <p className="mb-2 text-xs font-medium uppercase tracking-wider text-[var(--muted-foreground)]">
+                On this page
+              </p>
+              <div className="flex flex-wrap gap-x-4 gap-y-1">
+                {filteredHeadings.filter((heading) => heading.level <= 2).map((heading) => (
+                  <a
+                    key={heading.id}
+                    href={`#${heading.id}`}
+                    onClick={(event) => handleTocHeadingClick(event, heading.id, scrollContainerRef)}
+                    className="text-sm text-[var(--muted-foreground)] transition-colors duration-150 hover:text-[var(--foreground)]"
+                  >
+                    {heading.text}
+                  </a>
+                ))}
+              </div>
+            </>
+          ) : null}
+          {page.neighbors.length > 0 ? (
+            <div
+              className={`note-viewer-inline-graph hidden ${filteredHeadings.length > 0 ? "mt-4" : ""}`}
+              data-note-viewer-inline-graph="true"
+            >
+              <NeighborhoodGraph
+                currentTitle={page.title}
+                currentCategories={page.categories}
+                neighbors={page.neighbors}
+                onClickNode={navigateToGraphNote}
+                aliases={config.categories.aliases}
+              />
+            </div>
+          ) : null}
         </div>
       ) : null}
 
-      <div className="relative">
-        <article className="prose-wiki leading-[1.8]">
-          <ReactMarkdown
-            rehypePlugins={pageRehypePlugins}
-            remarkPlugins={remarkPlugins}
-            components={markdownComponents}
-          >
-            {mainContent}
-          </ReactMarkdown>
-        </article>
+      <div className="note-viewer-layout relative max-w-3xl">
+        <div className="note-viewer-main min-w-0">
+          <article className="prose-wiki leading-[1.8]">
+            <ReactMarkdown
+              rehypePlugins={pageRehypePlugins}
+              remarkPlugins={remarkPlugins}
+              components={markdownComponents}
+            >
+              {mainContent}
+            </ReactMarkdown>
+          </article>
 
-        {relatedLinks.length > 0 ? (
-          <section id="related-concepts" className="mt-10 scroll-mt-20">
-            <h2 className="font-display mb-4 border-b border-[var(--border)] pb-2 text-xl font-light text-[var(--foreground)]">
-              Related Concepts
-            </h2>
-            <div className="flex flex-wrap gap-2">
-              {relatedLinks.map((link) => (
-                <Link
-                  key={link.href}
-                  to={link.href}
-                  onClick={(event) => {
-                    navigateToRelatedNote(link.href, event);
-                  }}
-                  className="rounded-full border border-[var(--border)] bg-white px-3.5 py-1.5 text-sm transition-[color,background-color,transform] duration-150 hover:bg-[var(--secondary)] active:scale-[0.97]"
-                >
-                  <span className="font-display font-light text-[var(--foreground)]">{link.label}</span>
-                </Link>
-              ))}
-            </div>
-          </section>
-        ) : null}
+          {relatedLinks.length > 0 ? (
+            <section id="related-concepts" className="mt-10 scroll-mt-20">
+              <h2 className="font-display mb-4 border-b border-[var(--border)] pb-2 text-xl font-light text-[var(--foreground)]">
+                Related Concepts
+              </h2>
+              <div className="flex flex-wrap gap-2">
+                {relatedLinks.map((link) => (
+                  <Link
+                    key={link.href}
+                    to={link.href}
+                    onClick={(event) => {
+                      navigateToRelatedNote(link.href, event);
+                    }}
+                    className="rounded-full border border-[var(--border)] bg-white px-3.5 py-1.5 text-sm transition-[color,background-color,transform] duration-150 hover:bg-[var(--secondary)] active:scale-[0.97]"
+                  >
+                    <span className="font-display font-light text-[var(--foreground)]">{link.label}</span>
+                  </Link>
+                ))}
+              </div>
+            </section>
+          ) : null}
+        </div>
 
-        <aside className="absolute -right-60 top-0 hidden w-52 xl:block">
+        <aside
+          className="note-viewer-side-rail absolute -right-60 top-0 hidden w-52 xl:block"
+          data-note-viewer-side-rail="true"
+        >
           <div className="sticky top-8">
             {filteredHeadings.length > 0 ? (
               <TableOfContents

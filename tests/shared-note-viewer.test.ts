@@ -369,6 +369,14 @@ describe("shared note viewer rendering and route boundaries", () => {
       fileURLToPath(new URL("../src/client/routes/explorer-route.tsx", import.meta.url)),
       "utf8",
     );
+    const globalsSource = readFileSync(
+      fileURLToPath(new URL("../src/client/globals.css", import.meta.url)),
+      "utf8",
+    );
+    const viewerSource = readFileSync(
+      fileURLToPath(new URL("../src/components/note-viewer.tsx", import.meta.url)),
+      "utf8",
+    );
 
     expect(routeSource).toContain('from "@/components/note-viewer"');
     expect(routeSource).toContain("<NoteViewer");
@@ -376,10 +384,19 @@ describe("shared note viewer rendering and route boundaries", () => {
     expect(routeSource).toContain("onNavigateNote={onWikiLink}");
     expect(routeSource).toContain("onRefreshPage={refreshActivePage}");
     expect(routeSource).toContain("scrollContainerRef={workspaceScrollRef}");
+    expect(routeSource).toContain("explorer-note-viewer-shell");
     expect(routeSource).not.toContain("ReactMarkdown");
     expect(routeSource).not.toContain("type Components");
     expect(routeSource).not.toContain("markdownBaseComponents");
     expect(routeSource).not.toContain("const markdownComponents = useMemo<Components>");
+    expect(viewerSource).toContain('data-note-viewer-mobile-toc="true"');
+    expect(viewerSource).toContain('data-note-viewer-side-rail="true"');
+    expect(viewerSource).toContain('data-note-viewer-inline-graph="true"');
+    expect(globalsSource).toContain("@container explorer-note-viewer");
+    expect(globalsSource).toContain(".explorer-note-viewer-shell");
+    expect(globalsSource).toContain(".note-viewer-mobile-toc");
+    expect(globalsSource).toContain(".note-viewer-side-rail");
+    expect(globalsSource).toContain(".note-viewer-inline-graph");
   });
 
   it("only applies refreshed explorer pages while the same slug is still active", () => {
@@ -393,5 +410,17 @@ describe("shared note viewer rendering and route boundaries", () => {
     expect(
       applyExplorerRefreshResult("history/Analytical%20Engine", "people/Ada%20Lovelace", samplePage),
     ).toBeNull();
+  });
+
+  it("keeps refresh failures local to NoteViewer instead of replacing the ready reader state", () => {
+    const routeSource = readFileSync(
+      fileURLToPath(new URL("../src/client/routes/explorer-route.tsx", import.meta.url)),
+      "utf8",
+    );
+
+    expect(routeSource).toMatch(
+      /const refreshActivePage = useCallback\(async \(\) => \{[\s\S]*?catch \(error\) \{[\s\S]*?throw error;[\s\S]*?\}\s*,?\s*\}, \[navigate\]\);/u,
+    );
+    expect(routeSource).not.toContain('setReaderState({ slug, status: "error" })');
   });
 });
