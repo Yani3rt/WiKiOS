@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import { createElement } from "react";
+import { createElement, type RefObject } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
@@ -10,9 +10,11 @@ import { WikiConfigProvider } from "../src/client/wiki-config";
 import {
   NoteViewer,
   getActiveHeadingId,
-  getScrollRoot,
   navigateGraphNode,
   routeWikiLinkClick,
+  scrollToHeading,
+  shouldInterceptWikiLinkClick,
+  resolveHeadingTarget,
   savePersonOverride,
   scrollHeadingIntoView,
 } from "../src/components/note-viewer";
@@ -41,16 +43,88 @@ const samplePage: WikiPageData = {
 };
 
 describe("shared note viewer behavioral helpers", () => {
-  it("routes internal wiki links through the navigation callback and ignores external links", () => {
+  it("intercepts an ordinary self-targeted wiki click", () => {
+    expect(
+      shouldInterceptWikiLinkClick({
+        href: "/wiki/history/Analytical%20Engine",
+        origin: "https://wiki.local",
+        target: undefined,
+        download: undefined,
+        event: {
+          defaultPrevented: false,
+          button: 0,
+          metaKey: false,
+          ctrlKey: false,
+          shiftKey: false,
+          altKey: false,
+          preventDefault() {},
+        },
+      }),
+    ).toBe(true);
+  });
+
+  it.each([
+    ["already prevented", { defaultPrevented: true }],
+    ["middle click", { button: 1 }],
+    ["meta click", { metaKey: true }],
+    ["ctrl click", { ctrlKey: true }],
+    ["shift click", { shiftKey: true }],
+    ["alt click", { altKey: true }],
+  ])("bypasses callback interception for %s", (_, eventPatch) => {
+    expect(
+      shouldInterceptWikiLinkClick({
+        href: "/wiki/history/Analytical%20Engine",
+        origin: "https://wiki.local",
+        target: undefined,
+        download: undefined,
+        event: {
+          defaultPrevented: false,
+          button: 0,
+          metaKey: false,
+          ctrlKey: false,
+          shiftKey: false,
+          altKey: false,
+          preventDefault() {},
+          ...eventPatch,
+        },
+      }),
+    ).toBe(false);
+  });
+
+  it.each([
+    ["download attribute", { download: "" }],
+    ["non-self target", { target: "_blank" }],
+    ["external origin", { href: "https://example.com/wiki/Elsewhere" }],
+  ])("bypasses callback interception for %s", (_, optionPatch) => {
+    expect(
+      shouldInterceptWikiLinkClick({
+        href: "/wiki/history/Analytical%20Engine",
+        origin: "https://wiki.local",
+        target: undefined,
+        download: undefined,
+        event: {
+          defaultPrevented: false,
+          button: 0,
+          metaKey: false,
+          ctrlKey: false,
+          shiftKey: false,
+          altKey: false,
+          preventDefault() {},
+        },
+        ...optionPatch,
+      }),
+    ).toBe(false);
+  });
+
+  it("routes ordinary internal wiki clicks through the navigation callback with literal-percent slugs preserved", () => {
     const navigated: string[] = [];
-    const internalEvent = {
+    const event = {
       defaultPrevented: false,
-      preventDefault() {
-        this.defaultPrevented = true;
-      },
-    };
-    const externalEvent = {
-      defaultPrevented: false,
+      button: 0,
+      metaKey: false,
+      ctrlKey: false,
+      shiftKey: false,
+      altKey: false,
       preventDefault() {
         this.defaultPrevented = true;
       },
@@ -60,23 +134,42 @@ describe("shared note viewer behavioral helpers", () => {
       routeWikiLinkClick({
         href: "/wiki/Literal%2520Name",
         origin: "https://wiki.local",
+        target: undefined,
+        download: undefined,
         onNavigateNote: (slug) => navigated.push(slug),
-        event: internalEvent,
+        event,
       }),
     ).toBe(true);
-    expect(internalEvent.defaultPrevented).toBe(true);
+    expect(event.defaultPrevented).toBe(true);
     expect(navigated).toEqual(["Literal%2520Name"]);
+  });
+
+  it("does not prevent default or navigate for bypassed clicks", () => {
+    const navigated: string[] = [];
+    const event = {
+      defaultPrevented: false,
+      button: 0,
+      metaKey: true,
+      ctrlKey: false,
+      shiftKey: false,
+      altKey: false,
+      preventDefault() {
+        this.defaultPrevented = true;
+      },
+    };
 
     expect(
       routeWikiLinkClick({
-        href: "https://example.com/wiki/Elsewhere",
+        href: "/wiki/Literal%2520Name",
         origin: "https://wiki.local",
+        target: undefined,
+        download: undefined,
         onNavigateNote: (slug) => navigated.push(slug),
-        event: externalEvent,
+        event,
       }),
     ).toBe(false);
-    expect(externalEvent.defaultPrevented).toBe(false);
-    expect(navigated).toEqual(["Literal%2520Name"]);
+    expect(event.defaultPrevented).toBe(false);
+    expect(navigated).toEqual([]);
   });
 
   it("delegates graph-node navigation through canonical wiki slugs", () => {
@@ -85,26 +178,66 @@ describe("shared note viewer behavioral helpers", () => {
     expect(navigated).toEqual(["people/Ada%20Lovelace"]);
   });
 
-  it("uses a custom scroll root when present and falls back to viewport behavior", () => {
-    const scrollIntoView = vi.fn();
-    const target = {
-      getBoundingClientRect: () => ({ top: 180 }),
-      scrollIntoView,
-    };
-    const scrollTo = vi.fn();
+  it("resolves heading targets within a custom scroll root before falling back to the document", () => {
+    const containerTarget = { id: "deep-dive", scrollIntoView() {} };
+    const documentTarget = { id: "deep-dive", scrollIntoView() {} };
     const scrollRoot = {
-      scrollTop: 40,
-      getBoundingClientRect: () => ({ top: 20 }),
-      scrollTo,
+      querySelector: vi.fn().mockReturnValue(containerTarget),
+    };
+    const doc = {
+      getElementById: vi.fn().mockReturnValue(documentTarget),
     };
 
-    expect(getScrollRoot({ current: scrollRoot })).toBe(scrollRoot);
-    scrollHeadingIntoView(target, scrollRoot);
-    expect(scrollTo).toHaveBeenCalledWith({ top: 176, behavior: "smooth" });
+    expect(resolveHeadingTarget("deep-dive", scrollRoot, doc)).toBe(containerTarget);
+    expect(scrollRoot.querySelector).toHaveBeenCalledWith("#deep-dive");
+    expect(doc.getElementById).not.toHaveBeenCalled();
+  });
 
-    expect(getScrollRoot(undefined)).toBeNull();
-    scrollHeadingIntoView(target, null);
-    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "start" });
+  it("falls back to document heading lookup when no custom scroll target exists", () => {
+    const documentTarget = { id: "deep-dive", scrollIntoView() {} };
+    const scrollRoot = {
+      querySelector: vi.fn().mockReturnValue(null),
+    };
+    const doc = {
+      getElementById: vi.fn().mockReturnValue(documentTarget),
+    };
+
+    expect(resolveHeadingTarget("deep-dive", scrollRoot, doc)).toBe(documentTarget);
+    expect(doc.getElementById).toHaveBeenCalledWith("deep-dive");
+  });
+
+  it("scrolls heading targets into view for viewport and custom scroll containers", () => {
+    const viewportTarget = {
+      scrollIntoView: vi.fn(),
+    };
+    const customTarget = {
+      scrollIntoView: vi.fn(),
+    };
+    const scrollRoot = {
+      scrollTo: vi.fn(),
+    };
+
+    scrollHeadingIntoView(viewportTarget, null);
+    scrollHeadingIntoView(customTarget, scrollRoot);
+
+    expect(viewportTarget.scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "start" });
+    expect(customTarget.scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "start" });
+    expect(scrollRoot.scrollTo).not.toHaveBeenCalled();
+  });
+
+  it("resolves a heading by id and scrolls it into view", () => {
+    const target = {
+      scrollIntoView: vi.fn(),
+    };
+    const scrollRoot = {
+      querySelector: vi.fn().mockReturnValue(target),
+    };
+    const doc = {
+      getElementById: vi.fn(),
+    };
+
+    scrollToHeading("deep-dive", { current: scrollRoot } as unknown as RefObject<HTMLElement>, doc);
+    expect(target.scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "start" });
   });
 
   it("computes the active heading relative to a custom root or the viewport", () => {

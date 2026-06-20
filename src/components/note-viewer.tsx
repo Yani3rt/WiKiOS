@@ -118,23 +118,56 @@ export function wikiSlugFromHref(href: string | undefined, origin: string) {
 
 interface LinkNavigationEvent {
   defaultPrevented: boolean;
+  button?: number;
+  metaKey?: boolean;
+  ctrlKey?: boolean;
+  shiftKey?: boolean;
+  altKey?: boolean;
   preventDefault(): void;
+}
+
+interface WikiLinkClickBehaviorOptions {
+  href: string | undefined;
+  origin: string;
+  target?: string | null;
+  download?: string | boolean | null;
+  event: LinkNavigationEvent;
 }
 
 interface RouteWikiLinkClickOptions {
   href: string | undefined;
   origin: string;
+  target?: string | null;
+  download?: string | boolean | null;
   onNavigateNote: (slug: string) => void;
   event: LinkNavigationEvent;
+}
+
+export function shouldInterceptWikiLinkClick({
+  href,
+  origin,
+  target,
+  download,
+  event,
+}: WikiLinkClickBehaviorOptions) {
+  if (event.defaultPrevented) return false;
+  if (event.button !== undefined && event.button !== 0) return false;
+  if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return false;
+  if (download !== undefined && download !== null && download !== false) return false;
+  if (target && target.toLowerCase() !== "_self") return false;
+
+  return wikiSlugFromHref(href, origin) !== null;
 }
 
 export function routeWikiLinkClick({
   href,
   origin,
+  target,
+  download,
   onNavigateNote,
   event,
 }: RouteWikiLinkClickOptions) {
-  if (event.defaultPrevented) return false;
+  if (!shouldInterceptWikiLinkClick({ href, origin, target, download, event })) return false;
 
   const slug = wikiSlugFromHref(href, origin);
   if (!slug) return false;
@@ -186,48 +219,67 @@ export async function savePersonOverride({
   await onRefreshPage?.();
 }
 
-interface ScrollRectLike {
-  top: number;
-}
-
-interface ScrollContainerLike {
-  scrollTop: number;
-  getBoundingClientRect(): ScrollRectLike;
-  scrollTo(options: { top: number; behavior: "smooth" | "auto" }): void;
-}
-
 interface ScrollTargetLike {
-  getBoundingClientRect(): ScrollRectLike;
   scrollIntoView(options: { behavior: "smooth"; block: "start" }): void;
 }
 
 interface HeadingElementLike {
   id: string;
-  getBoundingClientRect(): ScrollRectLike;
+  getBoundingClientRect(): { top: number };
+}
+
+interface ScrollRootRectLike {
+  getBoundingClientRect(): { top: number };
+}
+
+interface HeadingLookupRootLike {
+  querySelector(selector: string): ScrollTargetLike | null;
+}
+
+interface HeadingLookupDocumentLike {
+  getElementById(id: string): ScrollTargetLike | null;
 }
 
 export function getScrollRoot<T>(scrollContainerRef?: RefObject<T | null>): T | null {
   return scrollContainerRef?.current ?? null;
 }
 
-export function scrollHeadingIntoView(
-  target: ScrollTargetLike,
-  scrollRoot: ScrollContainerLike | null,
-) {
-  if (!scrollRoot) {
-    target.scrollIntoView({ behavior: "smooth", block: "start" });
-    return;
+function escapeHeadingSelector(id: string) {
+  if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
+    return CSS.escape(id);
   }
+  return id.replace(/([ !"#$%&'()*+,./:;<=>?@[\\\]^`{|}~])/g, "\\$1");
+}
 
-  const rootRect = scrollRoot.getBoundingClientRect();
-  const targetRect = target.getBoundingClientRect();
-  const top = scrollRoot.scrollTop + targetRect.top - rootRect.top - 24;
-  scrollRoot.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+export function resolveHeadingTarget(
+  id: string,
+  scrollRoot: HeadingLookupRootLike | null,
+  doc: HeadingLookupDocumentLike = document,
+) {
+  const rootTarget = scrollRoot?.querySelector(`#${escapeHeadingSelector(id)}`) ?? null;
+  return rootTarget ?? doc.getElementById(id);
+}
+
+export function scrollHeadingIntoView(target: ScrollTargetLike, _scrollRoot?: unknown) {
+  void _scrollRoot;
+  target.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+export function scrollToHeading(
+  id: string,
+  scrollContainerRef?: RefObject<HTMLElement | null>,
+  doc: HeadingLookupDocumentLike = document,
+) {
+  const scrollRoot = getScrollRoot(scrollContainerRef);
+  const target = resolveHeadingTarget(id, scrollRoot, doc);
+  if (!target) return;
+
+  scrollHeadingIntoView(target, scrollRoot);
 }
 
 export function getActiveHeadingId(
   elements: HeadingElementLike[],
-  scrollRoot: Pick<ScrollContainerLike, "getBoundingClientRect"> | null,
+  scrollRoot: ScrollRootRectLike | null,
 ) {
   if (elements.length === 0) return null;
 
@@ -242,11 +294,13 @@ export function getActiveHeadingId(
   return current;
 }
 
-function scrollToHeading(id: string, scrollContainerRef?: RefObject<HTMLElement | null>) {
-  const target = document.getElementById(id);
-  if (!target) return;
-
-  scrollHeadingIntoView(target, getScrollRoot(scrollContainerRef));
+export function handleTocHeadingClick(
+  event: LinkNavigationEvent,
+  id: string,
+  scrollContainerRef?: RefObject<HTMLElement | null>,
+) {
+  event.preventDefault();
+  scrollToHeading(id, scrollContainerRef);
 }
 
 function TableOfContents({
@@ -269,10 +323,7 @@ function TableOfContents({
         <a
           key={h.id}
           href={`#${h.id}`}
-          onClick={(event) => {
-            event.preventDefault();
-            scrollToHeading(h.id, scrollContainerRef);
-          }}
+          onClick={(event) => handleTocHeadingClick(event, h.id, scrollContainerRef)}
           className={`toc-item block text-[13px] leading-snug transition-colors duration-150 ${
             h.level === 3 ? "pl-3" : h.level >= 4 ? "pl-6" : ""
           } ${
@@ -618,12 +669,15 @@ export function NoteViewer({
       li: (props) => <li className="mb-1.5" {...props} />,
       blockquote: (props) => <blockquote className="my-4" {...props} />,
       a: ({ href, onClick, ...props }) => {
+        const { target, download } = props;
         const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
           onClick?.(event);
           if (typeof window === "undefined") return;
           routeWikiLinkClick({
             href,
             origin: window.location.origin,
+            target,
+            download,
             onNavigateNote: onNavigateNoteRef.current,
             event,
           });
@@ -742,10 +796,7 @@ export function NoteViewer({
               <a
                 key={heading.id}
                 href={`#${heading.id}`}
-                onClick={(event) => {
-                  event.preventDefault();
-                  scrollToHeading(heading.id, scrollContainerRef);
-                }}
+                onClick={(event) => handleTocHeadingClick(event, heading.id, scrollContainerRef)}
                 className="text-sm text-[var(--muted-foreground)] transition-colors duration-150 hover:text-[var(--foreground)]"
               >
                 {heading.text}
