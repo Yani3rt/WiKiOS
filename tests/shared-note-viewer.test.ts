@@ -18,6 +18,7 @@ import {
   savePersonOverride,
   scrollHeadingIntoView,
 } from "../src/components/note-viewer";
+import { applyExplorerRefreshResult } from "../src/client/routes/explorer-route";
 import { createRevalidationRefreshController } from "../src/client/routes/wiki-route";
 import { DEFAULT_WIKI_OS_CONFIG } from "../src/lib/wiki-config";
 import type { WikiPageData } from "../src/lib/wiki-shared";
@@ -361,5 +362,36 @@ describe("shared note viewer rendering and route boundaries", () => {
     expect(routeSource).not.toContain("NeighborhoodGraph");
     expect(routeSource).not.toContain("Mark as person");
     expect(routeSource).not.toContain("ReactMarkdown");
+  });
+
+  it("reuses the shared NoteViewer inside explorer ready tabs without local markdown rendering", () => {
+    const routeSource = readFileSync(
+      fileURLToPath(new URL("../src/client/routes/explorer-route.tsx", import.meta.url)),
+      "utf8",
+    );
+
+    expect(routeSource).toContain('from "@/components/note-viewer"');
+    expect(routeSource).toContain("<NoteViewer");
+    expect(routeSource).toContain("page={page}");
+    expect(routeSource).toContain("onNavigateNote={onWikiLink}");
+    expect(routeSource).toContain("onRefreshPage={refreshActivePage}");
+    expect(routeSource).toContain("scrollContainerRef={workspaceScrollRef}");
+    expect(routeSource).not.toContain("ReactMarkdown");
+    expect(routeSource).not.toContain("type Components");
+    expect(routeSource).not.toContain("markdownBaseComponents");
+    expect(routeSource).not.toContain("const markdownComponents = useMemo<Components>");
+  });
+
+  it("only applies refreshed explorer pages while the same slug is still active", () => {
+    expect(
+      applyExplorerRefreshResult("people/Ada%20Lovelace", "people/Ada%20Lovelace", samplePage),
+    ).toEqual({
+      slug: "people/Ada%20Lovelace",
+      status: "ready",
+      page: samplePage,
+    });
+    expect(
+      applyExplorerRefreshResult("history/Analytical%20Engine", "people/Ada%20Lovelace", samplePage),
+    ).toBeNull();
   });
 });

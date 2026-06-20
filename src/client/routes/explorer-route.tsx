@@ -15,7 +15,6 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
-  type MouseEvent,
   type RefObject,
 } from "react";
 import {
@@ -24,10 +23,8 @@ import {
   useNavigate,
   useParams,
 } from "react-router-dom";
-import ReactMarkdown, { type Components } from "react-markdown";
-import rehypeHighlight from "rehype-highlight";
-import remarkGfm from "remark-gfm";
 import { Link } from "react-router-dom";
+import { NoteViewer } from "@/components/note-viewer";
 import type { ExplorerPage, WikiPageData } from "@/lib/wiki-shared";
 
 import { fetchJson, isSetupRequiredResponse } from "../api";
@@ -48,17 +45,6 @@ import {
   type ExplorerWorkspace,
 } from "../explorer-model";
 import { RouteErrorBoundary } from "../route-error-boundary";
-
-const remarkPlugins = [remarkGfm];
-const rehypePlugins = [rehypeHighlight];
-const markdownBaseComponents: Components = {
-  h1: (props) => <h1 className="mb-4 scroll-mt-20 text-3xl" {...props} />,
-  h2: (props) => <h2 className="font-display mb-3 mt-10 scroll-mt-20 text-xl" {...props} />,
-  h3: (props) => <h3 className="font-display mb-2 mt-7 scroll-mt-20 text-lg" {...props} />,
-  p: (props) => <p className="mb-4 leading-[1.8]" {...props} />,
-  ul: (props) => <ul className="mb-4 list-disc pl-6 leading-[1.8]" {...props} />,
-  ol: (props) => <ol className="mb-4 list-decimal pl-6 leading-[1.8]" {...props} />,
-};
 
 type ReaderState =
   | { slug: null; status: "idle" }
@@ -179,18 +165,17 @@ function explorerPanelId(slug: string) {
   return `explorer-panel-${encodeURIComponent(slug)}`;
 }
 
-function decodeMarkdownLinkSlug(encodedSlug: string) {
-  return encodedSlug
-    .split("/")
-    .filter(Boolean)
-    .map((part) => {
-      try {
-        return decodeURIComponent(part);
-      } catch {
-        return part;
-      }
-    })
-    .join("/");
+export async function loadPage(slug: string, signal?: AbortSignal) {
+  return fetchJson<WikiPageData>(`/api/wiki/${encodeExplorerApiSlug(slug)}`, { signal });
+}
+
+export function applyExplorerRefreshResult(
+  activeSlug: string | null,
+  requestSlug: string,
+  page: WikiPageData,
+): ReaderState | null {
+  if (activeSlug !== requestSlug) return null;
+  return { slug: requestSlug, status: "ready", page };
 }
 
 function folderAncestorsForSlug(slug: string | null) {
@@ -289,14 +274,6 @@ function readStoredWorkspace(): ExplorerWorkspace {
   } catch {
     return EMPTY_EXPLORER_WORKSPACE;
   }
-}
-
-function formatDate(timestamp: number) {
-  return new Date(timestamp).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
 }
 
 export async function loader() {
@@ -614,38 +591,15 @@ export function ExplorerReader({
   state,
   hasTabs,
   onWikiLink,
+  onRefreshPage,
+  workspaceScrollRef,
 }: {
   state: ReaderState;
   hasTabs: boolean;
   onWikiLink: (slug: string) => void;
+  onRefreshPage: () => Promise<void>;
+  workspaceScrollRef: RefObject<HTMLElement | null>;
 }) {
-  const onWikiLinkRef = useRef(onWikiLink);
-
-  useEffect(() => {
-    onWikiLinkRef.current = onWikiLink;
-  }, [onWikiLink]);
-
-  const markdownComponents = useMemo<Components>(
-    () => ({
-      ...markdownBaseComponents,
-      a: ({ href, onClick, ...props }) => {
-        const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
-          onClick?.(event);
-          if (event.defaultPrevented || !href) return;
-          const url = new URL(href, window.location.origin);
-          if (url.origin === window.location.origin && url.pathname.startsWith("/wiki/")) {
-            event.preventDefault();
-            onWikiLinkRef.current(
-              decodeMarkdownLinkSlug(url.pathname.slice("/wiki/".length)),
-            );
-          }
-        };
-        return <a href={href} onClick={handleClick} {...props} />;
-      },
-    }),
-    [],
-  );
-
   if (state.status === "idle") return <ExplorerEmptyState hasTabs={hasTabs} />;
   if (state.status === "loading") return <p className="p-8 text-sm text-[var(--muted-foreground)]">Loading note…</p>;
   if (state.status === "missing") return <p className="p-8">This note could not be found.</p>;
@@ -653,31 +607,17 @@ export function ExplorerReader({
 
   const { page } = state;
   return (
-    <article className="mx-auto w-full max-w-4xl px-6 py-8 md:px-10">
-      <header className="mb-8 border-b border-[var(--border)] pb-6">
-        <h2 className="font-display text-3xl">{page.title}</h2>
-        <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-xs text-[var(--muted-foreground)]">
-          <span>{page.fileName}</span>
-          <time dateTime={new Date(page.modifiedAt).toISOString()}>{formatDate(page.modifiedAt)}</time>
-        </div>
-        {page.categories.length > 0 ? (
-          <ul className="mt-4 flex flex-wrap gap-2" aria-label="Categories">
-            {page.categories.map((category) => (
-              <li key={category} className="rounded-full bg-[var(--muted)] px-2.5 py-1 text-xs">{category}</li>
-            ))}
-          </ul>
-        ) : null}
-      </header>
-      <div className="prose prose-neutral max-w-none dark:prose-invert">
-        <ReactMarkdown
-          remarkPlugins={remarkPlugins}
-          rehypePlugins={rehypePlugins}
-          components={markdownComponents}
-        >
-          {page.contentMarkdown}
-        </ReactMarkdown>
-      </div>
-    </article>
+    <div
+      className="animate-in mx-auto w-full max-w-3xl px-4 pt-4 sm:px-6 sm:pt-8 lg:px-8"
+      style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 4rem)" }}
+    >
+      <NoteViewer
+        page={page}
+        onNavigateNote={onWikiLink}
+        onRefreshPage={onRefreshPage}
+        scrollContainerRef={workspaceScrollRef}
+      />
+    </div>
   );
 }
 
@@ -693,6 +633,8 @@ export function Component() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [readerState, setReaderState] = useState<ReaderState>({ slug: null, status: "idle" });
   const workspaceRef = useRef<HTMLElement>(null);
+  const workspaceScrollRef = useRef<HTMLDivElement>(null);
+  const workspaceStateRef = useRef(workspace);
   const sidebarRef = useRef<HTMLElement>(null);
   const toggleButtonRef = useRef<HTMLButtonElement>(null);
   const filterInputRef = useRef<HTMLInputElement>(null);
@@ -703,6 +645,10 @@ export function Component() {
   const sidebarModalActive = isExplorerModalActive(sidebarOpen, isDesktopSidebar);
 
   useEffect(() => setHydrated(true), []);
+
+  useEffect(() => {
+    workspaceStateRef.current = workspace;
+  }, [workspace]);
 
   useEffect(() => {
     if (!sidebarOpen) return;
@@ -770,14 +716,22 @@ export function Component() {
 
     const controller = new AbortController();
     setReaderState({ slug, status: "loading" });
-    fetchJson<WikiPageData>(`/api/wiki/${encodeExplorerApiSlug(slug)}`, { signal: controller.signal })
-      .then((page) => setReaderState({ slug, status: "ready", page }))
+    loadPage(slug, controller.signal)
+      .then((page) => {
+        const nextState = applyExplorerRefreshResult(
+          workspaceStateRef.current.activeSlug,
+          slug,
+          page,
+        );
+        if (nextState) setReaderState(nextState);
+      })
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
         if (isSetupRequiredResponse(error)) {
           navigate("/setup");
           return;
         }
+        if (workspaceStateRef.current.activeSlug !== slug) return;
         setReaderState(
           error instanceof Response && error.status === 404
             ? { slug, status: "missing" }
@@ -786,6 +740,30 @@ export function Component() {
       });
     return () => controller.abort();
   }, [navigate, workspace.activeSlug]);
+
+  useEffect(() => {
+    workspaceScrollRef.current?.scrollTo({ top: 0, behavior: "auto" });
+  }, [workspace.activeSlug]);
+
+  const refreshActivePage = useCallback(async () => {
+    const slug = workspaceStateRef.current.activeSlug;
+    if (!slug) return;
+
+    try {
+      const page = await loadPage(slug);
+      const nextState = applyExplorerRefreshResult(
+        workspaceStateRef.current.activeSlug,
+        slug,
+        page,
+      );
+      if (nextState) setReaderState(nextState);
+    } catch (error) {
+      if (isSetupRequiredResponse(error)) {
+        navigate("/setup");
+      }
+      throw error;
+    }
+  }, [navigate]);
 
   const transitionAndNavigate = useCallback(
     (transition: (current: ExplorerWorkspace) => ExplorerWorkspace) => {
@@ -878,23 +856,31 @@ export function Component() {
                 tabIndex={active ? 0 : -1}
                 hidden={!active}
                 className="min-h-0 flex-1 overflow-y-auto"
+                ref={active ? workspaceScrollRef : undefined}
               >
                 {active ? (
                   <ExplorerReader
                     state={visibleReaderState}
                     hasTabs
                     onWikiLink={selectSlug}
+                    onRefreshPage={refreshActivePage}
+                    workspaceScrollRef={workspaceScrollRef}
                   />
                 ) : null}
               </div>
             );
           })}
           {!workspace.activeSlug ? (
-            <div className="min-h-0 flex-1 overflow-y-auto">
+            <div
+              ref={workspaceScrollRef}
+              className="min-h-0 flex-1 overflow-y-auto"
+            >
               <ExplorerReader
                 state={visibleReaderState}
                 hasTabs={workspace.tabs.length > 0}
                 onWikiLink={selectSlug}
+                onRefreshPage={refreshActivePage}
+                workspaceScrollRef={workspaceScrollRef}
               />
             </div>
           ) : null}
