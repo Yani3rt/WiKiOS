@@ -2,7 +2,7 @@
 
 WikiOS turns an Obsidian vault into a local web app. It lets you browse notes through a homepage, search, article pages, a graph view, and stats.
 
-Built by [Ansub](http://twitter.com/ansubkhan), co-founder of [Supafast](https://withsupafast.com/?utm_source=github&utm_medium=readme&utm_campaign=wikios) - we build websites for B2B SaaS & AI companies.
+This repository is maintained at [Yani3rt/WiKiOS](https://github.com/Yani3rt/WiKiOS).
 
 
 <img width="3024" height="1324" alt="CleanShot 2026-04-12 at 21 10 31@2x" src="https://github.com/user-attachments/assets/86ca9f3e-db4b-4a21-96bc-fe18ba346ece" />
@@ -13,27 +13,70 @@ Built by [Ansub](http://twitter.com/ansubkhan), co-founder of [Supafast](https:/
 - Builds a local searchable index
 - Gives you a clean web interface for exploring your notes
 - Watches the vault for changes and updates the index automatically
+- Lets you switch vaults later from the in-app setup flow
 
 ## How to get started
 
 Clone and launch:
 
 ```bash
-git clone https://github.com/Ansub/wiki-os.git wiki-os && cd wiki-os && npm run first-run
+git clone https://github.com/Yani3rt/WiKiOS.git wiki-os && cd wiki-os && npm run first-run
 ```
 
 WikiOS will open in your browser and guide you through choosing a vault. You can also use the bundled demo vault on first run.
 
 ## Features
 
-- Homepage with featured notes, recent notes, and people highlights
-- Fast local search
-- Clean article pages
-- Graph view
+- Homepage with featured notes, recent notes, topic sections, and people highlights
+- Global command palette (`⌘K` / `Ctrl+K`) with recent notes and instant note search
+- Fast local search on the homepage
+- Full note viewer with:
+  - table of contents
+  - connected / related notes
+  - reading metadata
+  - person controls
+  - Mermaid diagram rendering
+  - polished Markdown tables
+  - copy buttons on fenced code blocks
+- Dedicated Wiki Explorer with:
+  - searchable folder tree
+  - folder expand / collapse controls
+  - desktop hide / show sidebar controls
+  - persistent tabbed reading workspace
+  - shared note viewer that matches direct wiki pages
+- Graph view with topic-based node coloring
 - Stats view
 - Manual reindex support
 - Automatic file watching
 - Local-first setup with no cloud requirement
+
+## Note categories and topics
+
+WikiOS derives note categories from three sources, in this order:
+
+1. frontmatter
+2. folder path
+3. content heuristics (only when the first two do not provide topics)
+
+By default, these frontmatter keys are treated as note categories:
+
+- `tags`
+- `topics`
+- `topic`
+- `category`
+- `categories`
+
+Example:
+
+```md
+---
+tags:
+  - philosophy
+  - writing
+---
+```
+
+Folder names can also become note topics. By default, WikiOS uses up to two folder levels and ignores structural folders such as `notes/`, `topics/`, `docs/`, and `sources/`.
 
 ### Docker
 
@@ -91,6 +134,14 @@ npm run dev
 
 `dev` runs a split frontend/backend setup for faster iteration.
 
+During development, Setup can be used to switch to a different vault later at:
+
+```bash
+http://localhost:5211/setup?change=1
+```
+
+If you started the app with `WIKIOS_FORCE_WIKI_ROOT`, vault switching is intentionally locked for that process until you restart without it.
+
 ## Folder structure
 
 - `src/client/` contains the React app, routes, and UI components
@@ -138,6 +189,15 @@ You can customize this in `wiki-os.config.ts` with `people.mode`:
 - `off` hides People entirely
 
 Local person overrides are saved in `~/.wiki-os/config.json` and do not rewrite your notes.
+
+### Explorer and note experience
+
+WikiOS now has two complementary reading flows:
+
+- `/wiki/:slug` for direct note pages
+- `/explorer/:slug` for a tabbed browsing workspace
+
+Both routes share the same note viewer, so note presentation stays consistent across the app.
 
 ## License
 
