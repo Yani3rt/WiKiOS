@@ -1,10 +1,15 @@
 import {
+  Children,
+  type ComponentPropsWithoutRef,
+  isValidElement,
+  useId,
   useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
   type MouseEvent,
+  type ReactNode,
   type RefObject,
 } from "react";
 import { Link } from "react-router-dom";
@@ -14,6 +19,7 @@ import remarkGfm from "remark-gfm";
 
 import { usePersonImage } from "@/client/use-person-image";
 import { useWikiConfig } from "@/client/wiki-config";
+import { createHeadingId } from "@/lib/markdown";
 import { getTopicColor, type TopicAliasConfig } from "@/lib/wiki-config";
 import type { WikiHeading, WikiNeighbor, WikiPageData } from "@/lib/wiki-shared";
 
@@ -42,6 +48,14 @@ interface MiniNode {
   isCenter: boolean;
 }
 
+type ClipboardWriter = (text: string) => Promise<void>;
+type CodeBlockPreProps = ComponentPropsWithoutRef<"pre"> & {
+  node?: unknown;
+  children?: ReactNode;
+};
+
+let mermaidModulePromise: Promise<typeof import("mermaid")> | null = null;
+
 function formatDate(timestamp: number) {
   return new Date(timestamp).toLocaleDateString("en-US", {
     month: "short",
@@ -57,6 +71,195 @@ function estimateReadingTime(markdown: string) {
 
 function wordCount(markdown: string) {
   return markdown.trim().split(/\s+/).length;
+}
+
+function markdownNodeText(node: ReactNode): string {
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(markdownNodeText).join("");
+  if (isValidElement<{ children?: ReactNode }>(node)) {
+    return markdownNodeText(node.props.children);
+  }
+  return "";
+}
+
+function renderedHeadingId(children: ReactNode, existingId?: string) {
+  return existingId ?? createHeadingId(markdownNodeText(children));
+}
+
+function looksLikeAsciiDiagramBlock(text: string) {
+  const lines = text.split("\n").filter((line) => line.trim().length > 0);
+  if (lines.length < 3) return false;
+
+  const treeLines = lines.filter((line) => /[│├└─]/u.test(line));
+  const commentedLines = lines.filter((line) => / {2,}#\s/u.test(line));
+  const pathLines = lines.filter((line) => /\/$|\.md(?:\s|$)/u.test(line.trim()));
+
+  return treeLines.length >= 2 && (commentedLines.length >= 1 || pathLines.length >= 3);
+}
+
+function codeBlockLanguage(children: ReactNode) {
+  const codeChild = Children.toArray(children).find(isValidElement);
+  if (!isValidElement<{ className?: string }>(codeChild)) return null;
+
+  return codeChild.props.className?.match(/(?:^|\s)language-([^\s]+)/u)?.[1] ?? null;
+}
+
+export function renderedCodeBlockText(children: ReactNode) {
+  const codeChild = Children.toArray(children).find(isValidElement);
+  if (!isValidElement<{ children?: ReactNode }>(codeChild)) return markdownNodeText(children);
+
+  return markdownNodeText(codeChild.props.children);
+}
+
+export async function copyCodeBlockText(codeText: string, writeText: ClipboardWriter) {
+  await writeText(codeText);
+}
+
+async function loadMermaid() {
+  if (!mermaidModulePromise) {
+    mermaidModulePromise = import("mermaid").then((module) => {
+      module.default.initialize({
+        startOnLoad: false,
+        securityLevel: "strict",
+        theme: "default",
+      });
+      return module;
+    });
+  }
+
+  return mermaidModulePromise;
+}
+
+function MermaidBlock({ codeText }: { codeText: string }) {
+  const [svg, setSvg] = useState<string | null>(null);
+  const [renderFailed, setRenderFailed] = useState(false);
+  const renderId = useId().replace(/:/gu, "");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function renderDiagram() {
+      try {
+        const mermaid = (await loadMermaid()).default;
+        const { svg: nextSvg } = await mermaid.render(`note-mermaid-${renderId}`, codeText);
+        if (!cancelled) {
+          setSvg(nextSvg);
+          setRenderFailed(false);
+        }
+      } catch {
+        if (!cancelled) {
+          setSvg(null);
+          setRenderFailed(true);
+        }
+      }
+    }
+
+    void renderDiagram();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [codeText, renderId]);
+
+  return (
+    <div className="note-mermaid-block" data-mermaid-source={codeText}>
+      {svg ? (
+        <div
+          aria-label="Mermaid diagram"
+          className="note-mermaid-render"
+          dangerouslySetInnerHTML={{ __html: svg }}
+        />
+      ) : null}
+      {!svg || renderFailed ? (
+        <pre className="note-mermaid-fallback">
+          <code>{codeText}</code>
+        </pre>
+      ) : null}
+    </div>
+  );
+}
+
+function CopyableCodeBlock({
+  children,
+  className,
+  language,
+  codeText,
+  ...props
+}: Omit<CodeBlockPreProps, "node"> & { language: string | null; codeText: string }) {
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (!copied) return;
+
+    const timeoutId = window.setTimeout(() => setCopied(false), 1500);
+    return () => window.clearTimeout(timeoutId);
+  }, [copied]);
+
+  const handleCopy = useCallback(async () => {
+    const writeText = navigator.clipboard?.writeText?.bind(navigator.clipboard);
+    if (!writeText) return;
+
+    try {
+      await copyCodeBlockText(codeText, writeText);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+    }
+  }, [codeText]);
+
+  return (
+    <pre
+      {...props}
+      className={["code-block-shell", className, language ? "code-block-has-language" : null]
+        .filter(Boolean)
+        .join(" ")}
+    >
+      <button
+        type="button"
+        className="code-copy-button"
+        aria-label="Copy code"
+        onClick={handleCopy}
+      >
+        {copied ? "Copied" : "Copy"}
+      </button>
+      {language ? (
+        <span
+          aria-hidden="true"
+          className="code-language-label"
+          data-code-language={language}
+        >
+          {language.toUpperCase()}
+        </span>
+      ) : null}
+      {children}
+    </pre>
+  );
+}
+
+function CodeBlockPre({
+  node,
+  children,
+  className,
+  ...props
+}: CodeBlockPreProps) {
+  void node;
+  const language = codeBlockLanguage(children);
+  const codeText = renderedCodeBlockText(children);
+
+  if (language === "mermaid") {
+    return <MermaidBlock codeText={codeText.trim()} />;
+  }
+
+  return (
+    <CopyableCodeBlock
+      {...props}
+      className={className}
+      language={language}
+      codeText={codeText}
+    >
+      {children}
+    </CopyableCodeBlock>
+  );
 }
 
 function parseMarkdownLinks(section: string): ParsedLink[] {
@@ -601,6 +804,25 @@ function NeighborhoodGraph({
           onMouseMove={handleMouseMove}
         />
       </div>
+      <ul aria-label="Connected notes" className="mt-2 space-y-1">
+        {neighbors.slice(0, 14).map((neighbor) => (
+          <li key={neighbor.slug}>
+            <button
+              type="button"
+              aria-label={`Open connected note ${neighbor.title}`}
+              className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)]"
+              onClick={() => onClickNode(neighbor.slug)}
+            >
+              <span
+                aria-hidden="true"
+                className="h-2 w-2 shrink-0 rounded-full"
+                style={{ backgroundColor: miniColor(neighbor.categories, aliases) }}
+              />
+              <span className="truncate">{neighbor.title}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
       {neighbors.length > 14 ? (
         <p className="mt-1.5 text-center text-[10px] text-[var(--muted-foreground)]">
           +{neighbors.length - 14} more connections
@@ -655,19 +877,84 @@ export function NoteViewer({
 
   const markdownComponents = useMemo<Components>(
     () => ({
-      h1: (props) => <h1 className="mb-4 scroll-mt-20 text-3xl" {...props} />,
-      h2: (props) => (
-        <h2 className="font-display mb-3 mt-10 scroll-mt-20 text-xl font-light" {...props} />
-      ),
-      h3: (props) => (
-        <h3 className="font-display mb-2 mt-7 scroll-mt-20 text-lg font-light" {...props} />
-      ),
-      h4: (props) => <h4 className="mb-2 mt-5 scroll-mt-20 text-base font-medium" {...props} />,
-      p: (props) => <p className="mb-4 leading-[1.8]" {...props} />,
+      h1: ({ node, children, ...props }) => {
+        void node;
+        return (
+          <h1
+            className="mb-4 scroll-mt-20 text-3xl"
+            {...props}
+            id={renderedHeadingId(children, props.id)}
+          >
+            {children}
+          </h1>
+        );
+      },
+      h2: ({ node, children, ...props }) => {
+        void node;
+        return (
+          <h2
+            className="font-display mb-3 mt-10 scroll-mt-20 text-xl font-light"
+            {...props}
+            id={renderedHeadingId(children, props.id)}
+          >
+            {children}
+          </h2>
+        );
+      },
+      h3: ({ node, children, ...props }) => {
+        void node;
+        return (
+          <h3
+            className="font-display mb-2 mt-7 scroll-mt-20 text-lg font-light"
+            {...props}
+            id={renderedHeadingId(children, props.id)}
+          >
+            {children}
+          </h3>
+        );
+      },
+      h4: ({ node, children, ...props }) => {
+        void node;
+        return (
+          <h4
+            className="mb-2 mt-5 scroll-mt-20 text-base font-medium"
+            {...props}
+            id={renderedHeadingId(children, props.id)}
+          >
+            {children}
+          </h4>
+        );
+      },
+      p: ({ node, children, className, ...props }) => {
+        void node;
+        const text = markdownNodeText(children);
+        if (looksLikeAsciiDiagramBlock(text)) {
+          return (
+            <pre className={["note-ascii-block", className].filter(Boolean).join(" ")}>
+              <code>{text}</code>
+            </pre>
+          );
+        }
+
+        return (
+          <p className={["mb-4 leading-[1.8]", className].filter(Boolean).join(" ")} {...props}>
+            {children}
+          </p>
+        );
+      },
       ul: (props) => <ul className="mb-4 list-disc pl-6 leading-[1.8]" {...props} />,
       ol: (props) => <ol className="mb-4 list-decimal pl-6 leading-[1.8]" {...props} />,
       li: (props) => <li className="mb-1.5" {...props} />,
       blockquote: (props) => <blockquote className="my-4" {...props} />,
+      table: ({ node, ...props }) => {
+        void node;
+        return (
+          <div className="note-table-scroll">
+            <table {...props} />
+          </div>
+        );
+      },
+      pre: CodeBlockPre,
       a: ({ href, onClick, ...props }) => {
         const { target, download } = props;
         const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
@@ -827,7 +1114,7 @@ export function NoteViewer({
         </div>
       ) : null}
 
-      <div className="note-viewer-layout relative max-w-3xl">
+      <div className="note-viewer-layout relative max-w-3xl xl:grid xl:max-w-[calc(48rem+13rem+2rem)] xl:grid-cols-[minmax(0,1fr)_13rem] xl:gap-8">
         <div className="note-viewer-main min-w-0">
           <article className="prose-wiki leading-[1.8]">
             <ReactMarkdown
@@ -863,7 +1150,7 @@ export function NoteViewer({
         </div>
 
         <aside
-          className="note-viewer-side-rail absolute -right-60 top-0 hidden w-52 xl:block"
+          className="note-viewer-side-rail absolute -right-60 top-0 hidden w-52 xl:static xl:block xl:w-auto"
           data-note-viewer-side-rail="true"
         >
           <div className="sticky top-8">

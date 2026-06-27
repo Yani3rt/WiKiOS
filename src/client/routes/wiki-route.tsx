@@ -123,7 +123,7 @@ export function Component() {
       </header>
 
       <main
-        className="animate-in mx-auto w-full max-w-3xl px-4 pt-4 sm:px-6 sm:pt-8 lg:px-8"
+        className="animate-in mx-auto w-full max-w-6xl px-4 pt-4 sm:px-6 sm:pt-8 lg:px-8"
         style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 4rem)" }}
       >
         <nav className="mb-6 flex items-center gap-2 text-sm text-[var(--muted-foreground)]">

@@ -138,8 +138,30 @@ export function createHeadingId(text: string) {
 
 export function extractMarkdownHeadings(markdown: string): WikiHeading[] {
   const headings: WikiHeading[] = [];
+  let fenceMarker: "`" | "~" | null = null;
+  let fenceLength = 0;
 
   for (const line of markdown.split("\n")) {
+    if (fenceMarker) {
+      const closingFence = line.match(/^ {0,3}(`{3,}|~{3,})[\t ]*$/);
+      if (
+        closingFence &&
+        closingFence[1][0] === fenceMarker &&
+        closingFence[1].length >= fenceLength
+      ) {
+        fenceMarker = null;
+        fenceLength = 0;
+      }
+      continue;
+    }
+
+    const openingFence = line.match(/^ {0,3}(`{3,}|~{3,})/);
+    if (openingFence) {
+      fenceMarker = openingFence[1][0] as "`" | "~";
+      fenceLength = openingFence[1].length;
+      continue;
+    }
+
     const match = line.match(/^(#{1,4})\s+(.+)$/);
     if (!match) {
       continue;

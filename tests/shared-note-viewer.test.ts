@@ -9,8 +9,10 @@ import { describe, expect, it, vi } from "vitest";
 import { WikiConfigProvider } from "../src/client/wiki-config";
 import {
   NoteViewer,
+  copyCodeBlockText,
   getActiveHeadingId,
   navigateGraphNode,
+  renderedCodeBlockText,
   routeWikiLinkClick,
   scrollToHeading,
   shouldInterceptWikiLinkClick,
@@ -338,12 +340,188 @@ describe("shared note viewer rendering and route boundaries", () => {
     expect(markup).toContain("Updated Jan 15, 2025");
     expect(markup).toContain("Intro paragraph about Ada.");
     expect(markup).toContain("Deep Dive");
+    expect(markup).toMatch(/<h2[^>]*id="deep-dive"/u);
     expect(markup).toContain("On this page");
     expect(markup).toContain("Related Concepts");
     expect(markup).toContain("Charles Babbage");
     expect(markup).toContain("Connections");
+    expect(markup).toContain('aria-label="Connected notes"');
+    expect(markup).toContain('aria-label="Open connected note Charles Babbage"');
     expect(markup).not.toContain('aria-label="Categories"');
     expect(markup).not.toContain("hidden source note");
+  });
+
+  it("labels tagged code blocks and leaves untagged blocks unlabeled", () => {
+    const codePage: WikiPageData = {
+      ...samplePage,
+      contentMarkdown: "```bash\ngit status\n```\n\n```\ngit branch -d\n```",
+      hasCodeBlocks: true,
+      headings: [],
+    };
+    const markup = renderToStaticMarkup(
+      createElement(
+        WikiConfigProvider as never,
+        { config: DEFAULT_WIKI_OS_CONFIG },
+        createElement(
+          MemoryRouter,
+          undefined,
+          createElement(NoteViewer, { page: codePage, onNavigateNote: () => {} }),
+        ),
+      ),
+    );
+
+    expect(markup.match(/data-code-language=/gu)).toHaveLength(1);
+    expect(markup).toContain('data-code-language="bash"');
+    expect(markup).toContain(">BASH</span>");
+  });
+
+  it("renders a copy button for fenced code blocks", () => {
+    const codePage: WikiPageData = {
+      ...samplePage,
+      contentMarkdown: "```bash\ngit status\n```",
+      hasCodeBlocks: true,
+      headings: [],
+    };
+    const markup = renderToStaticMarkup(
+      createElement(
+        WikiConfigProvider as never,
+        { config: DEFAULT_WIKI_OS_CONFIG },
+        createElement(
+          MemoryRouter,
+          undefined,
+          createElement(NoteViewer, { page: codePage, onNavigateNote: () => {} }),
+        ),
+      ),
+    );
+
+    expect(markup).toContain('aria-label="Copy code"');
+    expect(markup).toMatch(/>Copy<\/button>/u);
+  });
+
+  it("renders mermaid fenced blocks as diagram containers", () => {
+    const mermaidPage: WikiPageData = {
+      ...samplePage,
+      contentMarkdown: ["```mermaid", "graph TD", "  A[Ideas] --> B[Execution]", "```"].join(
+        "\n",
+      ),
+      hasCodeBlocks: true,
+      headings: [],
+    };
+    const markup = renderToStaticMarkup(
+      createElement(
+        WikiConfigProvider as never,
+        { config: DEFAULT_WIKI_OS_CONFIG },
+        createElement(
+          MemoryRouter,
+          undefined,
+          createElement(NoteViewer, { page: mermaidPage, onNavigateNote: () => {} }),
+        ),
+      ),
+    );
+
+    expect(markup).toContain('class="note-mermaid-block"');
+    expect(markup).toContain('data-mermaid-source="graph TD\n  A[Ideas] --&gt; B[Execution]"');
+    expect(markup).toContain('class="note-mermaid-fallback"');
+    expect(markup).not.toContain('aria-label="Copy code"');
+    expect(markup).not.toContain('data-code-language="mermaid"');
+  });
+
+  it("keeps the code-block wrapper hook-free across ordinary and mermaid navigation", () => {
+    const viewerSource = readFileSync(
+      fileURLToPath(new URL("../src/components/note-viewer.tsx", import.meta.url)),
+      "utf8",
+    );
+    const wrapperStart = viewerSource.indexOf("function CodeBlockPre(");
+    const wrapperEnd = viewerSource.indexOf("function parseMarkdownLinks", wrapperStart);
+    const wrapperSource = viewerSource.slice(wrapperStart, wrapperEnd);
+
+    expect(wrapperStart).toBeGreaterThan(-1);
+    expect(wrapperEnd).toBeGreaterThan(wrapperStart);
+    expect(wrapperSource).toContain("<CopyableCodeBlock");
+    expect(wrapperSource).not.toMatch(/use(?:State|Effect|Callback)\(/u);
+  });
+
+  it("wraps GFM tables for horizontal scrolling while preserving semantic markup", () => {
+    const tablePage: WikiPageData = {
+      ...samplePage,
+      contentMarkdown: ["| Name | Role |", "| :--- | ---: |", "| Ada | Mathematician |"].join(
+        "\n",
+      ),
+      headings: [],
+    };
+    const markup = renderToStaticMarkup(
+      createElement(
+        WikiConfigProvider as never,
+        { config: DEFAULT_WIKI_OS_CONFIG },
+        createElement(
+          MemoryRouter,
+          undefined,
+          createElement(NoteViewer, { page: tablePage, onNavigateNote: () => {} }),
+        ),
+      ),
+    );
+
+    expect(markup).toContain('class="note-table-scroll"');
+    expect(markup).toMatch(/<div class="note-table-scroll"><table>/u);
+    expect(markup).toContain("<thead>");
+    expect(markup).toContain("<tbody>");
+    expect(markup).toContain('<th style="text-align:left">Name</th>');
+    expect(markup).toContain('<th style="text-align:right">Role</th>');
+    expect(markup).toContain('<td style="text-align:left">Ada</td>');
+  });
+
+  it("renders tree-style note paragraphs as preserved-whitespace diagram blocks", () => {
+    const treePage: WikiPageData = {
+      ...samplePage,
+      contentMarkdown: [
+        "Vault/",
+        "├── Daily/                 # YYYY-MM-DD.md daily notes — append-only",
+        "├── System/",
+        "│   └── Assistant/",
+        "│       ├── context.md     # Operations, health, family overview",
+        "│       └── preferences.md # Communication style, delivery rules",
+      ].join("\n"),
+      headings: [],
+    };
+    const markup = renderToStaticMarkup(
+      createElement(
+        WikiConfigProvider as never,
+        { config: DEFAULT_WIKI_OS_CONFIG },
+        createElement(
+          MemoryRouter,
+          undefined,
+          createElement(NoteViewer, { page: treePage, onNavigateNote: () => {} }),
+        ),
+      ),
+    );
+
+    expect(markup).toContain('class="note-ascii-block"');
+    expect(markup).toMatch(/<pre class="note-ascii-block"><code>Vault\//u);
+    expect(markup).toContain("├── Daily/");
+    expect(markup).toContain("preferences.md");
+    expect(markup).not.toContain("<p>Vault/");
+  });
+
+  it("extracts the raw text from a rendered code block child", () => {
+    const codeText = renderedCodeBlockText(
+      createElement(
+        "code",
+        { className: "hljs language-bash" },
+        createElement("span", { className: "hljs-built_in" }, "git"),
+        " status\n",
+        createElement("span", { className: "hljs-string" }, "--short"),
+      ),
+    );
+
+    expect(codeText).toBe("git status\n--short");
+  });
+
+  it("forwards raw code text to the clipboard writer", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+
+    await copyCodeBlockText("git status", writeText);
+
+    expect(writeText).toHaveBeenCalledWith("git status");
   });
 
   it("keeps route chrome in the wrapper and moved feature markers out of wiki-route", () => {
@@ -356,12 +534,87 @@ describe("shared note viewer rendering and route boundaries", () => {
     expect(routeSource).toContain("<header");
     expect(routeSource).toContain("Home");
     expect(routeSource).toContain("<NoteViewer");
+    expect(routeSource).toContain("max-w-6xl");
     expect(routeSource).toContain("createRevalidationRefreshController");
     expect(routeSource).not.toContain("refreshing=");
     expect(routeSource).not.toContain("Related Concepts");
     expect(routeSource).not.toContain("NeighborhoodGraph");
     expect(routeSource).not.toContain("Mark as person");
     expect(routeSource).not.toContain("ReactMarkdown");
+  });
+
+  it("gives unhighlighted fenced code a readable foreground on the dark code surface", () => {
+    const globalsSource = readFileSync(
+      fileURLToPath(new URL("../src/client/globals.css", import.meta.url)),
+      "utf8",
+    );
+
+    expect(globalsSource).toMatch(
+      /\.prose-wiki pre code\s*\{[^}]*color:\s*#c9d1d9;/u,
+    );
+  });
+
+  it("keeps highlighted code blocks on the same surface color as their parent pre", () => {
+    const globalsSource = readFileSync(
+      fileURLToPath(new URL("../src/client/globals.css", import.meta.url)),
+      "utf8",
+    );
+
+    expect(globalsSource).toMatch(
+      /\.prose-wiki pre code\s*\{[^}]*background:\s*transparent;/u,
+    );
+  });
+
+  it("styles note tables for readable horizontal overflow", () => {
+    const globalsSource = readFileSync(
+      fileURLToPath(new URL("../src/client/globals.css", import.meta.url)),
+      "utf8",
+    );
+
+    expect(globalsSource).toMatch(
+      /\.prose-wiki \.note-table-scroll\s*\{[^}]*overflow-x:\s*auto;/u,
+    );
+    expect(globalsSource).toMatch(
+      /\.prose-wiki \.note-table-scroll table\s*\{[^}]*min-width:\s*36rem;/u,
+    );
+    expect(globalsSource).toMatch(
+      /\.prose-wiki \.note-table-scroll th\s*\{[^}]*font-weight:\s*600;/u,
+    );
+    expect(globalsSource).toContain(".prose-wiki .note-table-scroll tbody tr:nth-child(even)");
+  });
+
+  it("styles mermaid blocks as light note diagrams", () => {
+    const globalsSource = readFileSync(
+      fileURLToPath(new URL("../src/client/globals.css", import.meta.url)),
+      "utf8",
+    );
+
+    expect(globalsSource).toMatch(
+      /\.prose-wiki \.note-mermaid-block\s*\{[^}]*background:\s*rgba\(255,\s*255,\s*255,\s*0\.72\);/u,
+    );
+    expect(globalsSource).toMatch(
+      /\.prose-wiki \.note-mermaid-render\s*\{[^}]*min-height:\s*12rem;/u,
+    );
+    expect(globalsSource).toMatch(
+      /\.prose-wiki \.note-mermaid-fallback\s*\{[^}]*white-space:\s*pre;/u,
+    );
+  });
+
+  it("styles ascii diagram blocks for light-theme whitespace preservation", () => {
+    const globalsSource = readFileSync(
+      fileURLToPath(new URL("../src/client/globals.css", import.meta.url)),
+      "utf8",
+    );
+
+    expect(globalsSource).toMatch(
+      /\.prose-wiki \.note-ascii-block\s*\{[^}]*white-space:\s*pre;/u,
+    );
+    expect(globalsSource).toMatch(
+      /\.prose-wiki \.note-ascii-block\s*\{[^}]*font-family:\s*var\(--font-mono\);/u,
+    );
+    expect(globalsSource).toMatch(
+      /\.prose-wiki \.note-ascii-block\s*\{[^}]*background:\s*rgba\(255,\s*255,\s*255,\s*0\.72\);/u,
+    );
   });
 
   it("reuses the shared NoteViewer inside explorer ready tabs without local markdown rendering", () => {
@@ -392,11 +645,32 @@ describe("shared note viewer rendering and route boundaries", () => {
     expect(viewerSource).toContain('data-note-viewer-mobile-toc="true"');
     expect(viewerSource).toContain('data-note-viewer-side-rail="true"');
     expect(viewerSource).toContain('data-note-viewer-inline-graph="true"');
+    expect(viewerSource).toContain("xl:grid");
+    expect(viewerSource).toContain("xl:max-w-[calc(48rem+13rem+2rem)]");
+    expect(viewerSource).toContain("xl:grid-cols-[minmax(0,1fr)_13rem]");
+    expect(viewerSource).toContain("xl:static");
     expect(globalsSource).toContain("@container explorer-note-viewer");
+    expect(globalsSource).toContain("(max-width: 35.99rem)");
+    expect(globalsSource).toContain("(min-width: 36rem)");
+    expect(globalsSource).toContain(".note-viewer-side-rail > div");
+    expect(globalsSource).toContain("position: sticky;");
+    expect(globalsSource).toContain("align-self: stretch;");
     expect(globalsSource).toContain(".explorer-note-viewer-shell");
     expect(globalsSource).toContain(".note-viewer-mobile-toc");
     expect(globalsSource).toContain(".note-viewer-side-rail");
     expect(globalsSource).toContain(".note-viewer-inline-graph");
+  });
+
+  it("bounds the explorer to the viewport so its tab panel is the note scroll root", () => {
+    const routeSource = readFileSync(
+      fileURLToPath(new URL("../src/client/routes/explorer-route.tsx", import.meta.url)),
+      "utf8",
+    );
+
+    expect(routeSource).toContain("md:h-dvh");
+    expect(routeSource).toContain("md:min-h-0");
+    expect(routeSource).toContain("md:overflow-hidden");
+    expect(routeSource).toContain("overflow-y-auto");
   });
 
   it("only applies refreshed explorer pages while the same slug is still active", () => {

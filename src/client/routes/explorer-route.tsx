@@ -1,4 +1,5 @@
 import {
+  ChevronLeft,
   ChevronDown,
   ChevronRight,
   ChevronsDownUp,
@@ -105,6 +106,25 @@ export function normalizeExplorerPages(pages: ExplorerPage[]) {
   }));
 }
 
+export function resolveExplorerSelectionSlug(
+  slug: string,
+  lookup: { has(slug: string): boolean },
+) {
+  if (lookup.has(slug)) return slug;
+
+  return slug
+    .split("/")
+    .filter(Boolean)
+    .map((part) => {
+      try {
+        return decodeURIComponent(part);
+      } catch {
+        return part;
+      }
+    })
+    .join("/");
+}
+
 export function normalizeExplorerWorkspaceSlugs(
   workspace: ExplorerWorkspace,
 ): ExplorerWorkspace {
@@ -142,6 +162,13 @@ export function shouldNavigateExplorerTransition(
   routeSlug: string | null,
 ) {
   return current.activeSlug !== next.activeSlug || next.activeSlug !== routeSlug;
+}
+
+export function shouldRestoreExplorerRoute(
+  routeSlug: string | null,
+  activeSlug: string | null,
+) {
+  return routeSlug === null && activeSlug !== null;
 }
 
 export function getNextExplorerTabIndex(
@@ -226,8 +253,12 @@ function usePrefersReducedMotion() {
   return useMediaQuery("(prefers-reduced-motion: reduce)");
 }
 
-export function isExplorerSidebarInteractive(sidebarOpen: boolean, isDesktop: boolean) {
-  return sidebarOpen || isDesktop;
+export function isExplorerSidebarInteractive(
+  sidebarOpen: boolean,
+  isDesktop: boolean,
+  desktopSidebarVisible: boolean,
+) {
+  return sidebarOpen || (isDesktop && desktopSidebarVisible);
 }
 
 export function isExplorerModalActive(sidebarOpen: boolean, isDesktop: boolean) {
@@ -287,11 +318,15 @@ export async function loader() {
 
 export function ExplorerHeader({
   sidebarOpen,
+  desktopSidebarVisible,
   onToggleSidebar,
+  onToggleDesktopSidebar,
   toggleButtonRef,
 }: {
   sidebarOpen: boolean;
+  desktopSidebarVisible: boolean;
   onToggleSidebar: () => void;
+  onToggleDesktopSidebar: () => void;
   toggleButtonRef?: RefObject<HTMLButtonElement | null>;
 }) {
   return (
@@ -303,21 +338,43 @@ export function ExplorerHeader({
         <p className="text-xs uppercase tracking-[0.22em] text-[var(--muted-foreground)]">WikiOS</p>
         <div className="mt-0.5 flex items-center gap-2">
           <House className="h-4 w-4 text-[var(--muted-foreground)]" />
-          <h1 className="font-display text-lg">Note Explorer</h1>
+          <h1 className="font-display text-lg">Wiki Explorer</h1>
         </div>
       </Link>
-      <button
-        ref={toggleButtonRef}
-        type="button"
-        className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm md:hidden"
-        aria-expanded={sidebarOpen}
-        aria-controls="explorer-sidebar"
-        aria-label="Toggle note tree"
-        onClick={onToggleSidebar}
-      >
-        <PanelLeft className="h-4 w-4" />
-        Notes
-      </button>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          className={`hidden items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm md:inline-flex ${
+            desktopSidebarVisible ? "md:invisible md:pointer-events-none" : ""
+          }`}
+          aria-expanded={desktopSidebarVisible}
+          aria-controls="explorer-sidebar"
+          aria-label={desktopSidebarVisible ? "Hide note tree" : "Show note tree"}
+          title={desktopSidebarVisible ? "Hide note tree" : "Show note tree"}
+          onClick={onToggleDesktopSidebar}
+        >
+          <ChevronRight className="h-4 w-4" />
+          <span>All Notes</span>
+        </button>
+        <Link
+          to="/"
+          className="surface rounded-full px-3.5 py-2 text-sm font-medium text-[var(--foreground)] transition-[transform] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.96] sm:px-4"
+        >
+          Back to wiki
+        </Link>
+        <button
+          ref={toggleButtonRef}
+          type="button"
+          className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm md:hidden"
+          aria-expanded={sidebarOpen}
+          aria-controls="explorer-sidebar"
+          aria-label="Toggle note tree"
+          onClick={onToggleSidebar}
+        >
+          <PanelLeft className="h-4 w-4" />
+          Notes
+        </button>
+      </div>
     </header>
   );
 }
@@ -325,12 +382,16 @@ export function ExplorerHeader({
 export function ExplorerSidebar({
   pages,
   activeSlug,
+  desktopSidebarVisible,
   onSelect,
+  onToggleDesktopSidebar,
   filterInputRef,
 }: {
   pages: ExplorerPage[];
   activeSlug: string | null;
+  desktopSidebarVisible: boolean;
   onSelect: (page: ExplorerPage) => void;
+  onToggleDesktopSidebar: () => void;
   filterInputRef?: RefObject<HTMLInputElement | null>;
 }) {
   const [query, setQuery] = useState("");
@@ -346,6 +407,9 @@ export function ExplorerSidebar({
   );
   const visibleCount = filteredPages.length;
   const hasFilter = query.trim().length > 0;
+  const areAllFoldersExpanded =
+    allFolderPaths.length > 0 && allFolderPaths.every((path) => expandedPaths.has(path));
+  const folderToggleLabel = areAllFoldersExpanded ? "Collapse all folders" : "Expand all folders";
 
   useEffect(() => {
     const availablePaths = new Set(allFolderPaths);
@@ -373,11 +437,20 @@ export function ExplorerSidebar({
     });
   };
 
+  const toggleAllFolders = () => {
+    setExpandedPaths(areAllFoldersExpanded ? new Set() : new Set(allFolderPaths));
+  };
+
   return (
     <nav aria-label="Notes" className="flex h-full min-h-0 flex-col">
       <div className="border-b border-[var(--border)] px-3 py-3">
-        <div className="relative">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--muted-foreground)]" />
+        <div className="group relative">
+          <div
+            aria-hidden
+            className="absolute -inset-[1px] rounded-full bg-gradient-to-r from-[var(--teal)] via-[var(--lavender)] to-[var(--peach)] opacity-0 blur-sm transition-opacity duration-300 group-focus-within:opacity-70"
+          />
+          <div className="surface-raised relative rounded-full">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--muted-foreground)] transition-colors duration-200 group-focus-within:text-[var(--teal)]" />
           <input
             ref={filterInputRef}
             type="search"
@@ -385,18 +458,19 @@ export function ExplorerSidebar({
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Filter titles or paths"
             aria-label="Filter notes"
-            className="w-full rounded-full border border-[var(--border)] bg-[var(--card)] py-2 pl-9 pr-10 text-sm outline-none transition-shadow focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
+            className="w-full rounded-full bg-transparent py-2 pl-9 pr-10 text-sm text-[var(--foreground)] outline-none placeholder:text-[var(--muted-foreground)]"
           />
-          {query ? (
-            <button
-              type="button"
-              aria-label="Clear note filter"
-              className="absolute right-2 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)]"
-              onClick={() => setQuery("")}
-            >
-              <X className="h-4 w-4" />
-            </button>
-          ) : null}
+            {query ? (
+              <button
+                type="button"
+                aria-label="Clear note filter"
+                className="absolute right-2 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)]"
+                onClick={() => setQuery("")}
+              >
+                <X className="h-4 w-4" />
+              </button>
+            ) : null}
+          </div>
         </div>
         <div className="mt-3 flex items-center justify-between gap-2">
           <p
@@ -409,19 +483,31 @@ export function ExplorerSidebar({
           <div className="flex items-center gap-1">
             <button
               type="button"
-              aria-label="Expand all folders"
+              aria-label={folderToggleLabel}
+              title={folderToggleLabel}
               className="rounded-full px-2.5 py-1.5 text-xs text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)]"
-              onClick={() => setExpandedPaths(new Set(collectFolderPaths(tree)))}
+              aria-pressed={areAllFoldersExpanded}
+              onClick={toggleAllFolders}
             >
-              <ChevronsUpDown className="h-3.5 w-3.5" />
+              {areAllFoldersExpanded ? (
+                <ChevronsDownUp className="h-3.5 w-3.5" />
+              ) : (
+                <ChevronsUpDown className="h-3.5 w-3.5" />
+              )}
             </button>
             <button
               type="button"
-              aria-label="Collapse all folders"
-              className="rounded-full px-2.5 py-1.5 text-xs text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)]"
-              onClick={() => setExpandedPaths(new Set())}
+              aria-label={desktopSidebarVisible ? "Hide note tree" : "Show note tree"}
+              title={desktopSidebarVisible ? "Hide note tree" : "Show note tree"}
+              className="hidden rounded-full px-2.5 py-1.5 text-xs text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)] md:inline-flex"
+              aria-pressed={!desktopSidebarVisible}
+              onClick={onToggleDesktopSidebar}
             >
-              <ChevronsDownUp className="h-3.5 w-3.5" />
+              {desktopSidebarVisible ? (
+                <ChevronLeft className="h-3.5 w-3.5" />
+              ) : (
+                <ChevronRight className="h-3.5 w-3.5" />
+              )}
             </button>
           </div>
         </div>
@@ -459,12 +545,11 @@ export function ExplorerSidebar({
                     ? "bg-[var(--accent)] font-medium text-[var(--foreground)] shadow-[inset_0_0_0_1px_rgba(196,167,231,0.35)]"
                     : "text-[var(--foreground)]"
                 }`}
-                style={{ paddingLeft: `${1.75 + row.depth * 0.875}rem` }}
+                style={{ paddingLeft: `${row.depth === 0 ? 0.5 : 1.75 + row.depth * 0.875}rem` }}
                 aria-current={activeSlug === row.page.slug ? "page" : undefined}
                 onClick={() => onSelect(row.page)}
               >
                 <div className="truncate">{row.page.title}</div>
-                <div className="truncate text-xs text-[var(--muted-foreground)]">{row.page.slug}</div>
               </button>
             ),
           )
@@ -515,6 +600,11 @@ export function ExplorerTabs({
     >
       {workspace.tabs.map((tab, index) => {
         const active = tab.slug === workspace.activeSlug;
+        const accentRail = [
+          "bg-[var(--teal)]",
+          "bg-[var(--peach)]",
+          "bg-[var(--lavender)]",
+        ][index % 3];
         const handleTabKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
           const nextIndex = getNextExplorerTabIndex(
             event.key,
@@ -530,7 +620,13 @@ export function ExplorerTabs({
         };
 
         return (
-          <div key={tab.slug} className="flex shrink-0 items-center border-r border-[var(--border)]">
+          <div
+            key={tab.slug}
+            className={`relative flex shrink-0 items-center overflow-hidden border-r border-[var(--border)] ${
+              active ? "bg-[var(--background)]" : "bg-[var(--muted)]"
+            }`}
+          >
+            {active ? <span aria-hidden="true" className={`absolute inset-y-0 left-0 w-1 ${accentRail}`} /> : null}
             <button
               type="button"
               role="tab"
@@ -542,7 +638,7 @@ export function ExplorerTabs({
                 if (element) tabRefs.current.set(tab.slug, element);
                 else tabRefs.current.delete(tab.slug);
               }}
-              className={`h-full max-w-52 truncate px-3 text-sm ${active ? "bg-[var(--background)] font-medium" : "bg-[var(--muted)]"}`}
+              className={`h-full max-w-52 truncate px-3 py-3 text-sm ${active ? "font-medium" : ""}`}
               onClick={() => onActivate(tab.slug)}
               onKeyDown={handleTabKeyDown}
             >
@@ -626,11 +722,13 @@ export function Component() {
   const pages = useMemo(() => normalizeExplorerPages(loadedPages), [loadedPages]);
   const params = useParams();
   const navigate = useNavigate();
-  const urlSlug = normalizeExplorerSlug(params["*"]);
+  const rawUrlSlug = normalizeExplorerSlug(params["*"]);
   const pageBySlug = useMemo(() => new Map(pages.map((page) => [page.slug, page])), [pages]);
+  const urlSlug = resolveExplorerSelectionSlug(rawUrlSlug, pageBySlug);
   const [workspace, setWorkspace] = useState<ExplorerWorkspace>(readStoredWorkspace);
   const [hydrated, setHydrated] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [desktopSidebarVisible, setDesktopSidebarVisible] = useState(true);
   const [readerState, setReaderState] = useState<ReaderState>({ slug: null, status: "idle" });
   const workspaceRef = useRef<HTMLElement>(null);
   const workspaceScrollRef = useRef<HTMLDivElement>(null);
@@ -641,7 +739,11 @@ export function Component() {
   const sidebarCloseFocusTargetRef = useRef<"toggle" | "workspace">("toggle");
   const prefersReducedMotion = usePrefersReducedMotion();
   const isDesktopSidebar = useMediaQuery("(min-width: 768px)");
-  const sidebarInteractive = isExplorerSidebarInteractive(sidebarOpen, isDesktopSidebar);
+  const sidebarInteractive = isExplorerSidebarInteractive(
+    sidebarOpen,
+    isDesktopSidebar,
+    desktopSidebarVisible,
+  );
   const sidebarModalActive = isExplorerModalActive(sidebarOpen, isDesktopSidebar);
 
   useEffect(() => setHydrated(true), []);
@@ -701,11 +803,16 @@ export function Component() {
   useEffect(() => {
     setWorkspace((current) => {
       if (!urlSlug) {
-        return current.activeSlug === null ? current : { tabs: [...current.tabs], activeSlug: null };
+        return current;
       }
       return openExplorerTab(current, pageBySlug.get(urlSlug) ?? fallbackTab(urlSlug));
     });
   }, [pageBySlug, urlSlug]);
+
+  useEffect(() => {
+    if (!shouldRestoreExplorerRoute(urlSlug, workspace.activeSlug)) return;
+    navigate(explorerPath(workspace.activeSlug), { replace: true });
+  }, [navigate, urlSlug, workspace.activeSlug]);
 
   useEffect(() => {
     const slug = workspace.activeSlug;
@@ -777,7 +884,8 @@ export function Component() {
   );
 
   const selectSlug = useCallback(
-    (slug: string) => {
+    (requestedSlug: string) => {
+      const slug = resolveExplorerSelectionSlug(requestedSlug, pageBySlug);
       sidebarCloseFocusTargetRef.current = "workspace";
       setSidebarOpen(false);
       transitionAndNavigate((current) =>
@@ -794,14 +902,16 @@ export function Component() {
   );
 
   return (
-    <main className="flex min-h-screen flex-col bg-[var(--background)] text-[var(--foreground)]">
+    <main className="flex min-h-screen flex-col bg-[var(--background)] text-[var(--foreground)] md:h-dvh md:min-h-0 md:overflow-hidden">
       <ExplorerHeader
         sidebarOpen={sidebarOpen}
+        desktopSidebarVisible={desktopSidebarVisible}
         toggleButtonRef={toggleButtonRef}
         onToggleSidebar={() => {
           sidebarCloseFocusTargetRef.current = "toggle";
           setSidebarOpen((open) => !open);
         }}
+        onToggleDesktopSidebar={() => setDesktopSidebarVisible((visible) => !visible)}
       />
       <div className="flex min-h-0 flex-1">
         <div
@@ -820,14 +930,16 @@ export function Component() {
           aria-hidden={!sidebarInteractive}
           aria-modal={sidebarModalActive}
           role="dialog"
-          className={`fixed inset-y-16 left-0 z-40 w-[18.5rem] max-w-[calc(100vw-2rem)] border-r border-[var(--border)] bg-[var(--background)] shadow-[0_18px_48px_-24px_rgba(21,19,26,0.4)] md:static md:inset-auto md:z-auto md:w-[19rem] md:max-w-none md:translate-x-0 md:shadow-none ${
+          className={`fixed inset-y-16 left-0 z-40 w-[18.5rem] max-w-[calc(100vw-2rem)] border-r border-[var(--border)] bg-[var(--background)] shadow-[0_18px_48px_-24px_rgba(21,19,26,0.4)] md:static md:inset-auto md:z-auto md:max-w-none md:shadow-none ${
             sidebarOpen ? "translate-x-0" : "-translate-x-[calc(100%+1rem)]"
-          } ${prefersReducedMotion ? "transition-none" : "transition-transform duration-200 ease-out"} motion-reduce:transition-none`}
+          } ${desktopSidebarVisible ? "md:w-[19rem] md:translate-x-0 md:opacity-100" : "md:w-0 md:translate-x-[-1rem] md:opacity-0 md:border-r-0"} ${prefersReducedMotion ? "transition-none" : "transition-all duration-200 ease-out"} overflow-hidden motion-reduce:transition-none`}
         >
           <ExplorerSidebar
             pages={pages}
             activeSlug={workspace.activeSlug}
+            desktopSidebarVisible={desktopSidebarVisible}
             onSelect={selectPage}
+            onToggleDesktopSidebar={() => setDesktopSidebarVisible((visible) => !visible)}
             filterInputRef={filterInputRef}
           />
         </aside>

@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { prepareWikiMarkdown, transformObsidianLinks } from "../src/lib/markdown";
+import {
+  extractMarkdownHeadings,
+  prepareWikiMarkdown,
+  transformObsidianLinks,
+} from "../src/lib/markdown";
 import { decodeSlugParts, slugFromFileName, titleFromFileName } from "../src/lib/wiki";
 
 describe("wiki helpers", () => {
@@ -50,5 +54,26 @@ describe("wiki helpers", () => {
         },
       ],
     });
+  });
+
+  it("ignores markdown-looking headings inside fenced code blocks", () => {
+    expect(
+      extractMarkdownHeadings(
+        [
+          "## Before",
+          "```bash",
+          "# shell comment",
+          "## not a section",
+          "```",
+          "~~~python",
+          "### another code comment",
+          "~~~",
+          "### After",
+        ].join("\n"),
+      ),
+    ).toEqual([
+      { text: "Before", id: "before", level: 2 },
+      { text: "After", id: "after", level: 3 },
+    ]);
   });
 });

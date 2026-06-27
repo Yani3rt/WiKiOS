@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 
 import type { WikiHeading } from "./wiki-shared";
 
-export const DEFAULT_WIKI_INDEX_CACHE_VERSION = 4;
+export const DEFAULT_WIKI_INDEX_CACHE_VERSION = 5;
 export const REQUIRED_INDEX_TABLES = ["pages", "backlinks", "categories", "pages_fts"] as const;
 
 export type SqliteDb = Database.Database;

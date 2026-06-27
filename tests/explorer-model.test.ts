@@ -84,6 +84,10 @@ describe("explorer route registration", () => {
         next: ExplorerWorkspace,
         routeSlug: string | null,
       ) => boolean;
+      shouldRestoreExplorerRoute?: (
+        routeSlug: string | null,
+        activeSlug: string | null,
+      ) => boolean;
     };
     const alpha = { slug: "alpha", title: "Alpha", file: "Alpha.md" };
     const beta = { slug: "beta", title: "Beta", file: "Beta.md" };
@@ -97,6 +101,10 @@ describe("explorer route registration", () => {
     expect(routeModule.shouldNavigateExplorerTransition!(current, inactiveClose, "alpha")).toBe(false);
     expect(routeModule.shouldNavigateExplorerTransition!(current, activeChange, "alpha")).toBe(true);
     expect(routeModule.shouldNavigateExplorerTransition!(current, noOpActivation, "beta")).toBe(true);
+    expect(routeModule.shouldRestoreExplorerRoute).toBeTypeOf("function");
+    expect(routeModule.shouldRestoreExplorerRoute!(null, "alpha")).toBe(true);
+    expect(routeModule.shouldRestoreExplorerRoute!("alpha", "alpha")).toBe(false);
+    expect(routeModule.shouldRestoreExplorerRoute!(null, null)).toBe(false);
   });
 
   it("supports automatic-activation keyboard movement and complete tab relationships", async () => {
@@ -176,9 +184,16 @@ describe("explorer route registration", () => {
 
     expect(searchBoxSource).toContain('to="/explorer"');
     expect(routeSource).toContain('aria-label="Filter notes"');
-    expect(routeSource).toContain('aria-label="Expand all folders"');
-    expect(routeSource).toContain('aria-label="Collapse all folders"');
+    expect(routeSource).toContain('const folderToggleLabel = areAllFoldersExpanded ? "Collapse all folders" : "Expand all folders"');
+    expect(routeSource).toContain("aria-label={folderToggleLabel}");
+    expect(routeSource).toContain("title={folderToggleLabel}");
+    expect(routeSource).toContain("aria-pressed={areAllFoldersExpanded}");
     expect(routeSource).toContain('aria-label="Toggle note tree"');
+    expect(routeSource).toMatch(/>\s*Back to wiki\s*</u);
+    expect(routeSource).toContain('aria-label={desktopSidebarVisible ? "Hide note tree" : "Show note tree"}');
+    expect(routeSource).toContain('<ChevronLeft className="h-3.5 w-3.5" />');
+    expect(routeSource).toContain('<ChevronRight className="h-3.5 w-3.5" />');
+    expect(routeSource).toContain("<span>All Notes</span>");
     expect(routeSource).toContain("explorer-sidebar-backdrop");
     expect(routeSource).toContain("prefers-reduced-motion: reduce");
     expect(routeSource).toContain('useMediaQuery("(prefers-reduced-motion: reduce)")');
@@ -194,13 +209,18 @@ describe("explorer route registration", () => {
       "utf8",
     );
     const routeModule = (await import("../src/client/routes/explorer-route")) as unknown as {
-      isExplorerSidebarInteractive?: (sidebarOpen: boolean, isDesktop: boolean) => boolean;
+      isExplorerSidebarInteractive?: (
+        sidebarOpen: boolean,
+        isDesktop: boolean,
+        desktopSidebarVisible: boolean,
+      ) => boolean;
     };
 
     expect(routeModule.isExplorerSidebarInteractive).toBeTypeOf("function");
-    expect(routeModule.isExplorerSidebarInteractive!(false, false)).toBe(false);
-    expect(routeModule.isExplorerSidebarInteractive!(true, false)).toBe(true);
-    expect(routeModule.isExplorerSidebarInteractive!(false, true)).toBe(true);
+    expect(routeModule.isExplorerSidebarInteractive!(false, false, true)).toBe(false);
+    expect(routeModule.isExplorerSidebarInteractive!(true, false, true)).toBe(true);
+    expect(routeModule.isExplorerSidebarInteractive!(false, true, true)).toBe(true);
+    expect(routeModule.isExplorerSidebarInteractive!(false, true, false)).toBe(false);
     expect(routeSource).toContain('useMediaQuery("(min-width: 768px)")');
     expect(routeSource).toContain('sidebarRef.current?.setAttribute("inert", "")');
     expect(routeSource).toContain('sidebarRef.current?.removeAttribute("inert")');
@@ -242,6 +262,10 @@ describe("explorer route registration", () => {
       normalizeExplorerWorkspaceSlugs?: (
         workspace: ExplorerWorkspace,
       ) => ExplorerWorkspace;
+      resolveExplorerSelectionSlug?: (
+        slug: string,
+        lookup: { has(slug: string): boolean },
+      ) => string;
       encodeExplorerRouteSlug?: (slug: string) => string;
       encodeExplorerApiSlug?: (slug: string) => string;
     };
@@ -271,6 +295,7 @@ describe("explorer route registration", () => {
     expect(routeModule.normalizeExplorerPages).toBeTypeOf("function");
     expect(routeModule.normalizeExplorerWorkspaceSlugs).toBeTypeOf("function");
     expect(routeModule.normalizeExplorerSlug).toBeTypeOf("function");
+    expect(routeModule.resolveExplorerSelectionSlug).toBeTypeOf("function");
     expect(routeModule.encodeExplorerRouteSlug).toBeTypeOf("function");
     expect(routeModule.encodeExplorerApiSlug).toBeTypeOf("function");
     const normalizedPages = routeModule.normalizeExplorerPages!(metadata);
@@ -314,6 +339,28 @@ describe("explorer route registration", () => {
     expect(routeModule.encodeExplorerApiSlug!("guides/nested/Alpha")).toBe(
       "guides/nested/Alpha",
     );
+    const availableSlugs = new Set([
+      "01 ai/Agent Config",
+      "notes/Literal%20Name",
+    ]);
+    expect(
+      routeModule.resolveExplorerSelectionSlug!(
+        "01%20ai/Agent%20Config",
+        availableSlugs,
+      ),
+    ).toBe("01 ai/Agent Config");
+    expect(
+      routeModule.resolveExplorerSelectionSlug!(
+        "notes/Literal%20Name",
+        availableSlugs,
+      ),
+    ).toBe("notes/Literal%20Name");
+    expect(
+      routeModule.resolveExplorerSelectionSlug!(
+        "notes/Literal%2520Name",
+        availableSlugs,
+      ),
+    ).toBe("notes/Literal%20Name");
   });
 
   it("survives unavailable and quota-limited localStorage", async () => {
@@ -509,7 +556,7 @@ describe("explorer workspace", () => {
     return { tabs, activeSlug };
   }
 
-  it("opens, deduplicates, and activates tabs in deterministic order", () => {
+  it("opens new tabs on the left while deduplicating and activating existing tabs", () => {
     const openedAlpha = openExplorerTab(EMPTY_EXPLORER_WORKSPACE, {
       ...alpha,
       modifiedAt: 1,
@@ -522,7 +569,7 @@ describe("explorer workspace", () => {
 
     expect(openedAlpha).toEqual(workspace([alpha], alpha.slug));
     expect(reopenedAlpha).toEqual(workspace([alpha, beta], alpha.slug));
-    expect(openedBeta).toEqual(workspace([alpha, beta], beta.slug));
+    expect(openedBeta).toEqual(workspace([beta, alpha], beta.slug));
   });
 
   it("accepts a complete ExplorerPage and preserves an already-active workspace", () => {
@@ -536,6 +583,17 @@ describe("explorer workspace", () => {
         modifiedAt: 1,
       }),
     ).toBe(initial);
+  });
+
+  it("keeps only five tabs by dropping the rightmost tab when opening a sixth", () => {
+    const delta: ExplorerTab = { slug: "delta", title: "Delta", file: "Delta.md" };
+    const epsilon: ExplorerTab = { slug: "epsilon", title: "Epsilon", file: "Epsilon.md" };
+    const zeta: ExplorerTab = { slug: "zeta", title: "Zeta", file: "Zeta.md" };
+    const initial = workspace([epsilon, delta, gamma, beta, alpha], epsilon.slug);
+
+    expect(openExplorerTab(initial, zeta)).toEqual(
+      workspace([zeta, epsilon, delta, gamma, beta], zeta.slug),
+    );
   });
 
   it("activates existing tabs and ignores unknown slugs", () => {

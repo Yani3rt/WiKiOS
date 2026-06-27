@@ -14,6 +14,7 @@ export interface ExplorerWorkspace {
 export const EXPLORER_STORAGE_KEY = "wiki-os:explorer-workspace";
 
 const EXPLORER_STORAGE_VERSION = 1;
+const EXPLORER_TAB_LIMIT = 5;
 
 export const EMPTY_EXPLORER_WORKSPACE: ExplorerWorkspace = Object.freeze({
   tabs: Object.freeze([]) as readonly ExplorerTab[],
@@ -22,6 +23,10 @@ export const EMPTY_EXPLORER_WORKSPACE: ExplorerWorkspace = Object.freeze({
 
 function emptyExplorerWorkspace(): ExplorerWorkspace {
   return { tabs: [], activeSlug: null };
+}
+
+function limitExplorerTabs(tabs: readonly ExplorerTab[]) {
+  return tabs.slice(0, EXPLORER_TAB_LIMIT);
 }
 
 export function openExplorerTab(
@@ -34,7 +39,7 @@ export function openExplorerTab(
   }
 
   const tab: ExplorerTab = { slug: page.slug, title: page.title, file: page.file };
-  return { tabs: [...workspace.tabs, tab], activeSlug: tab.slug };
+  return { tabs: limitExplorerTabs([tab, ...workspace.tabs]), activeSlug: tab.slug };
 }
 
 export function activateExplorerTab(
@@ -119,13 +124,14 @@ export function parseExplorerWorkspace(serialized: string): ExplorerWorkspace {
     seenSlugs.add(tab.slug);
     return true;
   });
-  if (tabs.length === 0) return emptyExplorerWorkspace();
+  const limitedTabs = limitExplorerTabs(tabs);
+  if (limitedTabs.length === 0) return emptyExplorerWorkspace();
 
   const activeSlug =
-    isNonEmptyString(persisted.activeSlug) && seenSlugs.has(persisted.activeSlug)
+    isNonEmptyString(persisted.activeSlug) && limitedTabs.some((tab) => tab.slug === persisted.activeSlug)
       ? persisted.activeSlug
-      : tabs[0].slug;
-  return { tabs, activeSlug };
+      : limitedTabs[0].slug;
+  return { tabs: limitedTabs, activeSlug };
 }
 
 export interface ExplorerFolder {
