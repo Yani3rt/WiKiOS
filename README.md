@@ -2,7 +2,7 @@
 
 WikiOS turns an Obsidian vault into a local web app. It lets you browse notes through a homepage, search, article pages, a graph view, and stats.
 
-This repository is maintained at [Yani3rt/WiKiOS](https://github.com/Yani3rt/WiKiOS).
+Originally released as WikiOS under the MIT License. [Ansub/wiki-os.git](https://github.com/Ansub/wiki-os.git); this fork is maintained at [Yani3rt/WiKiOS](https://github.com/Yani3rt/WiKiOS).
 
 
 <img width="3024" height="1324" alt="CleanShot 2026-04-12 at 21 10 31@2x" src="https://github.com/user-attachments/assets/86ca9f3e-db4b-4a21-96bc-fe18ba346ece" />
