@@ -1,6 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import Graph from "graphology";
+
+vi.mock("sigma", () => ({ default: class Sigma {} }));
 
 import type { GraphNode } from "../src/lib/wiki-shared";
+import { applyGraphThemeColors } from "../src/client/routes/graph-route";
 import {
   GRAPH_INDEX_LIMIT,
   GRAPH_MOVEMENT_RENDERING_SETTINGS,
@@ -44,6 +48,36 @@ function node(overrides: Partial<GraphNode> & Pick<GraphNode, "slug">): GraphNod
 }
 
 describe("graph overview model", () => {
+  it("recolors neutral graph data while preserving category encodings", () => {
+    const graph = new Graph();
+    graph.addNode("neutral", { categories: [], color: "#000000", originalColor: "#000000" });
+    graph.addNode("topic", {
+      categories: ["design"],
+      color: "#123456",
+      originalColor: "#123456",
+    });
+    graph.addEdge("neutral", "topic", { color: "#000000" });
+    const colors = {
+      background: "#eef4fb",
+      foreground: "#15202d",
+      muted: "#4d5969",
+      nodeDefault: "#234566",
+      nodeMuted: "#8494a8",
+      edgeDefault: "#667d94",
+      edgeMuted: "#93a0ae",
+      edgeOutgoing: "#00628d",
+      edgeIncoming: "#875800",
+      label: "#15202d",
+    };
+
+    applyGraphThemeColors(graph, {}, colors);
+
+    expect(graph.getNodeAttribute("neutral", "color")).toBe("#234566");
+    expect(graph.getNodeAttribute("neutral", "originalColor")).toBe("#234566");
+    expect(graph.getNodeAttribute("topic", "color")).not.toBe("#234566");
+    expect(graph.getEdgeAttribute(graph.edges()[0], "color")).toBe("#667d94");
+  });
+
   it("keeps sparse notes large enough to identify and connected notes more prominent", () => {
     const isolated = getGraphNodeSize(node({ slug: "isolated", wordCount: 20 }));
     const connected = getGraphNodeSize(

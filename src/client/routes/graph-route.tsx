@@ -16,6 +16,7 @@ import {
 import SigmaLib from "sigma";
 import type { NodeLabelDrawingFunction } from "sigma/rendering";
 
+import { useColorTheme } from "@/client/color-theme-provider";
 import { useWikiConfig } from "@/client/wiki-config";
 import { ThemeSelector } from "@/components/theme-selector";
 import {
@@ -58,8 +59,10 @@ import { RouteErrorBoundary } from "../route-error-boundary";
 
 /* ── Graph theme ── */
 
-interface GraphThemeColors {
+export interface GraphThemeColors {
   background: string;
+  foreground: string;
+  muted: string;
   label: string;
   nodeDefault: string;
   nodeMuted: string;
@@ -71,6 +74,8 @@ interface GraphThemeColors {
 
 const GRAPH_THEME_TOKENS: Record<keyof GraphThemeColors, string> = {
   background: "--graph-background",
+  foreground: "--graph-foreground",
+  muted: "--graph-muted",
   label: "--graph-label",
   nodeDefault: "--graph-node-default",
   nodeMuted: "--graph-node-muted",
@@ -140,6 +145,19 @@ function getCategoryColor(
     return strengthenGraphColor(getTopicColor(cat, aliases));
   }
   return fallbackColor;
+}
+
+export function applyGraphThemeColors(
+  graph: Graph,
+  aliases: Record<string, TopicAliasConfig>,
+  colors: GraphThemeColors,
+) {
+  graph.forEachNode((node, attributes) => {
+    const categories = Array.isArray(attributes.categories) ? attributes.categories : [];
+    const color = getCategoryColor(categories, aliases, colors.nodeDefault);
+    graph.mergeNodeAttributes(node, { color, originalColor: color });
+  });
+  graph.forEachEdge((edge) => graph.mergeEdgeAttributes(edge, { color: colors.edgeDefault }));
 }
 
 function createGraphLabelDrawer(colors: GraphThemeColors): NodeLabelDrawingFunction {
@@ -1003,10 +1021,12 @@ export async function loader() {
 export function Component() {
   const data = useLoaderData() as GraphData;
   const config = useWikiConfig();
+  const { colorTheme } = useColorTheme();
   const navigate = useNavigate();
   const containerRef = useRef<HTMLDivElement>(null);
   const sigmaRef = useRef<SigmaLib | null>(null);
   const graphRef = useRef<Graph | null>(null);
+  const graphThemeRef = useRef<GraphThemeColors | null>(null);
   const hoveredRef = useRef<string | null>(null);
   const focusedRef = useRef<string | null>(null);
   const linkedHoverRef = useRef<string | null>(null);
@@ -1188,6 +1208,7 @@ export function Component() {
     if (!containerRef.current || data.nodes.length === 0) return;
 
     const graphTheme = getGraphThemeColors(containerRef.current);
+    graphThemeRef.current = graphTheme;
     const graph = buildGraph(data, config.categories.aliases, graphTheme);
     const isolationFrameRefreshOptions = getGraphIsolationFrameRefreshOptions(graph.nodes());
     graphRef.current = graph;
@@ -1215,6 +1236,7 @@ export function Component() {
       minEdgeThickness: 1,
       stagePadding: viewportSettings.stagePadding,
       edgeReducer(edge, data) {
+        const colors = graphThemeRef.current ?? graphTheme;
         const focused = focusedRef.current;
         const hovered = hoveredRef.current;
         const res = { ...data };
@@ -1223,11 +1245,11 @@ export function Component() {
 
         if (focused) {
           if (src === focused) {
-            res.color = graphTheme.edgeOutgoing;
+            res.color = colors.edgeOutgoing;
             res.size = Math.max(2.1, res.size ?? 1);
             res.type = "arrow";
           } else if (tgt === focused) {
-            res.color = graphTheme.edgeIncoming;
+            res.color = colors.edgeIncoming;
             res.size = Math.max(2.1, res.size ?? 1);
             res.type = "arrow";
           } else {
@@ -1235,16 +1257,17 @@ export function Component() {
           }
         } else if (hovered) {
           if (src === hovered || tgt === hovered) {
-            res.color = graphTheme.edgeOutgoing;
+            res.color = colors.edgeOutgoing;
             res.size = Math.max(1.8, res.size ?? 1);
           } else {
-            res.color = graphTheme.edgeMuted;
+            res.color = colors.edgeMuted;
             res.size = Math.max(0.8, (res.size ?? 1) * 0.7);
           }
         }
         return res;
       },
       nodeReducer(node, data) {
+        const colors = graphThemeRef.current ?? graphTheme;
         const focused = isolatedFocusRef.current;
         const hovered = hoveredRef.current;
         const linkedHover = linkedHoverRef.current;
@@ -1274,8 +1297,8 @@ export function Component() {
                 isolationProgressRef.current,
               );
               res.color = mixGraphColors(
-                String(data.originalColor ?? data.color ?? graphTheme.nodeDefault),
-                graphTheme.background,
+                String(data.originalColor ?? data.color ?? colors.nodeDefault),
+                colors.background,
                 transition.colorMix,
               );
               res.size = (res.size ?? 4) * transition.sizeScale;
@@ -1283,7 +1306,7 @@ export function Component() {
               res.label = "";
               res.forceLabel = false;
             } else {
-              res.color = graphTheme.nodeMuted;
+              res.color = colors.nodeMuted;
             }
           }
         }
@@ -1440,8 +1463,27 @@ export function Component() {
       sigma.kill();
       sigmaRef.current = null;
       graphRef.current = null;
+      graphThemeRef.current = null;
     };
   }, [config.categories.aliases, data]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    const graph = graphRef.current;
+    const sigma = sigmaRef.current;
+    if (!container || !graph || !sigma) return;
+
+    const colors = getGraphThemeColors(container);
+    graphThemeRef.current = colors;
+    applyGraphThemeColors(graph, config.categories.aliases, colors);
+    sigma.setSettings({
+      defaultDrawNodeLabel: createGraphLabelDrawer(colors),
+      labelColor: { color: colors.label },
+      defaultEdgeColor: colors.edgeDefault,
+      defaultNodeColor: colors.nodeDefault,
+    });
+    sigma.refresh();
+  }, [colorTheme, config.categories.aliases]);
 
   // Tooltip tracking
   useEffect(() => {
