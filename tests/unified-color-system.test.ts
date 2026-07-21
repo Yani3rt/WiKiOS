@@ -142,9 +142,36 @@ describe("unified color system", () => {
       "../src/client/routes/setup-route.tsx",
     ];
     for (const file of files) {
-      expect(source(file), file).toContain('import { ThemeSelector } from "@/components/theme-selector"');
-      expect(source(file), file).toContain("<ThemeSelector />");
+      const contents = source(file);
+      const selectors = contents.match(/<ThemeSelector \/>/g) ?? [];
+      const selectorIndex = contents.indexOf("<ThemeSelector />");
+      const headerStart = contents.lastIndexOf("<header", selectorIndex);
+      const headerEnd = contents.indexOf("</header>", headerStart);
+
+      expect(contents, file).toContain('import { ThemeSelector } from "@/components/theme-selector"');
+      expect(selectors, file).toHaveLength(1);
+      expect(headerStart, file).toBeGreaterThanOrEqual(0);
+      expect(selectorIndex, file).toBeGreaterThan(headerStart);
+      expect(selectorIndex, file).toBeLessThan(headerEnd);
     }
+  });
+
+  it("keeps compact Graph and Setup header controls from overlapping", () => {
+    const graphSource = source("../src/client/routes/graph-route.tsx");
+    const setupSource = source("../src/client/routes/setup-route.tsx");
+
+    expect(graphSource).toContain(
+      'className="graph-search absolute left-4 right-[4.5rem] z-10 sm:left-6 sm:right-auto sm:w-80"',
+    );
+    expect(graphSource).toContain(
+      '<div className="relative z-20 flex items-center gap-1.5 sm:gap-2.5">',
+    );
+    expect(setupSource).toContain("Network");
+    expect(setupSource).toContain("ChartNoAxesCombined");
+    expect(setupSource).toContain('<span className="sm:hidden">Vault</span>');
+    expect(setupSource).toContain('<span className="hidden sm:inline">');
+    expect(setupSource).toContain('aria-label={config.navigation.graphLabel}');
+    expect(setupSource).toContain('aria-label={config.navigation.statsLabel}');
   });
 
   it("pages the graph node index from ten notes in groups of five", () => {

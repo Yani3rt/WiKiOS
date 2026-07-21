@@ -499,7 +499,7 @@ function GraphSearch({
   };
 
   return (
-    <div className="graph-search absolute left-4 right-4 z-10 sm:left-6 sm:right-auto sm:w-80">
+    <div className="graph-search absolute left-4 right-[4.5rem] z-10 sm:left-6 sm:right-auto sm:w-80">
       <div id="graph-search-controls" className="flex gap-2">
         <input
           type="search"
@@ -1517,7 +1517,7 @@ export function Component() {
             <h1 className="text-base font-semibold">Knowledge Graph</h1>
           </div>
         </Link>
-        <div className="flex items-center gap-1.5 sm:gap-2.5">
+        <div className="relative z-20 flex items-center gap-1.5 sm:gap-2.5">
           <span className="app-route-header-control hidden items-center gap-2 rounded-md px-3.5 py-2 text-xs sm:flex">
             <span
               className="h-1.5 w-1.5 rounded-full bg-[var(--graph-stat-accent)]"

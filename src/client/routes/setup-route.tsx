@@ -1,4 +1,12 @@
-import { ArrowRight, Folder, FolderX, House, LoaderCircle } from "lucide-react";
+import {
+  ArrowRight,
+  ChartNoAxesCombined,
+  Folder,
+  FolderX,
+  House,
+  LoaderCircle,
+  Network,
+} from "lucide-react";
 import { useState } from "react";
 import {
   Link,
@@ -210,22 +218,29 @@ export function Component() {
           <div className="mt-0.5 flex items-center gap-2">
             <House className="app-route-header-meta h-4 w-4" />
             <h1 className="text-base font-semibold">
-              {isChangeMode ? "Vault Settings" : "Vault Setup"}
+              <span className="sm:hidden">Vault</span>
+              <span className="hidden sm:inline">
+                {isChangeMode ? "Vault Settings" : "Vault Setup"}
+              </span>
             </h1>
           </div>
         </Link>
         <nav aria-label="Main navigation" className="flex items-center gap-1.5 sm:gap-2.5">
           <Link
             to="/graph"
-            className="app-route-header-control inline-flex min-h-11 items-center rounded-md px-3.5 py-2 text-sm font-medium active:scale-[0.96] sm:px-4"
+            aria-label={config.navigation.graphLabel}
+            className="app-route-header-control inline-flex min-h-11 min-w-11 items-center justify-center rounded-md px-2 py-2 text-sm font-medium active:scale-[0.96] sm:px-4"
           >
-            {config.navigation.graphLabel}
+            <Network aria-hidden="true" className="h-4 w-4 sm:hidden" />
+            <span className="hidden sm:inline">{config.navigation.graphLabel}</span>
           </Link>
           <Link
             to="/stats"
-            className="app-route-header-control inline-flex min-h-11 items-center rounded-md px-3.5 py-2 text-sm font-medium active:scale-[0.96] sm:px-4"
+            aria-label={config.navigation.statsLabel}
+            className="app-route-header-control inline-flex min-h-11 min-w-11 items-center justify-center rounded-md px-2 py-2 text-sm font-medium active:scale-[0.96] sm:px-4"
           >
-            {config.navigation.statsLabel}
+            <ChartNoAxesCombined aria-hidden="true" className="h-4 w-4 sm:hidden" />
+            <span className="hidden sm:inline">{config.navigation.statsLabel}</span>
           </Link>
           <ThemeSelector />
         </nav>
