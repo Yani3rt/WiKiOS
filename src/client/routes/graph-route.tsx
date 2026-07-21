@@ -25,6 +25,7 @@ import {
   getGraphDisconnectedNodeTransition,
   getGraphEdgeSize,
   getGraphIndexNodes,
+  getGraphIsolationFrameRefreshOptions,
   getGraphLayoutIterations,
   getGraphLinkedNodePulseScale,
   getGraphNodeClickSelection,
@@ -37,6 +38,7 @@ import {
   GRAPH_MOVEMENT_RENDERING_SETTINGS,
   shouldCloseGraphNodeIndexAfterSelection,
   shouldCollapseGraphDetailPanelOnSearchInteraction,
+  shouldResetGraphCameraAfterDetailClose,
   mixGraphColors,
   strengthenGraphColor,
   truncateGraphLabel,
@@ -1002,11 +1004,18 @@ export function Component() {
   }, []);
 
   const handleInfoClose = useCallback(() => {
+    const sigma = sigmaRef.current;
     focusedRef.current = null;
     focusIsolationCallbackRef.current?.(null);
     setFocusedSlug(null);
     setDetailPanelCollapsed(false);
-    sigmaRef.current?.refresh();
+    sigma?.refresh();
+    if (sigma && shouldResetGraphCameraAfterDetailClose(window.innerWidth)) {
+      void sigma
+        .getCamera()
+        .animatedReset({ duration: getGraphMotionDuration(220) })
+        .then(() => labelLayoutCallbackRef.current?.());
+    }
     requestAnimationFrame(() => browseButtonRef.current?.focus());
   }, []);
 
@@ -1082,6 +1091,7 @@ export function Component() {
 
     const graphTheme = getGraphThemeColors(containerRef.current);
     const graph = buildGraph(data, config.categories.aliases, graphTheme);
+    const isolationFrameRefreshOptions = getGraphIsolationFrameRefreshOptions(graph.nodes());
     graphRef.current = graph;
     let viewportSettings = getGraphViewportSettings(
       containerRef.current.clientWidth,
@@ -1223,7 +1233,7 @@ export function Component() {
       }
 
       isolationProgressRef.current = startProgress;
-      sigma.refresh({ skipIndexation: true, schedule: true });
+      sigma.refresh(isolationFrameRefreshOptions);
       const startedAt = performance.now();
       const animate = (timestamp: number) => {
         const elapsed = Math.min(1, (timestamp - startedAt) / duration);
@@ -1239,7 +1249,7 @@ export function Component() {
           return;
         }
 
-        sigma.refresh({ skipIndexation: true, schedule: true });
+        sigma.refresh(isolationFrameRefreshOptions);
         focusIsolationFrame = requestAnimationFrame(animate);
       };
       focusIsolationFrame = requestAnimationFrame(animate);

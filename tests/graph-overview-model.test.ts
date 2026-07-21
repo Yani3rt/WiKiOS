@@ -14,6 +14,7 @@ import {
   getGraphCameraCenterForViewportTarget,
   getGraphDetailPanelToggleState,
   getGraphDisconnectedNodeTransition,
+  getGraphIsolationFrameRefreshOptions,
   getGraphNodeClickSelection,
   getGraphNodeFocusViewportPoint,
   getGraphNodeSize,
@@ -24,6 +25,7 @@ import {
   getPersistentLabelSlugs,
   shouldCloseGraphNodeIndexAfterSelection,
   shouldCollapseGraphDetailPanelOnSearchInteraction,
+  shouldResetGraphCameraAfterDetailClose,
   mixGraphColors,
   strengthenGraphColor,
   truncateGraphLabel,
@@ -243,6 +245,19 @@ describe("graph overview model", () => {
     expect(mixGraphColors("#112233", "#ffffff", 1)).toBe("#ffffff");
   });
 
+  it("keeps animated isolation refreshes partial so node coordinates stay normalized", () => {
+    const nodeSlugs = ["selected", "neighbor", "unrelated"];
+
+    const options = getGraphIsolationFrameRefreshOptions(nodeSlugs);
+
+    expect(options).toEqual({
+      partialGraph: { nodes: nodeSlugs },
+      skipIndexation: true,
+      schedule: true,
+    });
+    expect(options.partialGraph.nodes).toBe(nodeSlugs);
+  });
+
   it("closes the node index after mobile selections but preserves the desktop browsing flow", () => {
     expect(shouldCloseGraphNodeIndexAfterSelection(390)).toBe(true);
     expect(shouldCloseGraphNodeIndexAfterSelection(639)).toBe(true);
@@ -255,6 +270,13 @@ describe("graph overview model", () => {
     expect(shouldCollapseGraphDetailPanelOnSearchInteraction(639, true)).toBe(true);
     expect(shouldCollapseGraphDetailPanelOnSearchInteraction(640, true)).toBe(false);
     expect(shouldCollapseGraphDetailPanelOnSearchInteraction(390, false)).toBe(false);
+  });
+
+  it("recenters the graph after closing mobile details only", () => {
+    expect(shouldResetGraphCameraAfterDetailClose(390)).toBe(true);
+    expect(shouldResetGraphCameraAfterDetailClose(639)).toBe(true);
+    expect(shouldResetGraphCameraAfterDetailClose(640)).toBe(false);
+    expect(shouldResetGraphCameraAfterDetailClose(1_243)).toBe(false);
   });
 
   it("places mobile selections below search while keeping desktop selections centered", () => {

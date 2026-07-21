@@ -191,6 +191,10 @@ export function shouldCollapseGraphDetailPanelOnSearchInteraction(
   return hasFocusedNode && viewportWidth < 640;
 }
 
+export function shouldResetGraphCameraAfterDetailClose(viewportWidth: number) {
+  return viewportWidth < 640;
+}
+
 export function getGraphNodeVerticalBalance(
   nodes: Array<{ slug: string; y: number }>,
   selectedSlug: string,
@@ -290,6 +294,14 @@ export function getGraphDisconnectedNodeTransition(progress: number) {
     colorMix: normalizedProgress,
     hidden: normalizedProgress >= 1,
     sizeScale: 1 - normalizedProgress * 0.28,
+  };
+}
+
+export function getGraphIsolationFrameRefreshOptions(nodeSlugs: string[]) {
+  return {
+    partialGraph: { nodes: nodeSlugs },
+    skipIndexation: true,
+    schedule: true,
   };
 }
 
