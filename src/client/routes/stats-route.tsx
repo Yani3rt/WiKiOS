@@ -33,7 +33,7 @@ export function Component() {
     {
       label: "Words",
       value: stats.total_words.toLocaleString(),
-      accent: "var(--brand-deep-teal-hover)",
+      accent: "var(--brand-deep-hover)",
     },
     {
       label: "Avg. Words",
@@ -52,7 +52,7 @@ export function Component() {
 
   const barAccents = [
     "var(--brand-accent)",
-    "var(--brand-deep-teal-hover)",
+    "var(--brand-deep-hover)",
     "var(--brand-warning)",
   ];
 
@@ -152,7 +152,7 @@ export function Component() {
                   >
                     <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
                       <span
-                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[var(--brand-deep-teal)] text-[0.65rem] font-semibold text-[var(--brand-on-deep)]"
+                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[var(--brand-deep)] text-[0.65rem] font-semibold text-[var(--brand-on-deep)]"
                       >
                         {index + 1}
                       </span>

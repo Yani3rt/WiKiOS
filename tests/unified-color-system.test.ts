@@ -12,19 +12,41 @@ describe("unified color system", () => {
     const styles = source("../src/client/globals.css");
     const required = [
       "brand-deep", "brand-deep-hover", "brand-canvas", "brand-surface",
+      "brand-muted-surface",
       "brand-ink", "brand-muted-ink", "brand-accent", "brand-accent-soft",
       "brand-border", "brand-control-border", "graph-background",
       "graph-foreground", "graph-node-default", "graph-edge-default", "graph-label",
     ];
+    const mutedSurfaceByTheme = {
+      teal: "oklch(0.93 0.018 205)",
+      blue: "oklch(0.93 0.018 250)",
+      violet: "oklch(0.93 0.018 295)",
+    } as const;
     for (const id of ["teal", "blue", "violet"]) {
       const start = styles.indexOf(`:root[data-color-theme="${id}"]`);
       const end = styles.indexOf("\n}", start);
       const block = styles.slice(start, end);
       expect(start, id).toBeGreaterThan(-1);
       for (const token of required) expect(block, `${id}:${token}`).toContain(`--${token}:`);
+      expect(block, `${id}:brand-muted-surface`).toContain(
+        `--brand-muted-surface: ${mutedSurfaceByTheme[id as keyof typeof mutedSurfaceByTheme]};`,
+      );
     }
     expect(styles).not.toContain("--brand-deep-teal");
     expect(styles).not.toContain("--brand-deep-teal-hover");
+  });
+
+  it("removes stale deep Teal tokens from production consumers", () => {
+    const productionSources = [
+      "../src/client/routes/stats-route.tsx",
+      "../src/components/error-state-view.tsx",
+      "../src/components/not-found-view.tsx",
+    ];
+    for (const productionSource of productionSources) {
+      const contents = source(productionSource);
+      expect(contents, productionSource).not.toContain("--brand-deep-teal");
+      expect(contents, productionSource).not.toContain("--brand-deep-teal-hover");
+    }
   });
 
   it("applies the shared shell and header to every full-page route", () => {

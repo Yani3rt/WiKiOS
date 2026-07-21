@@ -16,6 +16,7 @@
   --brand-canvas: oklch(0.965 0.012 205);
   --brand-surface: oklch(0.99 0.005 205);
   --brand-surface-subtle: oklch(0.94 0.02 205);
+  --brand-muted-surface: oklch(0.93 0.018 205);
   --brand-ink: oklch(0.24 0.025 215);
   --brand-muted-ink: oklch(0.46 0.025 215);
   --brand-accent: oklch(0.45 0.085 205);
@@ -48,6 +49,7 @@
   --brand-canvas: oklch(0.965 0.012 250);
   --brand-surface: oklch(0.99 0.005 250);
   --brand-surface-subtle: oklch(0.94 0.02 250);
+  --brand-muted-surface: oklch(0.93 0.018 250);
   --brand-ink: oklch(0.24 0.03 255);
   --brand-muted-ink: oklch(0.46 0.03 255);
   --brand-accent: oklch(0.45 0.11 250);
@@ -80,6 +82,7 @@
   --brand-canvas: oklch(0.965 0.012 295);
   --brand-surface: oklch(0.99 0.005 295);
   --brand-surface-subtle: oklch(0.94 0.02 295);
+  --brand-muted-surface: oklch(0.93 0.018 295);
   --brand-ink: oklch(0.24 0.03 295);
   --brand-muted-ink: oklch(0.46 0.03 295);
   --brand-accent: oklch(0.45 0.105 295);
@@ -125,9 +128,9 @@
   --lavender-soft: var(--brand-accent-soft);
   --primary: var(--brand-deep);
   --primary-foreground: var(--brand-on-deep);
-  --secondary: var(--brand-surface-subtle);
+  --secondary: var(--brand-muted-surface);
   --secondary-foreground: var(--brand-ink);
-  --muted: var(--brand-surface-subtle);
+  --muted: var(--brand-muted-surface);
   --muted-foreground: var(--brand-muted-ink);
   --accent: var(--brand-accent-soft);
   --accent-foreground: var(--brand-ink);
