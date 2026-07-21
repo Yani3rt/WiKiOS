@@ -43,3 +43,6 @@ yarn-error.log*
 *.tsbuildinfo
 # local browser automation artifacts
 .playwright-cli/
+
+# isolated implementation worktrees
+.worktrees/
