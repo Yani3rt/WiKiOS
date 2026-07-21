@@ -12,7 +12,7 @@ function PageRow({ page, showSummary = false }: { page: PageSummary; showSummary
   return (
     <Link
       to={`/wiki/${page.slug}`}
-      className="group flex min-h-14 min-w-0 items-start justify-between gap-4 py-3 text-left"
+      className="home-note-link group flex min-h-14 min-w-0 items-start justify-between gap-4 py-3 text-left"
     >
       <span className="min-w-0">
         <span className="block truncate text-[0.95rem] font-medium text-[var(--home-ink)] group-hover:text-[var(--home-accent)]">
@@ -38,7 +38,7 @@ function PersonRow({ person }: { person: PageSummary }) {
   return (
     <Link
       to={`/wiki/${person.slug}`}
-      className="group flex min-h-14 min-w-0 items-center gap-3 py-2.5 text-left"
+      className="home-note-link group flex min-h-14 min-w-0 items-center gap-3 py-2.5 text-left"
     >
       <span className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[var(--home-accent-soft)] text-sm font-semibold text-[var(--home-accent)]">
         <span aria-hidden={imageUrl !== null && imgLoaded}>{person.title.charAt(0)}</span>
@@ -88,10 +88,13 @@ function HomeSection({
   const hasMore = itemCount > HOME_SECTION_PREVIEW_LIMIT;
 
   return (
-    <section aria-labelledby={headingId} className="border-t border-[var(--home-border)] pt-4">
-      <div className="mb-2 flex items-start justify-between gap-4">
+    <section aria-labelledby={headingId} className="border-t-2 border-[var(--home-accent)] pt-5">
+      <div className="mb-3 flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <h2 id={headingId} className="text-base font-semibold text-[var(--home-ink)]">
+          <h2
+            id={headingId}
+            className="text-lg font-semibold leading-6 tracking-[-0.01em] text-[var(--home-accent)]"
+          >
             {title}
           </h2>
           <p className="mt-1 text-sm leading-5 text-[var(--home-muted)]">{description}</p>

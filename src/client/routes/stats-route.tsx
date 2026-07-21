@@ -1,3 +1,4 @@
+import { House } from "lucide-react";
 import { useLoaderData, Link, redirect } from "react-router-dom";
 
 import { useWikiConfig } from "@/client/wiki-config";
@@ -28,13 +29,11 @@ export function Component() {
       label: "Pages",
       value: stats.total_pages.toLocaleString(),
       accent: "var(--teal)",
-      soft: "var(--teal-soft)",
     },
     {
       label: "Words",
       value: stats.total_words.toLocaleString(),
-      accent: "var(--peach)",
-      soft: "var(--peach-soft)",
+      accent: "var(--brand-deep-teal-hover)",
     },
     {
       label: "Avg. Words",
@@ -42,37 +41,48 @@ export function Component() {
         ? Math.round(stats.total_words / stats.total_pages)
         : 0
       ).toLocaleString(),
-      accent: "var(--lavender)",
-      soft: "var(--lavender-soft)",
+      accent: "var(--brand-warning)",
     },
     {
       label: "Top Links",
       value: (stats.top_backlinks[0]?.count ?? 0).toLocaleString(),
       accent: "var(--teal)",
-      soft: "var(--teal-soft)",
     },
   ];
 
-  const barAccents = ["var(--teal)", "var(--peach)", "var(--lavender)"];
+  const barAccents = [
+    "var(--brand-accent)",
+    "var(--brand-deep-teal-hover)",
+    "var(--brand-warning)",
+  ];
 
   return (
-    <div className="flex min-h-screen flex-col">
-      <header className="flex items-center justify-between gap-2 px-4 pb-3 pt-[calc(env(safe-area-inset-top)+1.5rem)] sm:gap-3 sm:px-6 sm:pb-4 sm:pt-[calc(env(safe-area-inset-top)+1.25rem)]">
-        <Link to="/" className="font-display text-lg text-[var(--foreground)] sm:text-xl">
-          {config.siteTitle}
+    <div className="app-route-shell flex min-h-screen flex-col">
+      <header className="app-route-header flex h-16 items-center justify-between px-4 md:px-5">
+        <Link
+          to="/"
+          aria-label="Back to wiki home"
+          className="app-route-header-brand rounded-md px-1 py-1 text-left"
+        >
+          <p className="app-route-header-meta text-xs font-medium">
+            {config.siteTitle}
+          </p>
+          <div className="mt-0.5 flex items-center gap-2">
+            <House className="app-route-header-meta h-4 w-4" />
+            <h1 className="text-base font-semibold">
+              Wiki {config.navigation.statsLabel}
+            </h1>
+          </div>
         </Link>
         <div className="flex items-center gap-1.5 sm:gap-2.5">
-          <span className="surface flex items-center gap-1.5 rounded-full px-3 py-2 text-xs text-[var(--muted-foreground)] sm:gap-2 sm:px-3.5">
-            <span className="h-1.5 w-1.5 rounded-full bg-[var(--teal)]" />
-            <span className="font-semibold tabular-nums text-[var(--foreground)]">
+          <span className="app-route-header-control stats-route-control flex items-center gap-1.5 px-3 py-2 text-xs sm:gap-2 sm:px-3.5">
+            <span className="h-1.5 w-1.5 rounded-full bg-[var(--brand-on-deep-accent)]" />
+            <span className="font-semibold tabular-nums">
               {stats.total_pages.toLocaleString()}
             </span>
             <span className="hidden sm:inline">articles</span>
           </span>
-          <span className="rounded-full bg-[var(--foreground)] px-3.5 py-2 text-sm font-medium text-[var(--background)] sm:px-4">
-            {config.navigation.statsLabel}
-          </span>
-          <ChangeVaultLink />
+          <ChangeVaultLink className="stats-route-control" />
         </div>
       </header>
 
@@ -80,10 +90,10 @@ export function Component() {
         className="mx-auto w-full max-w-4xl px-4 pt-6 sm:px-6 sm:pt-10 lg:px-8"
         style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 4rem)" }}
       >
-        <div className="animate-in space-y-10 sm:space-y-12">
+        <div className="space-y-10 sm:space-y-12">
           <div>
-            <span className="chip-peach inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[0.7rem] font-semibold uppercase tracking-[0.16em]">
-              <span className="h-1.5 w-1.5 rounded-full bg-[var(--peach)]" />
+            <span className="chip-teal inline-flex items-center gap-1.5 rounded-md px-3 py-1 text-[0.7rem] font-semibold uppercase tracking-[0.16em]">
+              <span className="h-1.5 w-1.5 rounded-full bg-[var(--brand-accent)]" />
               {config.homepage.labels.statsEyebrow}
             </span>
             <h1 className="mt-3 font-display text-[2.75rem] leading-[1.05] tracking-[-0.02em] text-[var(--foreground)] sm:text-5xl">
@@ -95,17 +105,13 @@ export function Component() {
           </div>
 
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4">
-            {statCards.map((card, index) => (
+            {statCards.map((card) => (
               <div
                 key={card.label}
-                className={`surface-raised hover-lift stagger-${index + 1} animate-in relative overflow-hidden rounded-2xl p-4 sm:p-5`}
+                className="surface-raised rounded-xl p-4 sm:p-5"
+                style={{ borderTopColor: card.accent }}
               >
-                <div
-                  aria-hidden
-                  className="absolute -right-10 -top-10 h-32 w-32 rounded-full opacity-40 blur-2xl"
-                  style={{ background: card.soft }}
-                />
-                <div className="relative">
+                <div>
                   <div className="flex items-center gap-2">
                     <span
                       className="h-1.5 w-1.5 rounded-full"
@@ -125,12 +131,12 @@ export function Component() {
 
           <div>
             <div className="mb-4 flex items-center gap-2">
-              <span className="h-2 w-2 rounded-full bg-[var(--lavender)] shadow-[0_0_12px_var(--lavender)]" />
+              <span className="h-2 w-2 rounded-full bg-[var(--brand-accent)]" />
               <p className="text-[0.7rem] font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
                 Most Backlinked Concepts
               </p>
             </div>
-            <div className="surface-raised overflow-hidden rounded-3xl">
+            <div className="surface-raised overflow-hidden rounded-xl">
               {stats.top_backlinks.map((item, index) => {
                 const accent = barAccents[index % barAccents.length];
                 const widthPct = Math.max(
@@ -146,8 +152,7 @@ export function Component() {
                   >
                     <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
                       <span
-                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[0.65rem] font-semibold text-white"
-                        style={{ background: accent }}
+                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[var(--brand-deep-teal)] text-[0.65rem] font-semibold text-[var(--brand-on-deep)]"
                       >
                         {index + 1}
                       </span>

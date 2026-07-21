@@ -179,7 +179,8 @@ describe("global command palette integration", () => {
     expect(css).toContain(".command-palette-backdrop");
     expect(css).toContain(".command-palette-dialog");
     expect(css).toContain('.command-palette-result[aria-selected="true"]');
-    expect(css).toContain("backdrop-filter: blur(");
+    expect(css).not.toContain("backdrop-filter: blur(");
+    expect(css).toContain("background: var(--brand-surface);");
     expect(css).toContain("@media (prefers-reduced-motion: reduce)");
   });
 });

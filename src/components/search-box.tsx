@@ -7,16 +7,20 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { RefreshCw, Search, X } from "lucide-react";
+import { BookOpenText, ChartNoAxesCombined, Network, RefreshCw, Search, X } from "lucide-react";
 import { Link, useRevalidator } from "react-router-dom";
 
 import { useWikiConfig } from "@/client/wiki-config";
+import {
+  HomeFooter,
+  type HomeFooterRefreshStatus,
+} from "@/components/home-footer";
 import { HighlightedText, buildHighlightQuery } from "@/components/highlighted-text";
 import { slugFromFileName, titleFromFileName, type PageSummary, type SearchResult } from "@/lib/wiki-shared";
 
 export const HOME_SEARCH_PREVIEW_LIMIT = 4;
 
-type RefreshStatus = "idle" | "loading" | "success" | "error";
+type RefreshStatus = HomeFooterRefreshStatus;
 
 function SearchInput({
   query,
@@ -94,6 +98,10 @@ export function getRefreshStatusMessage(status: RefreshStatus, totalPages: numbe
     return "The note index could not be refreshed. Your current notes are still available.";
   }
   return "";
+}
+
+export function getHomeSearchScrollBehavior(reducedMotion: boolean): ScrollBehavior {
+  return reducedMotion ? "auto" : "smooth";
 }
 
 export function SearchBox({
@@ -202,92 +210,114 @@ export function SearchBox({
     }
   };
 
+  const handleFooterSearchFocus = () => {
+    const input = inputRef.current;
+    if (!input) return;
+
+    input.focus({ preventScroll: true });
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    input.scrollIntoView({
+      behavior: getHomeSearchScrollBehavior(reducedMotion),
+      block: "center",
+    });
+  };
+
   const hasQuery = query.trim().length > 0;
   const visibleResults = getVisibleSearchResults(results ?? [], showAllResults);
   const refreshMessage = getRefreshStatusMessage(refreshStatus, totalPages);
 
   return (
-    <div className="home-shell min-h-screen">
-      <header className="border-b border-[var(--home-border)]">
-        <div className="mx-auto flex min-h-16 w-full max-w-6xl items-center justify-between gap-4 px-4 sm:px-6">
-          <Link
-            to="/"
-            aria-label={`${config.siteTitle} home`}
-            className="inline-flex min-h-11 max-w-[60%] min-w-0 items-center truncate rounded-md py-2 text-base font-semibold tracking-[-0.01em] text-[var(--home-ink)]"
-            onClick={(event) => {
-              if (!hasQuery) return;
-              event.preventDefault();
-              resetSearch();
-            }}
-          >
-            {config.siteTitle}
-          </Link>
-          <span className="shrink-0 text-sm tabular-nums text-[var(--home-muted)]">
-            {totalPages.toLocaleString()} {totalPages === 1 ? "note" : "notes"} indexed
-          </span>
-        </div>
-      </header>
-
-      <main className="mx-auto flex w-full max-w-6xl flex-col px-4 pb-8 pt-8 sm:px-6 sm:pt-12">
-        {!hasQuery ? (
-          <div className="max-w-2xl">
-            <h1 className="text-3xl font-semibold tracking-[-0.025em] text-[var(--home-ink)] sm:text-4xl">
-              Find a note
-            </h1>
-            <p className="mt-3 max-w-[62ch] text-base leading-7 text-[var(--home-muted)]">
-              {config.tagline}
-            </p>
-          </div>
-        ) : null}
-
-        <div className={`w-full max-w-2xl ${hasQuery ? "" : "mt-7"}`}>
-          <SearchInput
-            query={query}
-            isSearching={isSearching}
-            onChange={handleQueryChange}
-            onClear={resetSearch}
-            inputRef={inputRef}
-          />
-
-          <div className="mt-3 flex min-h-11 flex-wrap items-center justify-between gap-x-4 gap-y-2 text-sm text-[var(--home-muted)]">
-            <button
-              type="button"
-              onClick={handleRefresh}
-              disabled={refreshBusy}
-              aria-busy={refreshBusy}
-              className="inline-flex min-h-11 items-center gap-2 rounded-md px-2 font-medium text-[var(--home-accent)] hover:bg-[var(--home-accent-soft)] disabled:cursor-wait disabled:opacity-70"
+    <div className="home-shell flex min-h-screen flex-col">
+      <div className="home-hero">
+        <header>
+          <div className="mx-auto flex min-h-16 w-full max-w-6xl items-center justify-between gap-4 px-4 sm:px-6">
+            <Link
+              to="/"
+              aria-label={`${config.siteTitle} home`}
+              className="inline-flex min-h-11 max-w-[60%] min-w-0 items-center truncate rounded-md py-2 text-base font-semibold tracking-[-0.01em] text-[var(--home-hero-ink)]"
+              onClick={(event) => {
+                if (!hasQuery) return;
+                event.preventDefault();
+                resetSearch();
+              }}
             >
-              <RefreshCw
-                aria-hidden
-                className={`h-4 w-4 motion-reduce:animate-none ${refreshBusy ? "animate-spin" : ""}`}
-              />
-              {refreshStatus === "error" ? "Retry refresh" : "Refresh index"}
-            </button>
-            <span className="hidden items-center gap-2 sm:flex">
-              <kbd className="rounded border border-[var(--home-control-border)] bg-[var(--home-surface)] px-1.5 py-0.5 font-sans text-xs font-medium text-[var(--home-ink)]">
-                ⌘K
-              </kbd>
-              Quick search
+              {config.siteTitle}
+            </Link>
+            <span className="shrink-0 text-sm tabular-nums text-[var(--home-hero-muted)]">
+              {totalPages.toLocaleString()} {totalPages === 1 ? "note" : "notes"} indexed
             </span>
           </div>
+        </header>
 
-          {refreshMessage ? (
-            <p
-              role={refreshStatus === "error" ? "alert" : "status"}
-              aria-live="polite"
-              className={`mb-2 text-sm ${
-                refreshStatus === "error" ? "text-[var(--home-error)]" : "text-[var(--home-muted)]"
-              }`}
-            >
-              {refreshMessage}
-            </p>
+        <div className="mx-auto w-full max-w-6xl px-4 pb-12 pt-8 sm:px-6 sm:pb-16 sm:pt-12">
+          {!hasQuery ? (
+            <div className="max-w-2xl">
+              <h1 className="text-3xl font-semibold tracking-[-0.025em] text-[var(--home-hero-ink)] sm:text-4xl">
+                Find a note
+              </h1>
+              <p className="mt-3 max-w-[62ch] text-base leading-7 text-[var(--home-hero-muted)]">
+                {config.tagline}
+              </p>
+            </div>
           ) : null}
 
-          {hasQuery ? (
+          <div className={`w-full max-w-2xl ${hasQuery ? "" : "mt-7"}`}>
+            <SearchInput
+              query={query}
+              isSearching={isSearching}
+              onChange={handleQueryChange}
+              onClear={resetSearch}
+              inputRef={inputRef}
+            />
+
+            <div className="mt-3 flex min-h-11 flex-wrap items-center justify-between gap-x-4 gap-y-2 text-sm text-[var(--home-hero-muted)]">
+              <button
+                type="button"
+                onClick={handleRefresh}
+                disabled={refreshBusy}
+                aria-busy={refreshBusy}
+                className="inline-flex min-h-11 items-center gap-2 rounded-md px-2 font-medium text-[var(--home-hero-accent)] hover:bg-[var(--home-hero-hover)] disabled:cursor-wait disabled:opacity-70"
+              >
+                <RefreshCw
+                  aria-hidden
+                  className={`h-4 w-4 motion-reduce:animate-none ${refreshBusy ? "animate-spin" : ""}`}
+                />
+                {refreshStatus === "error" ? "Retry refresh" : "Refresh index"}
+              </button>
+              <span className="hidden items-center gap-2 sm:flex">
+                <kbd className="rounded border border-[var(--home-hero-control-border)] bg-[var(--home-hero-chip)] px-1.5 py-0.5 font-sans text-xs font-medium text-[var(--home-hero-ink)]">
+                  ⌘K
+                </kbd>
+                Quick search
+              </span>
+            </div>
+
+            {refreshMessage ? (
+              <p
+                role={refreshStatus === "error" ? "alert" : "status"}
+                aria-live="polite"
+                className={`mb-2 text-sm ${
+                  refreshStatus === "error"
+                    ? "text-[var(--home-hero-error)]"
+                    : refreshStatus === "success"
+                      ? "text-[var(--home-hero-success)]"
+                      : "text-[var(--home-hero-muted)]"
+                }`}
+              >
+                {refreshMessage}
+              </p>
+            ) : null}
+          </div>
+        </div>
+      </div>
+
+      <main className="mx-auto flex w-full max-w-6xl flex-col px-4 pb-8 sm:px-6">
+        {hasQuery ? (
+          <div className="w-full max-w-2xl pt-8 sm:pt-10">
             <section
               id="home-search-results"
               aria-label="Search results"
-              className="mt-3 overflow-hidden rounded-lg border border-[var(--home-border)] bg-[var(--home-surface)]"
+              className="overflow-hidden rounded-lg border border-[var(--home-border)] bg-[var(--home-surface)]"
             >
               {isSearching ? (
                 <div role="status" aria-live="polite" className="divide-y divide-[var(--home-border)]">
@@ -301,7 +331,7 @@ export function SearchBox({
                 </div>
               ) : searchError ? (
                 <div role="alert" className="p-5">
-                  <p className="text-sm text-[var(--home-ink)]">{searchError}</p>
+                  <p className="text-sm text-[var(--home-error)]">{searchError}</p>
                   <button
                     type="button"
                     onClick={retrySearch}
@@ -368,29 +398,52 @@ export function SearchBox({
                 </>
               ) : null}
             </section>
-          ) : null}
-        </div>
+          </div>
+        ) : null}
 
         {!hasQuery ? (
           <>
-            <nav aria-label="Explore your knowledge" className="mt-8 grid max-w-4xl gap-2 sm:grid-cols-3">
+            <nav aria-label="Explore your knowledge" className="-mt-6 grid max-w-4xl gap-2 sm:grid-cols-3">
               <Link to="/explorer" className="home-destination-link">
-                <span className="font-medium text-[var(--home-ink)]">Browse notes</span>
-                <span className="text-sm text-[var(--home-muted)]">Open the note explorer</span>
+                <span className="home-destination-icon">
+                  <BookOpenText aria-hidden className="h-5 w-5" />
+                </span>
+                <span className="min-w-0">
+                  <span className="block font-medium text-[var(--home-ink)]">Browse notes</span>
+                  <span className="block text-sm text-[var(--home-muted)]">Open the note explorer</span>
+                </span>
               </Link>
               <Link to="/graph" className="home-destination-link">
-                <span className="font-medium text-[var(--home-ink)]">{config.navigation.graphLabel}</span>
-                <span className="text-sm text-[var(--home-muted)]">See how notes connect</span>
+                <span className="home-destination-icon">
+                  <Network aria-hidden className="h-5 w-5" />
+                </span>
+                <span className="min-w-0">
+                  <span className="block font-medium text-[var(--home-ink)]">{config.navigation.graphLabel}</span>
+                  <span className="block text-sm text-[var(--home-muted)]">See how notes connect</span>
+                </span>
               </Link>
               <Link to="/stats" className="home-destination-link">
-                <span className="font-medium text-[var(--home-ink)]">{config.navigation.statsLabel}</span>
-                <span className="text-sm text-[var(--home-muted)]">Review the vault index</span>
+                <span className="home-destination-icon">
+                  <ChartNoAxesCombined aria-hidden className="h-5 w-5" />
+                </span>
+                <span className="min-w-0">
+                  <span className="block font-medium text-[var(--home-ink)]">{config.navigation.statsLabel}</span>
+                  <span className="block text-sm text-[var(--home-muted)]">Review the vault index</span>
+                </span>
               </Link>
             </nav>
             {children}
           </>
         ) : null}
       </main>
+      <HomeFooter
+        totalPages={totalPages}
+        refreshBusy={refreshBusy}
+        refreshStatus={refreshStatus}
+        refreshMessage={refreshMessage}
+        onRefresh={handleRefresh}
+        onFocusSearch={handleFooterSearchFocus}
+      />
     </div>
   );
 }

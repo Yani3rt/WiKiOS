@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, redirect, useLoaderData, useNavigate } from "react-router-dom";
 import Graph from "graphology";
 import {
@@ -6,6 +6,7 @@ import {
   ArrowUpRight,
   ChevronDown,
   ChevronUp,
+  House,
   ListTree,
   Minus,
   Plus,
@@ -21,6 +22,7 @@ import {
   getDeterministicGraphPositions,
   getGraphCameraCenterForViewportTarget,
   getGraphConnectionGroups,
+  getGraphDetailHeightAnimation,
   getGraphDetailPanelToggleState,
   getGraphDisconnectedNodeTransition,
   getGraphEdgeSize,
@@ -35,6 +37,8 @@ import {
   getGraphViewportSettings,
   getNextGraphIndex,
   getPersistentLabelSlugs,
+  GRAPH_INDEX_INITIAL_VISIBLE_COUNT,
+  GRAPH_INDEX_LOAD_MORE_COUNT,
   GRAPH_MOVEMENT_RENDERING_SETTINGS,
   shouldCloseGraphNodeIndexAfterSelection,
   shouldCollapseGraphDetailPanelOnSearchInteraction,
@@ -357,8 +361,8 @@ function GraphViewportControls({
 
   return (
     <div
-      className={`graph-toolbar absolute left-4 z-10 flex overflow-hidden rounded-lg ${
-        panelOffset === null ? "" : "graph-toolbar--panel-open"
+      className={`graph-toolbar-stack absolute left-4 z-10 flex flex-col items-center ${
+        panelOffset === null ? "" : "graph-toolbar-stack--panel-open"
       }`}
       style={
         panelOffset === null
@@ -368,15 +372,24 @@ function GraphViewportControls({
       role="group"
       aria-label="Graph view controls"
     >
-      <button type="button" onClick={zoomOut} className={controlClass} aria-label="Zoom out">
-        <Minus aria-hidden="true" className="h-4 w-4" />
-      </button>
-      <button type="button" onClick={fitGraph} className={controlClass} aria-label="Fit graph">
-        <Scan aria-hidden="true" className="h-4 w-4" />
-      </button>
-      <button type="button" onClick={zoomIn} className={controlClass} aria-label="Zoom in">
-        <Plus aria-hidden="true" className="h-4 w-4" />
-      </button>
+      <Link
+        to="/"
+        className={`graph-surface graph-toolbar-home -mb-px rounded-b-none rounded-t-lg ${controlClass}`}
+        aria-label="Home"
+      >
+        <House aria-hidden="true" className="h-4 w-4" />
+      </Link>
+      <div className="graph-toolbar flex overflow-hidden rounded-lg">
+        <button type="button" onClick={zoomOut} className={controlClass} aria-label="Zoom out">
+          <Minus aria-hidden="true" className="h-4 w-4" />
+        </button>
+        <button type="button" onClick={fitGraph} className={controlClass} aria-label="Fit graph">
+          <Scan aria-hidden="true" className="h-4 w-4" />
+        </button>
+        <button type="button" onClick={zoomIn} className={controlClass} aria-label="Zoom in">
+          <Plus aria-hidden="true" className="h-4 w-4" />
+        </button>
+      </div>
     </div>
   );
 }
@@ -400,9 +413,16 @@ function GraphSearch({
   const [indexOpen, setIndexOpen] = useState(false);
   const [indexClosing, setIndexClosing] = useState(false);
   const [rovingSlug, setRovingSlug] = useState<string | null>(null);
+  const [visibleResultCount, setVisibleResultCount] = useState(
+    GRAPH_INDEX_INITIAL_VISIBLE_COUNT,
+  );
   const itemRefs = useRef(new Map<string, HTMLButtonElement>());
   const closeTimerRef = useRef<number | null>(null);
   const results = useMemo(() => getGraphIndexNodes(nodes, query), [nodes, query]);
+  const visibleResults = useMemo(
+    () => results.slice(0, visibleResultCount),
+    [results, visibleResultCount],
+  );
   const panelOpen = indexOpen || query.trim().length > 0;
 
   useEffect(
@@ -413,22 +433,22 @@ function GraphSearch({
   );
 
   useEffect(() => {
-    if (results.length === 0) {
+    if (visibleResults.length === 0) {
       setRovingSlug(null);
-    } else if (!rovingSlug || !results.some((node) => node.slug === rovingSlug)) {
-      setRovingSlug(results[0].slug);
+    } else if (!rovingSlug || !visibleResults.some((node) => node.slug === rovingSlug)) {
+      setRovingSlug(visibleResults[0].slug);
     }
-  }, [results, rovingSlug]);
+  }, [visibleResults, rovingSlug]);
 
   const focusResult = (index: number) => {
-    const result = results[index];
+    const result = visibleResults[index];
     if (!result) return;
     setRovingSlug(result.slug);
     requestAnimationFrame(() => itemRefs.current.get(result.slug)?.focus());
   };
 
   const handleResultKeyDown = (event: React.KeyboardEvent, currentIndex: number) => {
-    const nextIndex = getNextGraphIndex(currentIndex, event.key, results.length);
+    const nextIndex = getNextGraphIndex(currentIndex, event.key, visibleResults.length);
     if (nextIndex === null) return;
     event.preventDefault();
     focusResult(nextIndex);
@@ -445,6 +465,7 @@ function GraphSearch({
   const closeIndex = (returnFocus: boolean) => {
     cancelPendingClose();
     setQuery("");
+    setVisibleResultCount(GRAPH_INDEX_INITIAL_VISIBLE_COUNT);
 
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
       setIndexOpen(false);
@@ -471,15 +492,13 @@ function GraphSearch({
     } else {
       cancelPendingClose();
       setQuery("");
+      setVisibleResultCount(GRAPH_INDEX_INITIAL_VISIBLE_COUNT);
       setIndexOpen(true);
     }
   };
 
   return (
-    <div
-      className="absolute left-4 right-4 z-10 sm:right-auto sm:w-80"
-      style={{ top: "calc(env(safe-area-inset-top) + 4.75rem)" }}
-    >
+    <div className="graph-search absolute left-4 right-4 z-10 sm:left-6 sm:right-auto sm:w-80">
       <div id="graph-search-controls" className="flex gap-2">
         <input
           type="search"
@@ -488,9 +507,10 @@ function GraphSearch({
           onChange={(event) => {
             cancelPendingClose();
             setQuery(event.target.value);
+            setVisibleResultCount(GRAPH_INDEX_INITIAL_VISIBLE_COUNT);
           }}
           onKeyDown={(event) => {
-            if (event.key === "ArrowDown" && panelOpen && results.length > 0) {
+            if (event.key === "ArrowDown" && panelOpen && visibleResults.length > 0) {
               event.preventDefault();
               focusResult(0);
             }
@@ -510,10 +530,11 @@ function GraphSearch({
             } else {
               cancelPendingClose();
               onCompactSearchInteraction();
+              setVisibleResultCount(GRAPH_INDEX_INITIAL_VISIBLE_COUNT);
               setIndexOpen(true);
             }
           }}
-          className="graph-surface grid h-11 w-11 shrink-0 place-items-center rounded-lg text-[var(--graph-muted)] transition-colors hover:bg-[var(--graph-control-hover)] hover:text-[var(--graph-foreground)]"
+          className="graph-surface order-last grid h-11 w-11 shrink-0 place-items-center rounded-lg text-[var(--graph-muted)] transition-colors hover:bg-[var(--graph-control-hover)] hover:text-[var(--graph-foreground)]"
           aria-label={panelOpen ? "Close node index" : "Browse nodes"}
           aria-controls="graph-node-index"
           aria-expanded={panelOpen}
@@ -552,8 +573,8 @@ function GraphSearch({
 
           <p className="sr-only">Use the arrow keys to move between notes and Enter to select.</p>
           {results.length > 0 ? (
-            <ul className="graph-node-index-list max-h-[min(62vh,34rem)] overflow-y-auto py-1">
-              {results.map((node, index) => {
+            <ul className="graph-node-index-list max-h-[14.25rem] sm:max-h-[min(62vh,34rem)] overflow-y-auto py-1">
+              {visibleResults.map((node, index) => {
                 const connectionCount = node.neighbors.length;
                 return (
                   <li key={node.slug}>
@@ -590,6 +611,28 @@ function GraphSearch({
                   </li>
                 );
               })}
+              {visibleResults.length < results.length && (
+                <li className="border-t border-[var(--graph-border)]">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setVisibleResultCount((count) =>
+                        Math.min(results.length, count + GRAPH_INDEX_LOAD_MORE_COUNT),
+                      )
+                    }
+                    className="flex min-h-11 w-full items-center justify-between px-3 py-2 text-sm font-semibold text-[var(--graph-foreground)] transition-colors hover:bg-[var(--graph-control-hover)] focus-visible:bg-[var(--graph-control-hover)]"
+                    aria-label={`Load ${Math.min(
+                      GRAPH_INDEX_LOAD_MORE_COUNT,
+                      results.length - visibleResults.length,
+                    )} more notes`}
+                  >
+                    <span>Load more</span>
+                    <span className="text-xs font-normal tabular-nums text-[var(--graph-muted)]">
+                      {visibleResults.length} of {results.length}
+                    </span>
+                  </button>
+                </li>
+              )}
             </ul>
           ) : (
             <p className="px-4 py-5 text-sm text-[var(--graph-muted)]">
@@ -633,6 +676,8 @@ function InfoPanel({
   onNavigate: (slug: string) => void;
   aliases: Record<string, TopicAliasConfig>;
 }) {
+  const previousPanelHeightRef = useRef<number | null>(null);
+  const panelHeightAnimationRef = useRef<Animation | null>(null);
   const catColor = getCategoryColor(node.categories, aliases);
   const connectedSlugs = new Set([
     ...connections.outgoing.map(({ node: connectedNode }) => connectedNode.slug),
@@ -642,6 +687,58 @@ function InfoPanel({
   const toggleState = getGraphDetailPanelToggleState(collapsed);
 
   useEffect(() => () => onHoverNeighbor(null), [node.slug, onHoverNeighbor]);
+
+  useLayoutEffect(() => {
+    const panel = panelRef.current;
+    if (!panel) return;
+
+    const activeAnimation = panelHeightAnimationRef.current;
+    const previousHeight = activeAnimation
+      ? panel.getBoundingClientRect().height
+      : previousPanelHeightRef.current;
+    activeAnimation?.cancel();
+    panelHeightAnimationRef.current = null;
+
+    const nextHeight = panel.getBoundingClientRect().height;
+    previousPanelHeightRef.current = nextHeight;
+    const heightAnimation = getGraphDetailHeightAnimation({
+      previousHeight,
+      nextHeight,
+      viewportWidth: window.innerWidth,
+      reducedMotion: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+    });
+    if (!heightAnimation || typeof panel.animate !== "function") return;
+
+    const animation = panel.animate(heightAnimation.keyframes, heightAnimation.options);
+    panelHeightAnimationRef.current = animation;
+    void animation.finished
+      .then(() => {
+        if (panelHeightAnimationRef.current !== animation) return;
+        panelHeightAnimationRef.current = null;
+        previousPanelHeightRef.current = panel.getBoundingClientRect().height;
+      })
+      .catch(() => undefined);
+  }, [node.slug, panelRef]);
+
+  useEffect(() => {
+    const panel = panelRef.current;
+    if (!panel) return;
+
+    const syncSettledHeight = () => {
+      if (!panelHeightAnimationRef.current) {
+        previousPanelHeightRef.current = panel.getBoundingClientRect().height;
+      }
+    };
+    syncSettledHeight();
+
+    const resizeObserver = new ResizeObserver(syncSettledHeight);
+    resizeObserver.observe(panel);
+    return () => {
+      resizeObserver.disconnect();
+      panelHeightAnimationRef.current?.cancel();
+      panelHeightAnimationRef.current = null;
+    };
+  }, [panelRef]);
 
   return (
     <aside
@@ -665,7 +762,7 @@ function InfoPanel({
                 <div className="flex items-center gap-1.5">
                   <span
                     className="h-1.5 w-1.5 rounded-full"
-                    style={{ backgroundColor: catColor, boxShadow: `0 0 8px ${catColor}80` }}
+                    style={{ backgroundColor: catColor }}
                     aria-hidden="true"
                   />
                   <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--graph-muted)]">
@@ -738,7 +835,7 @@ function InfoPanel({
             <button
               type="button"
               onClick={() => onNavigate(node.slug)}
-              className="min-h-11 w-full rounded-lg bg-[var(--graph-foreground)] px-4 py-2 text-xs font-semibold text-[var(--graph-action-foreground)] transition-colors hover:bg-[var(--graph-action-hover)]"
+              className="app-primary-action min-h-11 w-full rounded-lg px-4 py-2 text-xs font-semibold"
             >
               Open article →
             </button>
@@ -877,7 +974,7 @@ function NodeTooltip({
         <div className="mt-1.5 flex items-center gap-1.5">
           <span
             className="h-1.5 w-1.5 rounded-full"
-            style={{ backgroundColor: catColor, boxShadow: `0 0 8px ${catColor}80` }}
+            style={{ backgroundColor: catColor }}
           />
           <span className="text-[0.7rem] font-semibold text-[var(--graph-muted)]">
             {node.categories.join(", ")}
@@ -1385,7 +1482,7 @@ export function Component() {
 
   return (
     <main
-      className="graph-shell fixed inset-0"
+      className="app-route-shell graph-shell fixed inset-0"
       aria-label="Knowledge graph"
       aria-describedby="graph-instructions"
     >
@@ -1405,44 +1502,44 @@ export function Component() {
           : "Graph overview active."}
       </div>
       {/* Header */}
-      <header className="absolute left-0 right-0 top-0 z-10 flex items-center justify-between gap-2 px-4 pb-3 pt-[calc(env(safe-area-inset-top)+1.5rem)] sm:gap-3 sm:px-6 sm:pb-4 sm:pt-[calc(env(safe-area-inset-top)+1.25rem)]">
+      <header className="app-route-header absolute left-0 right-0 top-0 z-10 flex items-center justify-between gap-2 px-4 pb-[4.5rem] pt-[calc(env(safe-area-inset-top)+1.5rem)] sm:gap-3 sm:px-6 sm:pb-4 sm:pt-[calc(env(safe-area-inset-top)+1.25rem)]">
         <Link
           to="/"
-          className="flex min-h-11 items-center gap-3 text-[var(--graph-foreground)]"
+          aria-label="Back to wiki home"
+          className="app-route-header-brand hidden min-h-11 flex-col justify-center rounded-md px-1 py-1 text-left sm:flex"
         >
-          <span className="text-lg font-semibold tracking-[-0.02em] sm:text-xl">{config.siteTitle}</span>
-          <span className="hidden text-xs font-medium text-[var(--graph-muted)] sm:inline">
-            Knowledge graph
-          </span>
+          <p className="app-route-header-meta text-xs font-medium">
+            {config.siteTitle}
+          </p>
+          <div className="mt-0.5 flex items-center gap-2">
+            <House className="app-route-header-meta h-4 w-4" />
+            <h1 className="text-base font-semibold">Knowledge Graph</h1>
+          </div>
         </Link>
         <div className="flex items-center gap-1.5 sm:gap-2.5">
-          <span className="graph-surface hidden items-center gap-2 rounded-lg px-3.5 py-2 text-xs text-[var(--graph-muted)] sm:flex">
+          <span className="app-route-header-control hidden items-center gap-2 rounded-md px-3.5 py-2 text-xs sm:flex">
             <span
               className="h-1.5 w-1.5 rounded-full bg-[var(--graph-stat-accent)]"
               aria-hidden="true"
             />
-            <span className="font-semibold tabular-nums text-[var(--graph-foreground)]">
+            <span className="font-semibold tabular-nums">
               {data.nodes.length}
             </span>
             <span>{config.navigation.conceptsLabel}</span>
             <span>·</span>
-            <span className="font-semibold tabular-nums text-[var(--graph-foreground)]">
+            <span className="font-semibold tabular-nums">
               {data.edges.length}
             </span>
             <span>{config.navigation.connectionsLabel}</span>
           </span>
           <Link
             to="/"
-            className="graph-surface inline-flex min-h-11 items-center justify-center rounded-lg px-3.5 py-2 text-sm font-medium text-[var(--graph-foreground)] transition-colors hover:bg-[var(--graph-control-hover)] sm:px-4"
+            className="app-route-header-control hidden min-h-11 items-center justify-center rounded-md px-3.5 py-2 text-sm font-medium sm:inline-flex sm:px-4"
           >
-            <span className="sm:hidden">Back</span>
-            <span className="hidden sm:inline">{config.navigation.backToWikiLabel}</span>
+            {config.navigation.backToWikiLabel}
           </Link>
         </div>
-      </header>
-
-      {data.nodes.length > 0 ? (
-        <>
+        {data.nodes.length > 0 ? (
           <GraphSearch
             nodes={data.nodes}
             onSelect={handleSearchSelect}
@@ -1450,7 +1547,11 @@ export function Component() {
             selectedSlug={focusedSlug}
             browseButtonRef={browseButtonRef}
           />
+        ) : null}
+      </header>
 
+      {data.nodes.length > 0 ? (
+        <>
           {/* Tooltip (only when not focused) */}
           {!focusedSlug && (
             <NodeTooltip
@@ -1497,7 +1598,7 @@ export function Component() {
             </p>
             <Link
               to="/"
-              className="graph-surface mt-5 inline-flex min-h-11 items-center rounded-lg px-4 text-sm font-semibold text-[var(--graph-foreground)]"
+              className="app-secondary-action mt-5 inline-flex min-h-11 items-center rounded-lg px-4 text-sm font-semibold"
             >
               Back to wiki
             </Link>

@@ -9,8 +9,10 @@ import {
   HomepageContent,
   getVisibleHomePages,
 } from "../src/components/homepage-content";
+import { HomeFooter } from "../src/components/home-footer";
 import {
   HOME_SEARCH_PREVIEW_LIMIT,
+  getHomeSearchScrollBehavior,
   getRefreshStatusMessage,
   getVisibleSearchResults,
 } from "../src/components/search-box";
@@ -77,12 +79,57 @@ describe("Home progressive disclosure", () => {
     expect(markup).toContain('aria-labelledby="home-featured-heading"');
     expect(markup).toContain('aria-controls="home-featured-list"');
     expect(markup).toContain("Show all 6");
+    expect(markup).toContain("text-lg font-semibold");
+    expect(markup).toContain("border-t-2 border-[var(--home-accent)]");
+    expect(markup).toContain("home-note-link group");
     expect(markup).not.toContain(">Note 5<");
     expect(markup).not.toContain("font-display");
   });
 });
 
 describe("Home status and discovery helpers", () => {
+  it("uses instant search scrolling when reduced motion is requested", () => {
+    expect(getHomeSearchScrollBehavior(false)).toBe("smooth");
+    expect(getHomeSearchScrollBehavior(true)).toBe("auto");
+  });
+
+  it("renders the Knowledge Dock as useful semantic navigation", () => {
+    const markup = renderToStaticMarkup(
+      createElement(
+        MemoryRouter,
+        null,
+        createElement(
+          WikiConfigProvider,
+          {
+            config: DEFAULT_WIKI_OS_CONFIG,
+            children: createElement(HomeFooter, {
+              totalPages: 30,
+              refreshBusy: false,
+              refreshStatus: "idle",
+              refreshMessage: "",
+              onRefresh: () => undefined,
+              onFocusSearch: () => undefined,
+            }),
+          },
+        ),
+      ),
+    );
+
+    expect(markup).toContain("<footer");
+    expect(markup).toContain("Your knowledge, ready for the next connection.");
+    expect(markup).toContain('href="/explorer"');
+    expect(markup).toContain('href="/graph"');
+    expect(markup).toContain('href="/stats"');
+    expect(markup).toContain('href="/setup?change=1"');
+    expect(markup).toContain("30 notes indexed");
+    expect(markup).toContain("Search your notes");
+    expect(markup).toContain("Refresh index");
+    expect(markup).toContain("⌘K");
+    expect(markup).toContain("Local-first");
+    expect(markup).toContain("Your notes stay on your device.");
+    expect(markup).not.toContain("Your notes stay on this machine.");
+  });
+
   it("announces useful refresh outcomes with note terminology", () => {
     expect(getRefreshStatusMessage("loading", 8)).toBe("Refreshing the note index…");
     expect(getRefreshStatusMessage("success", 1)).toBe(
@@ -101,6 +148,10 @@ describe("Home status and discovery helpers", () => {
       fileURLToPath(new URL("../src/components/search-box.tsx", import.meta.url)),
       "utf8",
     );
+    const styles = readFileSync(
+      fileURLToPath(new URL("../src/client/globals.css", import.meta.url)),
+      "utf8",
+    );
 
     expect(source).toContain('aria-label="Clear search"');
     expect(source).toContain('aria-busy={refreshBusy}');
@@ -110,6 +161,22 @@ describe("Home status and discovery helpers", () => {
     expect(source).not.toContain("font-display");
     expect(source).not.toContain('className="surface');
     expect(source).not.toContain("ArrowUp");
+    expect(source).toContain('className="home-hero"');
+    expect(source).toContain("<header>");
+    expect(source).toContain("<HomeFooter");
+    expect(source).toContain("onFocusSearch={handleFooterSearchFocus}");
+    expect(source.match(/home-destination-icon/g)).toHaveLength(3);
+    expect(styles).toContain("--home-hero: var(--brand-deep-teal)");
+    expect(styles).toContain(".home-footer {");
+    expect(styles).toContain(".home-footer::before {");
+    expect(styles).toContain("clip-path: ellipse(");
+    expect(styles).toContain("background: var(--home-hero);");
+    expect(styles).toContain(".home-destination-icon");
+    expect(styles).toContain(".home-destination-link:hover .home-destination-icon");
+    expect(styles).toContain(".home-note-link:hover");
+    expect(styles).toContain("transition-duration: 220ms");
+    expect(styles).toContain(".home-note-link {\n    transition: none;");
+    expect(styles).not.toContain(".home-hero {\n  background-image:");
   });
 
   it("selects stable featured notes outside recent and connected lists when possible", () => {

@@ -345,10 +345,10 @@ describe("graph overview model", () => {
     ).toEqual({ x: 1, y: 0.25 });
   });
 
-  it("keeps mobile graph controls 50px above the detail card as its height changes", () => {
-    expect(getGraphToolbarPanelOffset(402, true)).toBe(452);
-    expect(getGraphToolbarPanelOffset(248, true)).toBe(298);
-    expect(getGraphToolbarPanelOffset(-10, true)).toBe(50);
+  it("keeps mobile graph controls 12px above the detail card as its height changes", () => {
+    expect(getGraphToolbarPanelOffset(402, true)).toBe(414);
+    expect(getGraphToolbarPanelOffset(248, true)).toBe(260);
+    expect(getGraphToolbarPanelOffset(-10, true)).toBe(12);
     expect(getGraphToolbarPanelOffset(402, false)).toBeNull();
   });
 
@@ -363,5 +363,51 @@ describe("graph overview model", () => {
       label: "Expand node details",
       nextCollapsed: false,
     });
+  });
+
+  it("animates mobile detail-card height changes while respecting reduced motion", async () => {
+    const model = await import("../src/client/graph-overview-model");
+    expect("getGraphDetailHeightAnimation" in model).toBe(true);
+    const getGraphDetailHeightAnimation = (
+      model as unknown as {
+        getGraphDetailHeightAnimation: (input: {
+          previousHeight: number | null;
+          nextHeight: number;
+          viewportWidth: number;
+          reducedMotion: boolean;
+        }) => unknown;
+      }
+    ).getGraphDetailHeightAnimation;
+
+    expect(
+      getGraphDetailHeightAnimation({
+        previousHeight: 240,
+        nextHeight: 420,
+        viewportWidth: 390,
+        reducedMotion: false,
+      }),
+    ).toEqual({
+      keyframes: [{ height: "240px" }, { height: "420px" }],
+      options: {
+        duration: 220,
+        easing: "cubic-bezier(0.25, 1, 0.5, 1)",
+      },
+    });
+    expect(
+      getGraphDetailHeightAnimation({
+        previousHeight: 240,
+        nextHeight: 420,
+        viewportWidth: 640,
+        reducedMotion: false,
+      }),
+    ).toBeNull();
+    expect(
+      getGraphDetailHeightAnimation({
+        previousHeight: 240,
+        nextHeight: 420,
+        viewportWidth: 390,
+        reducedMotion: true,
+      }),
+    ).toBeNull();
   });
 });

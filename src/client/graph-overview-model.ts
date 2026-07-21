@@ -80,6 +80,8 @@ export const GRAPH_MOVEMENT_RENDERING_SETTINGS = {
 } as const;
 
 export const GRAPH_INDEX_LIMIT = 200;
+export const GRAPH_INDEX_INITIAL_VISIBLE_COUNT = 10;
+export const GRAPH_INDEX_LOAD_MORE_COUNT = 5;
 
 export function truncateGraphLabel(value: string, maxCharacters = 42) {
   const characters = Array.from(value.trim());
@@ -271,7 +273,38 @@ export function getGraphCameraCenterForViewportTarget(
 }
 
 export function getGraphToolbarPanelOffset(panelHeight: number, panelOpen: boolean) {
-  return panelOpen ? Math.max(0, panelHeight) + 50 : null;
+  return panelOpen ? Math.max(0, panelHeight) + 12 : null;
+}
+
+export function getGraphDetailHeightAnimation({
+  previousHeight,
+  nextHeight,
+  viewportWidth,
+  reducedMotion,
+}: {
+  previousHeight: number | null;
+  nextHeight: number;
+  viewportWidth: number;
+  reducedMotion: boolean;
+}) {
+  if (
+    previousHeight === null ||
+    !Number.isFinite(previousHeight) ||
+    !Number.isFinite(nextHeight) ||
+    Math.abs(previousHeight - nextHeight) < 1 ||
+    viewportWidth >= 640 ||
+    reducedMotion
+  ) {
+    return null;
+  }
+
+  return {
+    keyframes: [{ height: `${previousHeight}px` }, { height: `${nextHeight}px` }],
+    options: {
+      duration: 220,
+      easing: "cubic-bezier(0.25, 1, 0.5, 1)",
+    },
+  };
 }
 
 export function getGraphDetailPanelToggleState(collapsed: boolean) {

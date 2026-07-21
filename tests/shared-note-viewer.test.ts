@@ -615,7 +615,7 @@ describe("shared note viewer rendering and route boundaries", () => {
     );
 
     expect(globalsSource).toMatch(
-      /\.prose-wiki \.note-mermaid-block\s*\{[^}]*background:\s*rgba\(255,\s*255,\s*255,\s*0\.72\);/u,
+      /\.prose-wiki \.note-mermaid-block\s*\{[^}]*background:\s*var\(--brand-surface\);/u,
     );
     expect(globalsSource).toMatch(
       /\.prose-wiki \.note-mermaid-render\s*\{[^}]*min-height:\s*12rem;/u,
@@ -638,7 +638,7 @@ describe("shared note viewer rendering and route boundaries", () => {
       /\.prose-wiki \.note-ascii-block\s*\{[^}]*font-family:\s*var\(--font-mono\);/u,
     );
     expect(globalsSource).toMatch(
-      /\.prose-wiki \.note-ascii-block\s*\{[^}]*background:\s*rgba\(255,\s*255,\s*255,\s*0\.72\);/u,
+      /\.prose-wiki \.note-ascii-block\s*\{[^}]*background:\s*var\(--brand-surface\);/u,
     );
   });
 

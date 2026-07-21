@@ -101,21 +101,21 @@ export function Component() {
   }, []);
 
   return (
-    <div className="flex min-h-screen flex-col">
-      <header className="flex items-center justify-between gap-2 px-4 pb-3 pt-[calc(env(safe-area-inset-top)+1.5rem)] sm:gap-3 sm:px-6 sm:pb-4 sm:pt-[calc(env(safe-area-inset-top)+1.25rem)]">
-        <Link to="/" className="font-display text-lg text-[var(--foreground)] sm:text-xl">
+    <div className="app-route-shell flex min-h-screen flex-col">
+      <header className="app-route-header flex items-center justify-between gap-2 px-4 pb-3 pt-[calc(env(safe-area-inset-top)+1.5rem)] sm:gap-3 sm:px-6 sm:pb-4 sm:pt-[calc(env(safe-area-inset-top)+1.25rem)]">
+        <Link to="/" className="app-route-header-brand font-display text-lg sm:text-xl">
           {config.siteTitle}
         </Link>
         <div className="flex items-center gap-1.5 sm:gap-2.5">
           <Link
             to="/graph"
-            className="surface rounded-full px-3.5 py-2 text-sm font-medium text-[var(--foreground)] transition-[transform] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.96] sm:px-4"
+            className="app-route-header-control rounded-full px-3.5 py-2 text-sm font-medium active:scale-[0.96] sm:px-4"
           >
             {config.navigation.graphLabel}
           </Link>
           <Link
             to="/stats"
-            className="surface rounded-full px-3.5 py-2 text-sm font-medium text-[var(--foreground)] transition-[transform] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.96] sm:px-4"
+            className="app-route-header-control rounded-full px-3.5 py-2 text-sm font-medium active:scale-[0.96] sm:px-4"
           >
             {config.navigation.statsLabel}
           </Link>
@@ -123,7 +123,7 @@ export function Component() {
       </header>
 
       <main
-        className="animate-in mx-auto w-full max-w-6xl px-4 pt-4 sm:px-6 sm:pt-8 lg:px-8"
+        className="mx-auto w-full max-w-6xl px-4 pt-4 sm:px-6 sm:pt-8 lg:px-8"
         style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 4rem)" }}
       >
         <nav className="mb-6 flex items-center gap-2 text-sm text-[var(--muted-foreground)]">

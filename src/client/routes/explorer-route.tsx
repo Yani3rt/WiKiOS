@@ -333,22 +333,22 @@ export function ExplorerHeader({
   toggleButtonRef?: RefObject<HTMLButtonElement | null>;
 }) {
   return (
-    <header className="flex h-16 items-center justify-between border-b border-[var(--explorer-border)] bg-[var(--explorer-surface)] px-4 md:px-5">
+    <header className="app-route-header flex h-16 items-center justify-between px-4 md:px-5">
       <Link
         to="/"
         aria-label="Back to wiki home"
-        className="rounded-md px-1 py-1 text-left transition-colors hover:text-[var(--explorer-accent)]"
+        className="app-route-header-brand rounded-md px-1 py-1 text-left"
       >
-        <p className="text-xs font-medium text-[var(--explorer-muted-foreground)]">WikiOS</p>
+        <p className="app-route-header-meta text-xs font-medium">WikiOS</p>
         <div className="mt-0.5 flex items-center gap-2">
-          <House className="h-4 w-4 text-[var(--explorer-muted-foreground)]" />
+          <House className="app-route-header-meta h-4 w-4" />
           <h1 className="text-base font-semibold">Wiki Explorer</h1>
         </div>
       </Link>
       <div className="flex items-center gap-2">
         <button
           type="button"
-          className={`hidden items-center gap-2 rounded-md border border-[var(--explorer-border)] bg-[var(--explorer-surface)] px-3 py-2 text-sm hover:bg-[var(--explorer-surface-subtle)] md:inline-flex ${
+          className={`app-route-header-control hidden items-center gap-2 rounded-md px-3 py-2 text-sm md:inline-flex ${
             desktopSidebarVisible ? "md:invisible md:pointer-events-none" : ""
           }`}
           aria-expanded={desktopSidebarVisible}
@@ -362,14 +362,14 @@ export function ExplorerHeader({
         </button>
         <Link
           to="/"
-          className="hidden min-h-11 items-center rounded-md border border-[var(--explorer-border)] bg-[var(--explorer-surface)] px-3.5 py-2 text-sm font-medium text-[var(--foreground)] transition-colors hover:bg-[var(--explorer-surface-subtle)] sm:inline-flex sm:px-4"
+          className="app-route-header-control hidden min-h-11 items-center rounded-md px-3.5 py-2 text-sm font-medium sm:inline-flex sm:px-4"
         >
           Back to wiki
         </Link>
         <button
           ref={toggleButtonRef}
           type="button"
-          className="inline-flex min-h-11 items-center gap-2 rounded-md border border-[var(--explorer-border)] bg-[var(--explorer-surface)] px-3 py-2 text-sm hover:bg-[var(--explorer-surface-subtle)] md:hidden"
+          className="app-route-header-control inline-flex min-h-11 items-center gap-2 rounded-md px-3 py-2 text-sm md:hidden"
           aria-expanded={sidebarOpen}
           aria-controls="explorer-sidebar"
           aria-label="Toggle note tree"
@@ -618,10 +618,11 @@ export function ExplorerTabs({
           <div
             key={tab.slug}
             className={`relative flex shrink-0 items-center overflow-hidden border-r border-[var(--explorer-border)] ${
-              active ? "bg-[var(--explorer-canvas)]" : "bg-[var(--explorer-surface-subtle)]"
+              active
+                ? "bg-[var(--explorer-canvas)] text-[var(--explorer-accent)] shadow-[inset_0_-2px_0_var(--explorer-accent)]"
+                : "bg-[var(--explorer-surface-subtle)]"
             }`}
           >
-            {active ? <span aria-hidden="true" className="absolute inset-y-0 left-0 w-0.5 bg-[var(--explorer-accent)]" /> : null}
             <button
               type="button"
               role="tab"
@@ -721,7 +722,7 @@ function ExplorerRecoveryState({
         <div className="mt-4 flex flex-wrap gap-2">
           <button
             type="button"
-            className="inline-flex min-h-11 items-center justify-center rounded-md bg-[var(--explorer-accent)] px-4 text-sm font-medium text-white transition-colors hover:bg-[#40576b] disabled:cursor-wait disabled:opacity-65"
+            className="app-primary-action inline-flex min-h-11 items-center justify-center rounded-md px-4 text-sm font-medium disabled:cursor-wait disabled:opacity-65"
             disabled={isRetrying}
             onClick={() => void retry()}
           >
@@ -729,7 +730,7 @@ function ExplorerRecoveryState({
           </button>
           <button
             type="button"
-            className="inline-flex min-h-11 items-center justify-center rounded-md border border-[var(--explorer-border)] bg-[var(--explorer-surface)] px-4 text-sm font-medium transition-colors hover:bg-[var(--explorer-surface-subtle)]"
+            className="app-secondary-action inline-flex min-h-11 items-center justify-center rounded-md px-4 text-sm font-medium"
             onClick={onBrowseNotes}
           >
             Browse notes
@@ -775,7 +776,7 @@ export function ExplorerReader({
   const { page } = state;
   return (
     <div
-      className="explorer-note-viewer-shell animate-in mx-auto w-full max-w-6xl px-4 pt-4 sm:px-6 sm:pt-8 lg:px-8"
+      className="explorer-note-viewer-shell mx-auto w-full max-w-6xl px-4 pt-4 sm:px-6 sm:pt-8 lg:px-8"
       style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 4rem)" }}
     >
       <NoteViewer
@@ -982,7 +983,7 @@ export function Component() {
   );
 
   return (
-    <main className="explorer-shell flex min-h-screen flex-col bg-[var(--explorer-canvas)] text-[var(--foreground)] md:h-dvh md:min-h-0 md:overflow-hidden">
+    <main className="app-route-shell explorer-shell flex min-h-screen flex-col bg-[var(--explorer-canvas)] text-[var(--foreground)] md:h-dvh md:min-h-0 md:overflow-hidden">
       <ExplorerHeader
         sidebarOpen={sidebarOpen}
         desktopSidebarVisible={desktopSidebarVisible}

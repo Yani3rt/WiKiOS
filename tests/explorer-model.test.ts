@@ -227,7 +227,7 @@ describe("explorer route registration", () => {
 
     expect(backLabelIndex).toBeGreaterThan(-1);
     expect(routeSource).toContain('aria-label="Back to wiki home"');
-    expect(backLinkSource).toContain('className="hidden');
+    expect(backLinkSource).toContain("hidden min-h-11");
     expect(backLinkSource).toContain("sm:inline-flex");
   });
 
@@ -318,15 +318,15 @@ describe("explorer route registration", () => {
     const scrollbarThumbEnd = globalsSource.indexOf("}", scrollbarThumbStart);
     const scrollbarThumbSource = globalsSource.slice(scrollbarThumbStart, scrollbarThumbEnd);
 
-    expect(routeSource).toContain('className="explorer-shell flex');
+    expect(routeSource).toContain('className="app-route-shell explorer-shell flex');
     expect(routeSource).toContain("bg-[var(--explorer-selection)]");
-    expect(routeSource).toContain("bg-[var(--explorer-accent)]");
+    expect(routeSource).toContain("app-primary-action");
     expect(routeSource).not.toContain("bg-gradient-to-r");
     expect(routeSource).not.toContain("rounded-full");
     expect(routeSource).not.toMatch(/var\(--(?:teal|peach|lavender)\)/u);
     expect(routeSource).not.toContain("font-display text-lg");
     expect(globalsSource).toMatch(
-      /\.explorer-shell\s*\{[^}]*--explorer-canvas:\s*#f7f7f6;/u,
+      /\.explorer-shell\s*\{[^}]*--explorer-canvas:\s*var\(--brand-canvas\);/u,
     );
     expect(scrollbarThumbSource).toContain("background: var(--explorer-scrollbar-thumb);");
     expect(scrollbarThumbSource).not.toContain("linear-gradient");

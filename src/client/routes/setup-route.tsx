@@ -1,4 +1,4 @@
-import { ArrowRight, Folder, FolderX, LoaderCircle } from "lucide-react";
+import { ArrowRight, Folder, FolderX, House, LoaderCircle } from "lucide-react";
 import { useState } from "react";
 import {
   Link,
@@ -196,26 +196,33 @@ export function Component() {
   const alternateActionError = error && !formError ? error : null;
 
   return (
-    <div className="relative min-h-screen overflow-x-clip">
-      <div
-        aria-hidden
-        className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(133,185,201,0.18),_transparent_38%),radial-gradient(circle_at_bottom_right,_rgba(244,177,131,0.16),_transparent_30%)]"
-      />
-
-      <header className="relative flex items-center justify-between gap-2 px-4 pb-3 pt-[calc(env(safe-area-inset-top)+1.5rem)] sm:gap-3 sm:px-6 sm:pb-4 sm:pt-[calc(env(safe-area-inset-top)+1.25rem)]">
-        <Link to="/" className="font-display text-lg text-[var(--foreground)] sm:text-xl">
-          {config.siteTitle}
+    <div className="app-route-shell relative min-h-screen overflow-x-clip">
+      <header className="app-route-header relative flex h-16 items-center justify-between px-4 md:px-5">
+        <Link
+          to="/"
+          aria-label="Back to wiki home"
+          className="app-route-header-brand rounded-md px-1 py-1 text-left"
+        >
+          <p className="app-route-header-meta text-xs font-medium">
+            {config.siteTitle}
+          </p>
+          <div className="mt-0.5 flex items-center gap-2">
+            <House className="app-route-header-meta h-4 w-4" />
+            <h1 className="text-base font-semibold">
+              {isChangeMode ? "Vault Settings" : "Vault Setup"}
+            </h1>
+          </div>
         </Link>
         <nav aria-label="Main navigation" className="flex items-center gap-1.5 sm:gap-2.5">
           <Link
             to="/graph"
-            className="surface inline-flex min-h-11 items-center rounded-full px-3.5 py-2 text-sm font-medium text-[var(--foreground)] transition-[transform] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.96] sm:px-4"
+            className="app-route-header-control inline-flex min-h-11 items-center rounded-md px-3.5 py-2 text-sm font-medium active:scale-[0.96] sm:px-4"
           >
             {config.navigation.graphLabel}
           </Link>
           <Link
             to="/stats"
-            className="surface inline-flex min-h-11 items-center rounded-full px-3.5 py-2 text-sm font-medium text-[var(--foreground)] transition-[transform] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.96] sm:px-4"
+            className="app-route-header-control inline-flex min-h-11 items-center rounded-md px-3.5 py-2 text-sm font-medium active:scale-[0.96] sm:px-4"
           >
             {config.navigation.statsLabel}
           </Link>
@@ -255,7 +262,7 @@ export function Component() {
           {setupStatus.hasEnvOverride && (
             <div
               role="status"
-              className="rounded-xl bg-[var(--teal-soft)] px-4 py-3 text-sm leading-relaxed text-[var(--foreground)]"
+              className="rounded-xl bg-[var(--brand-accent-soft)] px-4 py-3 text-sm leading-relaxed text-[var(--foreground)]"
             >
               <p className="font-semibold">Vault changes are locked for this session.</p>
               <p className="mt-1">
@@ -268,7 +275,7 @@ export function Component() {
           {setupStatus.configError && (
             <div
               role="alert"
-              className="rounded-xl bg-[var(--peach-soft)] px-4 py-3 text-sm text-[var(--foreground)]"
+              className="rounded-xl bg-[var(--brand-error-soft)] px-4 py-3 text-sm text-[var(--brand-error)]"
             >
               <p className="font-semibold">{issueTitle}</p>
               <p className="mt-1 leading-relaxed">{setupStatus.configError.message}</p>
@@ -321,7 +328,7 @@ export function Component() {
                           }
                           className="group flex w-full min-w-0 items-center gap-3 py-3 text-start transition-colors duration-150 hover:text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-55"
                         >
-                          <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-[var(--lavender-soft)] text-[var(--foreground)]">
+                          <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-[var(--brand-accent-soft)] text-[var(--brand-accent)]">
                             {vault.available ? (
                               <Folder aria-hidden className="size-4" />
                             ) : (
@@ -377,7 +384,7 @@ export function Component() {
           {alternateActionError && (
             <p
               role="alert"
-              className="rounded-xl bg-[var(--peach-soft)] px-4 py-3 text-sm leading-relaxed text-[var(--foreground)]"
+              className="rounded-xl bg-[var(--brand-error-soft)] px-4 py-3 text-sm leading-relaxed text-[var(--brand-error)]"
             >
               {alternateActionError.message}
             </p>
@@ -434,7 +441,7 @@ export function Component() {
                     type="button"
                     onClick={() => void pickFolder()}
                     disabled={isBusy || setupStatus.hasEnvOverride}
-                    className="surface min-h-11 shrink-0 rounded-xl px-4 py-2.5 text-sm font-medium text-[var(--foreground)] transition-[transform,opacity] duration-150 hover:opacity-80 active:scale-[0.97] disabled:cursor-wait disabled:opacity-60"
+                    className="app-secondary-action min-h-11 shrink-0 rounded-xl px-4 py-2.5 text-sm font-medium active:scale-[0.97] disabled:cursor-wait disabled:opacity-60"
                   >
                     {isPickingFolder ? "Opening Finder…" : "Choose folder"}
                   </button>
@@ -444,7 +451,7 @@ export function Component() {
                 <p
                   id="vault-folder-error"
                   role="alert"
-                  className="mt-2 rounded-xl bg-[var(--peach-soft)] px-4 py-3 text-sm leading-relaxed text-[var(--foreground)]"
+                  className="mt-2 rounded-xl bg-[var(--brand-error-soft)] px-4 py-3 text-sm leading-relaxed text-[var(--brand-error)]"
                 >
                   {formError.message}
                 </p>
@@ -454,7 +461,7 @@ export function Component() {
             <button
               type="submit"
               disabled={isBusy || setupStatus.hasEnvOverride}
-              className="min-h-11 w-full rounded-xl bg-[var(--foreground)] px-5 py-2.5 text-sm font-semibold text-[var(--background)] transition-[transform,opacity] duration-150 hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+              className="app-primary-action min-h-11 w-full rounded-xl px-5 py-2.5 text-sm font-semibold active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
             >
               {primaryActionLabel}
             </button>

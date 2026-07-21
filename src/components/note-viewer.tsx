@@ -701,7 +701,8 @@ function NeighborhoodGraph({
       );
       layoutRef.current = nodes;
 
-      context.fillStyle = "#f5f5f4";
+      context.fillStyle =
+        getComputedStyle(canvas).getPropertyValue("--brand-canvas").trim() || "#eef4f3";
       context.fillRect(0, 0, width, height);
 
       const center = nodes[0];
@@ -1070,7 +1071,7 @@ export function NoteViewer({
                     </button>
                   </>
                 ) : null}
-                {personOverrideError ? <span className="text-red-600">{personOverrideError}</span> : null}
+                {personOverrideError ? <span className="text-[var(--brand-error)]">{personOverrideError}</span> : null}
               </>
             ) : null}
           </div>
@@ -1079,7 +1080,7 @@ export function NoteViewer({
 
       {filteredHeadings.length > 0 ? (
         <div
-          className="note-viewer-mobile-toc mb-6 rounded-lg border border-[var(--border)] bg-white px-4 py-3 lg:hidden"
+          className="note-viewer-mobile-toc mb-6 rounded-lg border border-[var(--border)] bg-[var(--brand-surface)] px-4 py-3 lg:hidden"
           data-note-viewer-mobile-toc="true"
         >
           {filteredHeadings.length > 0 ? (
@@ -1129,7 +1130,7 @@ export function NoteViewer({
                     onClick={(event) => {
                       navigateToRelatedNote(link.href, event);
                     }}
-                    className="inline-flex min-h-11 items-center rounded-full border border-[var(--border)] bg-white px-3.5 py-1.5 text-sm transition-[color,background-color,transform] duration-150 hover:bg-[var(--secondary)] active:scale-[0.97] sm:min-h-0"
+                    className="inline-flex min-h-11 items-center rounded-full border border-[var(--brand-control-border)] bg-[var(--brand-surface)] px-3.5 py-1.5 text-sm transition-[color,background-color,transform] duration-150 hover:bg-[var(--brand-accent-soft)] active:scale-[0.97] sm:min-h-0"
                   >
                     <span className="font-display font-light text-[var(--foreground)]">{link.label}</span>
                   </Link>
@@ -1140,7 +1141,7 @@ export function NoteViewer({
 
           {page.neighbors.length > 0 ? (
             <details
-              className="note-viewer-mobile-connections mt-8 rounded-lg border border-[var(--border)] bg-white lg:hidden"
+              className="note-viewer-mobile-connections mt-8 rounded-lg border border-[var(--border)] bg-[var(--brand-surface)] lg:hidden"
               data-note-viewer-mobile-connections="true"
             >
               <summary className="min-h-11 cursor-pointer px-4 py-3 text-sm font-medium text-[var(--foreground)]">
