@@ -191,13 +191,62 @@ export function shouldCollapseGraphDetailPanelOnSearchInteraction(
   return hasFocusedNode && viewportWidth < 640;
 }
 
+export function getGraphNodeVerticalBalance(
+  nodes: Array<{ slug: string; y: number }>,
+  selectedSlug: string,
+  alignmentTolerance = 1,
+) {
+  const selectedNode = nodes.find(
+    (node) => node.slug === selectedSlug && Number.isFinite(node.y),
+  );
+  if (!selectedNode) return null;
+
+  const tolerance = Math.max(0, alignmentTolerance);
+  let aboveCount = 0;
+  let belowCount = 0;
+  let alignedCount = 0;
+
+  for (const node of nodes) {
+    if (node.slug === selectedSlug || !Number.isFinite(node.y)) continue;
+    const verticalDelta = node.y - selectedNode.y;
+
+    if (Math.abs(verticalDelta) <= tolerance) alignedCount += 1;
+    else if (verticalDelta < 0) aboveCount += 1;
+    else belowCount += 1;
+  }
+
+  return {
+    aboveCount,
+    belowCount,
+    alignedCount,
+    majority:
+      belowCount > aboveCount
+        ? ("below" as const)
+        : aboveCount > belowCount
+          ? ("above" as const)
+          : ("balanced" as const),
+  };
+}
+
 export function getGraphNodeFocusViewportPoint(
   viewportWidth: number,
   viewportHeight: number,
   searchBottom: number,
+  detailPanelTop?: number,
 ) {
   if (viewportWidth >= 640) {
     return { x: viewportWidth / 2, y: viewportHeight / 2 };
+  }
+
+  if (
+    Number.isFinite(detailPanelTop) &&
+    detailPanelTop !== undefined &&
+    detailPanelTop > searchBottom
+  ) {
+    return {
+      x: viewportWidth / 2,
+      y: searchBottom + (Math.min(detailPanelTop, viewportHeight) - searchBottom) / 2,
+    };
   }
 
   const searchGap = Math.max(72, Math.min(104, viewportHeight * 0.08));
@@ -233,6 +282,29 @@ export function getGraphLinkedNodePulseScale(elapsedMs: number, reducedMotion: b
   if (reducedMotion) return 1.16;
   const phase = ((Math.max(0, elapsedMs) % 480) / 480) * Math.PI * 2;
   return 1.13 + Math.sin(phase) * 0.05;
+}
+
+export function getGraphDisconnectedNodeTransition(progress: number) {
+  const normalizedProgress = Math.max(0, Math.min(1, progress));
+  return {
+    colorMix: normalizedProgress,
+    hidden: normalizedProgress >= 1,
+    sizeScale: 1 - normalizedProgress * 0.28,
+  };
+}
+
+export function mixGraphColors(startColor: string, endColor: string, amount: number) {
+  const startMatch = /^#([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(startColor.trim());
+  const endMatch = /^#([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(endColor.trim());
+  const normalizedAmount = Math.max(0, Math.min(1, amount));
+  if (!startMatch || !endMatch) return normalizedAmount < 1 ? startColor : endColor;
+
+  const channels = startMatch.slice(1).map((channel, index) => {
+    const start = Number.parseInt(channel, 16);
+    const end = Number.parseInt(endMatch[index + 1], 16);
+    return Math.round(start + (end - start) * normalizedAmount);
+  });
+  return `#${channels.map((channel) => channel.toString(16).padStart(2, "0")).join("")}`;
 }
 
 function hashString(value: string) {

@@ -22,6 +22,7 @@ import {
   getGraphCameraCenterForViewportTarget,
   getGraphConnectionGroups,
   getGraphDetailPanelToggleState,
+  getGraphDisconnectedNodeTransition,
   getGraphEdgeSize,
   getGraphIndexNodes,
   getGraphLayoutIterations,
@@ -36,6 +37,7 @@ import {
   GRAPH_MOVEMENT_RENDERING_SETTINGS,
   shouldCloseGraphNodeIndexAfterSelection,
   shouldCollapseGraphDetailPanelOnSearchInteraction,
+  mixGraphColors,
   strengthenGraphColor,
   truncateGraphLabel,
   type GraphConnectionGroups,
@@ -93,10 +95,14 @@ function animateGraphNodeFocus(sigma: SigmaLib, slug: string, duration: number) 
   const dimensions = sigma.getDimensions();
   const searchBottom =
     document.getElementById("graph-search-controls")?.getBoundingClientRect().bottom ?? 120;
+  const detailPanelTop = document
+    .querySelector<HTMLElement>("aside[aria-labelledby='graph-node-details-title']")
+    ?.getBoundingClientRect().top;
   const viewportTarget = getGraphNodeFocusViewportPoint(
     dimensions.width,
     dimensions.height,
     searchBottom,
+    detailPanelTop,
   );
   const centeredState = {
     x: position.x,
@@ -377,14 +383,12 @@ function GraphViewportControls({
 
 function GraphSearch({
   nodes,
-  sigmaRef,
   onSelect,
   onCompactSearchInteraction,
   selectedSlug,
   browseButtonRef,
 }: {
   nodes: GraphNode[];
-  sigmaRef: React.RefObject<SigmaLib | null>;
   onSelect: (slug: string) => void;
   onCompactSearchInteraction: () => void;
   selectedSlug: string | null;
@@ -457,8 +461,6 @@ function GraphSearch({
   };
 
   const handleSelect = (slug: string, returnFocusAfterClose = false) => {
-    const sigma = sigmaRef.current;
-    if (sigma) animateGraphNodeFocus(sigma, slug, 280);
     onSelect(slug);
     setRovingSlug(slug);
 
@@ -910,6 +912,10 @@ export function Component() {
   const linkedHoverRef = useRef<string | null>(null);
   const linkedPulseScaleRef = useRef(1);
   const linkedPulseFrameRef = useRef<number | null>(null);
+  const isolatedFocusRef = useRef<string | null>(null);
+  const isolationProgressRef = useRef(0);
+  const focusIsolationCallbackRef = useRef<((slug: string | null) => void) | null>(null);
+  const mobileFocusTimerRef = useRef<number | null>(null);
   const labelLayoutCallbackRef = useRef<(() => void) | null>(null);
   const browseButtonRef = useRef<HTMLButtonElement>(null);
   const detailPanelRef = useRef<HTMLElement>(null);
@@ -951,11 +957,37 @@ export function Component() {
     return () => resizeObserver.disconnect();
   }, [focusedNode]);
 
+  useEffect(() => {
+    if (!focusedSlug || detailPanelHeight <= 0 || window.innerWidth >= 640) return;
+
+    if (mobileFocusTimerRef.current !== null) {
+      window.clearTimeout(mobileFocusTimerRef.current);
+    }
+    mobileFocusTimerRef.current = window.setTimeout(() => {
+      mobileFocusTimerRef.current = null;
+      const sigma = sigmaRef.current;
+      if (sigma && focusedRef.current === focusedSlug) {
+        animateGraphNodeFocus(sigma, focusedSlug, 240);
+      }
+    }, 64);
+
+    return () => {
+      if (mobileFocusTimerRef.current !== null) {
+        window.clearTimeout(mobileFocusTimerRef.current);
+        mobileFocusTimerRef.current = null;
+      }
+    };
+  }, [detailPanelHeight, focusedSlug]);
+
   const handleSearchSelect = useCallback((slug: string) => {
     focusedRef.current = slug;
+    focusIsolationCallbackRef.current?.(slug);
     setFocusedSlug(slug);
     setDetailPanelCollapsed(false);
     sigmaRef.current?.refresh();
+    if (sigmaRef.current && window.innerWidth >= 640) {
+      animateGraphNodeFocus(sigmaRef.current, slug, 280);
+    }
   }, []);
 
   const handleCompactSearchInteraction = useCallback(() => {
@@ -971,6 +1003,7 @@ export function Component() {
 
   const handleInfoClose = useCallback(() => {
     focusedRef.current = null;
+    focusIsolationCallbackRef.current?.(null);
     setFocusedSlug(null);
     setDetailPanelCollapsed(false);
     sigmaRef.current?.refresh();
@@ -979,9 +1012,12 @@ export function Component() {
 
   const handleInfoNeighborClick = useCallback((slug: string) => {
     focusedRef.current = slug;
+    focusIsolationCallbackRef.current?.(slug);
     setFocusedSlug(slug);
     sigmaRef.current?.refresh();
-    if (sigmaRef.current) animateGraphNodeFocus(sigmaRef.current, slug, 240);
+    if (sigmaRef.current && window.innerWidth >= 640) {
+      animateGraphNodeFocus(sigmaRef.current, slug, 240);
+    }
   }, []);
 
   const handleInfoNeighborHover = useCallback((slug: string | null) => {
@@ -1101,7 +1137,7 @@ export function Component() {
         return res;
       },
       nodeReducer(node, data) {
-        const focused = focusedRef.current;
+        const focused = isolatedFocusRef.current;
         const hovered = hoveredRef.current;
         const linkedHover = linkedHoverRef.current;
         const active = focused ?? hovered;
@@ -1124,11 +1160,22 @@ export function Component() {
               res.size = (res.size ?? 4) * 1.08;
             }
           } else {
-            res.color = graphTheme.nodeMuted;
             res.zIndex = 0;
             if (focused) {
+              const transition = getGraphDisconnectedNodeTransition(
+                isolationProgressRef.current,
+              );
+              res.color = mixGraphColors(
+                String(data.originalColor ?? data.color ?? graphTheme.nodeDefault),
+                graphTheme.background,
+                transition.colorMix,
+              );
+              res.size = (res.size ?? 4) * transition.sizeScale;
+              res.hidden = transition.hidden;
               res.label = "";
               res.forceLabel = false;
+            } else {
+              res.color = graphTheme.nodeMuted;
             }
           }
         }
@@ -1145,6 +1192,63 @@ export function Component() {
     });
 
     sigmaRef.current = sigma;
+    let focusIsolationFrame: number | null = null;
+    const animateFocusIsolation = (nextSlug: string | null) => {
+      if (focusIsolationFrame !== null) {
+        cancelAnimationFrame(focusIsolationFrame);
+        focusIsolationFrame = null;
+      }
+
+      const previousSlug = isolatedFocusRef.current;
+      if (!nextSlug && !previousSlug) return;
+      if (nextSlug && nextSlug === previousSlug) return;
+
+      if (nextSlug && previousSlug) {
+        isolatedFocusRef.current = nextSlug;
+        isolationProgressRef.current = 1;
+        sigma.refresh();
+        return;
+      }
+
+      const startProgress = nextSlug ? 0 : isolationProgressRef.current;
+      const targetProgress = nextSlug ? 1 : 0;
+      const duration = getGraphMotionDuration(nextSlug ? 180 : 220);
+      if (nextSlug) isolatedFocusRef.current = nextSlug;
+
+      if (duration === 0) {
+        isolationProgressRef.current = targetProgress;
+        if (!nextSlug) isolatedFocusRef.current = null;
+        sigma.refresh();
+        return;
+      }
+
+      isolationProgressRef.current = startProgress;
+      sigma.refresh({ skipIndexation: true, schedule: true });
+      const startedAt = performance.now();
+      const animate = (timestamp: number) => {
+        const elapsed = Math.min(1, (timestamp - startedAt) / duration);
+        const eased = 1 - Math.pow(1 - elapsed, 4);
+        isolationProgressRef.current =
+          startProgress + (targetProgress - startProgress) * eased;
+
+        if (elapsed >= 1) {
+          focusIsolationFrame = null;
+          isolationProgressRef.current = targetProgress;
+          if (!nextSlug) isolatedFocusRef.current = null;
+          sigma.refresh();
+          return;
+        }
+
+        sigma.refresh({ skipIndexation: true, schedule: true });
+        focusIsolationFrame = requestAnimationFrame(animate);
+      };
+      focusIsolationFrame = requestAnimationFrame(animate);
+    };
+    focusIsolationCallbackRef.current = animateFocusIsolation;
+    if (focusedRef.current) {
+      isolatedFocusRef.current = focusedRef.current;
+      isolationProgressRef.current = 1;
+    }
     let labelLayoutFrame: number | null = null;
     const schedulePersistentLabelLayout = () => {
       if (labelLayoutFrame !== null) cancelAnimationFrame(labelLayoutFrame);
@@ -1199,15 +1303,17 @@ export function Component() {
       if (!selection.shouldCenter) return;
 
       focusedRef.current = selection.focusedSlug;
+      focusIsolationCallbackRef.current?.(selection.focusedSlug);
       setFocusedSlug(selection.focusedSlug);
       sigma.refresh();
 
-      animateGraphNodeFocus(sigma, node, 240);
+      if (window.innerWidth >= 640) animateGraphNodeFocus(sigma, node, 240);
     });
 
     sigma.on("clickStage", () => {
       if (focusedRef.current) {
         focusedRef.current = null;
+        focusIsolationCallbackRef.current?.(null);
         setFocusedSlug(null);
         setDetailPanelCollapsed(false);
         sigma.refresh();
@@ -1216,6 +1322,10 @@ export function Component() {
 
     return () => {
       layoutWorker?.terminate();
+      if (focusIsolationFrame !== null) cancelAnimationFrame(focusIsolationFrame);
+      focusIsolationCallbackRef.current = null;
+      isolatedFocusRef.current = null;
+      isolationProgressRef.current = 0;
       if (labelLayoutFrame !== null) cancelAnimationFrame(labelLayoutFrame);
       labelLayoutCallbackRef.current = null;
       resizeObserver.disconnect();
@@ -1325,7 +1435,6 @@ export function Component() {
         <>
           <GraphSearch
             nodes={data.nodes}
-            sigmaRef={sigmaRef}
             onSelect={handleSearchSelect}
             onCompactSearchInteraction={handleCompactSearchInteraction}
             selectedSlug={focusedSlug}

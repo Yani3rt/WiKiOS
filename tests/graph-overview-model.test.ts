@@ -13,6 +13,7 @@ import {
   getGraphLinkedNodePulseScale,
   getGraphCameraCenterForViewportTarget,
   getGraphDetailPanelToggleState,
+  getGraphDisconnectedNodeTransition,
   getGraphNodeClickSelection,
   getGraphNodeFocusViewportPoint,
   getGraphNodeSize,
@@ -23,6 +24,7 @@ import {
   getPersistentLabelSlugs,
   shouldCloseGraphNodeIndexAfterSelection,
   shouldCollapseGraphDetailPanelOnSearchInteraction,
+  mixGraphColors,
   strengthenGraphColor,
   truncateGraphLabel,
 } from "../src/client/graph-overview-model";
@@ -217,6 +219,30 @@ describe("graph overview model", () => {
     expect(getGraphLinkedNodePulseScale(360, true)).toBe(1.16);
   });
 
+  it("fades and then hides disconnected nodes without a jarring size collapse", () => {
+    expect(getGraphDisconnectedNodeTransition(0)).toEqual({
+      colorMix: 0,
+      hidden: false,
+      sizeScale: 1,
+    });
+    expect(getGraphDisconnectedNodeTransition(0.5)).toEqual({
+      colorMix: 0.5,
+      hidden: false,
+      sizeScale: 0.86,
+    });
+    expect(getGraphDisconnectedNodeTransition(1)).toEqual({
+      colorMix: 1,
+      hidden: true,
+      sizeScale: 0.72,
+    });
+  });
+
+  it("blends disconnected node colors into the graph background", () => {
+    expect(mixGraphColors("#112233", "#ffffff", 0.5)).toBe("#889199");
+    expect(mixGraphColors("#112233", "#ffffff", 0)).toBe("#112233");
+    expect(mixGraphColors("#112233", "#ffffff", 1)).toBe("#ffffff");
+  });
+
   it("closes the node index after mobile selections but preserves the desktop browsing flow", () => {
     expect(shouldCloseGraphNodeIndexAfterSelection(390)).toBe(true);
     expect(shouldCloseGraphNodeIndexAfterSelection(639)).toBe(true);
@@ -235,6 +261,21 @@ describe("graph overview model", () => {
     expect(getGraphNodeFocusViewportPoint(470, 1_494, 168)).toEqual({ x: 235, y: 272 });
     expect(getGraphNodeFocusViewportPoint(390, 844, 120)).toEqual({ x: 195, y: 192 });
     expect(getGraphNodeFocusViewportPoint(844, 390, 120)).toEqual({ x: 422, y: 195 });
+  });
+
+  it("centers mobile selections between the search controls and detail card", () => {
+    expect(getGraphNodeFocusViewportPoint(470, 1_494, 168, 953)).toEqual({
+      x: 235,
+      y: 560.5,
+    });
+    expect(getGraphNodeFocusViewportPoint(390, 844, 120, 630)).toEqual({
+      x: 195,
+      y: 375,
+    });
+    expect(getGraphNodeFocusViewportPoint(844, 390, 120, 300)).toEqual({
+      x: 422,
+      y: 195,
+    });
   });
 
   it("reports whether a viewport node has more nodes above or below it", () => {
