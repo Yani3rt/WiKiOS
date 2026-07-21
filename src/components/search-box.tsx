@@ -7,49 +7,67 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { ArrowUp, RefreshCw, Search } from "lucide-react";
+import { RefreshCw, Search, X } from "lucide-react";
 import { Link, useRevalidator } from "react-router-dom";
 
 import { useWikiConfig } from "@/client/wiki-config";
 import { HighlightedText, buildHighlightQuery } from "@/components/highlighted-text";
-import { slugFromFileName, titleFromFileName, type SearchResult, type PageSummary } from "@/lib/wiki-shared";
+import { slugFromFileName, titleFromFileName, type PageSummary, type SearchResult } from "@/lib/wiki-shared";
+
+export const HOME_SEARCH_PREVIEW_LIMIT = 4;
+
+type RefreshStatus = "idle" | "loading" | "success" | "error";
 
 function SearchInput({
   query,
+  isSearching,
   onChange,
-  onSubmit,
+  onClear,
   inputRef,
 }: {
   query: string;
+  isSearching: boolean;
   onChange: (value: string) => void;
-  onSubmit: (event: React.FormEvent) => void;
+  onClear: () => void;
   inputRef: React.RefObject<HTMLInputElement | null>;
 }) {
   const config = useWikiConfig();
 
   return (
-    <form onSubmit={onSubmit} className="group relative w-full">
-      <div
+    <form
+      role="search"
+      onSubmit={(event) => event.preventDefault()}
+      className="relative w-full"
+    >
+      <label htmlFor="home-note-search" className="sr-only">
+        Search notes
+      </label>
+      <Search
         aria-hidden
-        className="absolute -inset-[1px] rounded-full bg-gradient-to-r from-[var(--teal)] via-[var(--lavender)] to-[var(--peach)] opacity-0 blur-sm transition-opacity duration-300 group-focus-within:opacity-70"
+        className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--home-muted)]"
       />
-      <div className="surface-raised relative flex items-center rounded-full">
-        <Search className="pointer-events-none absolute left-5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--muted-foreground)] transition-colors duration-200 group-focus-within:text-[var(--teal)]" />
-        <input
-          ref={inputRef}
-          type="search"
-          value={query}
-          onChange={(event) => onChange(event.target.value)}
-          placeholder={config.searchPlaceholder}
-          className="w-full rounded-full bg-transparent py-3.5 pl-12 pr-14 text-[0.95rem] text-[var(--foreground)] outline-none placeholder:text-[var(--muted-foreground)]"
-        />
+      <input
+        id="home-note-search"
+        ref={inputRef}
+        type="search"
+        value={query}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={config.searchPlaceholder}
+        aria-controls="home-search-results"
+        aria-busy={isSearching}
+        autoComplete="off"
+        className="min-h-12 w-full rounded-lg border border-[var(--home-control-border)] bg-[var(--home-surface)] py-3 pl-11 pr-12 text-base text-[var(--home-ink)] outline-none placeholder:text-[var(--home-muted)] hover:border-[var(--home-muted)] focus:border-[var(--home-accent)] focus:ring-2 focus:ring-[var(--home-focus-soft)]"
+      />
+      {query ? (
         <button
-          type="submit"
-          className="absolute right-2 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full bg-[var(--foreground)] text-[var(--background)] shadow-[0_4px_12px_-4px_rgba(21,19,26,0.4)] transition-[transform,box-shadow,background] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:bg-[var(--teal)] hover:shadow-[0_6px_16px_-4px_rgba(132,185,201,0.6)] active:scale-[0.92]"
+          type="button"
+          onClick={onClear}
+          aria-label="Clear search"
+          className="absolute right-1 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-md text-[var(--home-muted)] hover:bg-[var(--home-accent-soft)] hover:text-[var(--home-ink)]"
         >
-          <ArrowUp className="h-4 w-4" />
+          <X aria-hidden className="h-4 w-4" />
         </button>
-      </div>
+      ) : null}
     </form>
   );
 }
@@ -59,27 +77,23 @@ export interface TopicBrowseState {
   emoji: string;
   pages: PageSummary[];
 }
-function splitBrandTitle(title: string) {
-  // Split on camelCase / PascalCase boundary (e.g. "WikiOS" → "Wiki" + "OS")
-  const camelMatch = title.match(/^(.+?)([A-Z][A-Z]+)$/);
-  if (camelMatch) {
-    return { lead: camelMatch[1], accent: camelMatch[2] };
+
+export function getVisibleSearchResults(
+  results: readonly SearchResult[],
+  expanded: boolean,
+) {
+  return expanded ? results : results.slice(0, HOME_SEARCH_PREVIEW_LIMIT);
+}
+
+export function getRefreshStatusMessage(status: RefreshStatus, totalPages: number) {
+  if (status === "loading") return "Refreshing the note index…";
+  if (status === "success") {
+    return `Index refreshed. ${totalPages.toLocaleString()} ${totalPages === 1 ? "note" : "notes"} available.`;
   }
-
-  const words = title.trim().split(/\s+/).filter(Boolean);
-
-  if (words.length <= 1) {
-    const midpoint = Math.max(1, Math.ceil(title.length / 2));
-    return {
-      lead: title.slice(0, midpoint),
-      accent: title.slice(midpoint),
-    };
+  if (status === "error") {
+    return "The note index could not be refreshed. Your current notes are still available.";
   }
-
-  return {
-    lead: words.slice(0, -1).join(" "),
-    accent: words[words.length - 1] ?? "",
-  };
+  return "";
 }
 
 export function SearchBox({
@@ -95,7 +109,9 @@ export function SearchBox({
   const [results, setResults] = useState<SearchResult[] | null>(null);
   const [isSearching, setIsSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
-  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [searchAttempt, setSearchAttempt] = useState(0);
+  const [showAllResults, setShowAllResults] = useState(false);
+  const [refreshStatus, setRefreshStatus] = useState<RefreshStatus>("idle");
   const abortRef = useRef<AbortController | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const deferredQuery = useDeferredValue(query);
@@ -120,9 +136,7 @@ export function SearchBox({
         });
         const data = (await response.json()) as { error?: string; results?: SearchResult[] };
 
-        if (!response.ok) {
-          throw new Error(data.error ?? "Search failed");
-        }
+        if (!response.ok) throw new Error(data.error ?? "Search failed");
 
         if (!controller.signal.aborted) {
           startTransition(() => {
@@ -132,13 +146,11 @@ export function SearchBox({
           });
         }
       } catch (error) {
-        if (error instanceof DOMException && error.name === "AbortError") {
-          return;
-        }
+        if (error instanceof DOMException && error.name === "AbortError") return;
 
         if (!controller.signal.aborted) {
           setIsSearching(false);
-          setSearchError(error instanceof Error ? error.message : "Search failed");
+          setSearchError("We couldn’t search your notes. Check the connection and try again.");
         }
       }
     }, 250);
@@ -147,205 +159,238 @@ export function SearchBox({
       clearTimeout(timer);
       controller.abort();
     };
-  }, [deferredQuery]);
-
-  const handleSubmit = (event: React.FormEvent) => {
-    event.preventDefault();
-  };
-
-  const handleQueryChange = (value: string) => {
-    const trimmedValue = value.trim();
-
-    setQuery(value);
-    setIsSearching(trimmedValue.length > 0);
-    setSearchError(null);
-
-    if (!trimmedValue) {
-      setResults(null);
-    }
-  };
+  }, [deferredQuery, searchAttempt]);
 
   const resetSearch = () => {
     setQuery("");
     setResults(null);
     setIsSearching(false);
     setSearchError(null);
+    setShowAllResults(false);
     abortRef.current?.abort();
     inputRef.current?.focus();
   };
 
-  const hasQuery = query.trim().length > 0;
-  const showResults = hasQuery;
-  const isRevalidating = revalidationState === "loading";
-  const refreshBusy = isRefreshing || isRevalidating;
-  const brandTitle = splitBrandTitle(config.siteTitle);
+  const handleQueryChange = (value: string) => {
+    const trimmedValue = value.trim();
+    setQuery(value);
+    setIsSearching(trimmedValue.length > 0);
+    setSearchError(null);
+    setShowAllResults(false);
+    if (!trimmedValue) setResults(null);
+  };
 
+  const retrySearch = () => {
+    if (!query.trim()) return;
+    setSearchError(null);
+    setIsSearching(true);
+    setSearchAttempt((attempt) => attempt + 1);
+  };
+
+  const refreshBusy = refreshStatus === "loading" || revalidationState === "loading";
   const handleRefresh = async () => {
     if (refreshBusy) return;
-
-    setIsRefreshing(true);
+    setRefreshStatus("loading");
 
     try {
-      // Force a fresh server snapshot when admin reindex is available.
       const response = await fetch("/api/admin/reindex", { method: "POST" });
-      if (!response.ok) {
-        throw new Error("Manual reindex unavailable");
-      }
-      revalidate();
+      if (!response.ok) throw new Error("Reindex failed");
+      await revalidate();
+      setRefreshStatus("success");
     } catch {
-      // If reindex call fails, still revalidate loader data for latest view.
-      revalidate();
-    } finally {
-      setIsRefreshing(false);
+      setRefreshStatus("error");
     }
   };
 
+  const hasQuery = query.trim().length > 0;
+  const visibleResults = getVisibleSearchResults(results ?? [], showAllResults);
+  const refreshMessage = getRefreshStatusMessage(refreshStatus, totalPages);
+
   return (
-    <div className="relative flex min-h-screen flex-col">
-      <header className="relative flex items-center justify-between gap-2 px-4 pb-3 pt-[calc(env(safe-area-inset-top)+1.5rem)] sm:gap-3 sm:px-6 sm:pb-4 sm:pt-[calc(env(safe-area-inset-top)+1.25rem)]">
-        <Link
-          to="/"
-          className={`font-display text-lg text-[var(--foreground)] transition-opacity duration-200 sm:text-xl ${
-            showResults ? "opacity-100" : "opacity-0 pointer-events-none"
-          }`}
-          onClick={(event) => {
-            event.preventDefault();
-            resetSearch();
-          }}
-        >
-          {config.siteTitle}
-        </Link>
-        <div className="flex items-center gap-1.5 sm:gap-2.5">
-          <button
-            type="button"
-            onClick={handleRefresh}
-            disabled={refreshBusy}
-            title="Refresh wiki count"
-            className="surface flex items-center gap-1.5 rounded-full px-3 py-2 text-xs text-[var(--muted-foreground)] transition-[transform] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.96] disabled:cursor-wait disabled:opacity-75 sm:gap-2 sm:px-3.5"
-          >
-            <RefreshCw
-              className={`h-3.5 w-3.5 text-[var(--teal)] ${refreshBusy ? "animate-spin" : ""}`}
-            />
-            <span className="font-semibold tabular-nums text-[var(--foreground)]">
-              {totalPages.toLocaleString()}
-            </span>
-            <span className="hidden sm:inline">articles</span>
-          </button>
+    <div className="home-shell min-h-screen">
+      <header className="border-b border-[var(--home-border)]">
+        <div className="mx-auto flex min-h-16 w-full max-w-6xl items-center justify-between gap-4 px-4 sm:px-6">
           <Link
-            to="/graph"
-            className="surface rounded-full px-3.5 py-2 text-sm font-medium text-[var(--foreground)] transition-[transform] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.96] sm:px-4"
+            to="/"
+            aria-label={`${config.siteTitle} home`}
+            className="inline-flex min-h-11 max-w-[60%] min-w-0 items-center truncate rounded-md py-2 text-base font-semibold tracking-[-0.01em] text-[var(--home-ink)]"
+            onClick={(event) => {
+              if (!hasQuery) return;
+              event.preventDefault();
+              resetSearch();
+            }}
           >
-            {config.navigation.graphLabel}
+            {config.siteTitle}
           </Link>
-          <Link
-            to="/explorer"
-            className="surface rounded-full px-3.5 py-2 text-sm font-medium text-[var(--foreground)] transition-[transform] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.96] sm:px-4"
-          >
-            Explorer
-          </Link>
-          <Link
-            to="/stats"
-            className="surface rounded-full px-3.5 py-2 text-sm font-medium text-[var(--foreground)] transition-[transform] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.96] sm:px-4"
-          >
-            {config.navigation.statsLabel}
-          </Link>
+          <span className="shrink-0 text-sm tabular-nums text-[var(--home-muted)]">
+            {totalPages.toLocaleString()} {totalPages === 1 ? "note" : "notes"} indexed
+          </span>
         </div>
       </header>
 
-      <main
-        className={`relative flex flex-1 flex-col items-center px-4 ${
-          showResults ? "pt-2 sm:pt-4" : "pt-8 sm:pt-20"
-        }`}
-      >
-        <div
-          className={`flex w-full max-w-4xl flex-col items-center gap-6 sm:gap-10 ${
-            showResults ? "" : "animate-in"
-          }`}
-        >
-          {!showResults && (
-            <h1 className="font-display text-[clamp(3.25rem,14vw,8rem)] leading-[0.95] tracking-[-0.035em] text-[var(--foreground)]" style={{ fontWeight: 300 }}>
-              {brandTitle.lead}
-              <span className="bg-gradient-to-r from-[var(--teal)] via-[var(--lavender)] to-[var(--peach)] bg-clip-text text-transparent" style={{ fontWeight: 400 }}>
-                {brandTitle.accent ?? ""}
-              </span>
+      <main className="mx-auto flex w-full max-w-6xl flex-col px-4 pb-8 pt-8 sm:px-6 sm:pt-12">
+        {!hasQuery ? (
+          <div className="max-w-2xl">
+            <h1 className="text-3xl font-semibold tracking-[-0.025em] text-[var(--home-ink)] sm:text-4xl">
+              Find a note
             </h1>
-          )}
+            <p className="mt-3 max-w-[62ch] text-base leading-7 text-[var(--home-muted)]">
+              {config.tagline}
+            </p>
+          </div>
+        ) : null}
 
-          <div className="w-full max-w-xl">
-            <SearchInput
-              query={query}
-              onChange={handleQueryChange}
-              onSubmit={handleSubmit}
-              inputRef={inputRef}
-            />
+        <div className={`w-full max-w-2xl ${hasQuery ? "" : "mt-7"}`}>
+          <SearchInput
+            query={query}
+            isSearching={isSearching}
+            onChange={handleQueryChange}
+            onClear={resetSearch}
+            inputRef={inputRef}
+          />
 
-            {hasQuery && (
-              <div className="animate-in surface-raised mt-3 overflow-hidden rounded-3xl">
-                {isSearching ? (
-                  <div className="space-y-3 p-4">
-                    {[1, 2, 3].map((item) => (
-                      <div
-                        key={item}
-                        className="animate-pulse space-y-2 rounded-xl bg-[var(--secondary)] p-4"
-                      >
-                        <div className="h-4 w-2/3 rounded bg-[var(--border)]" />
-                        <div className="h-3 w-full rounded bg-[var(--border)]" />
-                      </div>
-                    ))}
-                  </div>
-                ) : results && results.length === 0 ? (
-                  <div className="p-6 text-sm text-[var(--muted-foreground)]">
-                    No matches for{" "}
-                    <span className="font-semibold text-[var(--foreground)]">{query}</span>
-                  </div>
-                ) : searchError ? (
-                  <div className="p-6 text-sm text-[var(--muted-foreground)]">
-                    Search is temporarily unavailable. Please try again in a moment.
-                  </div>
-                ) : results ? (
-                  <div className="divide-y divide-[var(--border)]">
-                    {results.map((result, index) => {
-                      const title = titleFromFileName(result.file);
-                      const slug = slugFromFileName(result.file);
-                      const staggerClass = `stagger-${Math.min(index + 1, 8)}`;
-                      const accent = ["var(--teal)", "var(--peach)", "var(--lavender)"][index % 3];
-
-                      return (
-                        <Link
-                          key={result.file}
-                          to={`/wiki/${slug}`}
-                          className={`animate-in group relative block px-5 py-4 transition-[background-color] duration-150 hover:bg-white/50 ${staggerClass}`}
-                        >
-                          <span
-                            aria-hidden
-                            className="absolute left-0 top-1/2 h-0 w-1 -translate-y-1/2 rounded-r-full transition-all duration-200 group-hover:h-[70%]"
-                            style={{ background: accent }}
-                          />
-                          <p className="truncate font-display text-[1.05rem] text-[var(--foreground)]">
-                            {title}
-                          </p>
-                          {result.matches.length > 0 && (
-                            <p className="mt-2 line-clamp-2 text-[0.85rem] leading-relaxed text-[var(--muted-foreground)]">
-                              <HighlightedText
-                                highlight={highlight}
-                                text={result.matches[0].snippet}
-                              />
-                            </p>
-                          )}
-                        </Link>
-                      );
-                    })}
-                  </div>
-                ) : null}
-              </div>
-            )}
+          <div className="mt-3 flex min-h-11 flex-wrap items-center justify-between gap-x-4 gap-y-2 text-sm text-[var(--home-muted)]">
+            <button
+              type="button"
+              onClick={handleRefresh}
+              disabled={refreshBusy}
+              aria-busy={refreshBusy}
+              className="inline-flex min-h-11 items-center gap-2 rounded-md px-2 font-medium text-[var(--home-accent)] hover:bg-[var(--home-accent-soft)] disabled:cursor-wait disabled:opacity-70"
+            >
+              <RefreshCw
+                aria-hidden
+                className={`h-4 w-4 motion-reduce:animate-none ${refreshBusy ? "animate-spin" : ""}`}
+              />
+              {refreshStatus === "error" ? "Retry refresh" : "Refresh index"}
+            </button>
+            <span className="hidden items-center gap-2 sm:flex">
+              <kbd className="rounded border border-[var(--home-control-border)] bg-[var(--home-surface)] px-1.5 py-0.5 font-sans text-xs font-medium text-[var(--home-ink)]">
+                ⌘K
+              </kbd>
+              Quick search
+            </span>
           </div>
 
-          {!showResults && children}
-        </div>
-      </main>
+          {refreshMessage ? (
+            <p
+              role={refreshStatus === "error" ? "alert" : "status"}
+              aria-live="polite"
+              className={`mb-2 text-sm ${
+                refreshStatus === "error" ? "text-[var(--home-error)]" : "text-[var(--home-muted)]"
+              }`}
+            >
+              {refreshMessage}
+            </p>
+          ) : null}
 
-      <footer className="pb-6" />
+          {hasQuery ? (
+            <section
+              id="home-search-results"
+              aria-label="Search results"
+              className="mt-3 overflow-hidden rounded-lg border border-[var(--home-border)] bg-[var(--home-surface)]"
+            >
+              {isSearching ? (
+                <div role="status" aria-live="polite" className="divide-y divide-[var(--home-border)]">
+                  <span className="sr-only">Searching notes…</span>
+                  {[1, 2, 3].map((item) => (
+                    <div key={item} className="space-y-2 px-4 py-4">
+                      <div className="h-4 w-2/3 animate-pulse rounded bg-[var(--home-skeleton)] motion-reduce:animate-none" />
+                      <div className="h-3 w-full animate-pulse rounded bg-[var(--home-skeleton)] motion-reduce:animate-none" />
+                    </div>
+                  ))}
+                </div>
+              ) : searchError ? (
+                <div role="alert" className="p-5">
+                  <p className="text-sm text-[var(--home-ink)]">{searchError}</p>
+                  <button
+                    type="button"
+                    onClick={retrySearch}
+                    className="mt-3 min-h-11 rounded-md border border-[var(--home-control-border)] px-3 text-sm font-medium text-[var(--home-ink)] hover:bg-[var(--home-accent-soft)]"
+                  >
+                    Try search again
+                  </button>
+                </div>
+              ) : results && results.length === 0 ? (
+                <div className="p-5">
+                  <p className="text-sm font-medium text-[var(--home-ink)]">No notes match “{query}”.</p>
+                  <p className="mt-1 text-sm text-[var(--home-muted)]">
+                    Try fewer words or search for a note title.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={resetSearch}
+                    className="mt-3 min-h-11 rounded-md border border-[var(--home-control-border)] px-3 text-sm font-medium text-[var(--home-ink)] hover:bg-[var(--home-accent-soft)]"
+                  >
+                    Clear search
+                  </button>
+                </div>
+              ) : results ? (
+                <>
+                  <div className="border-b border-[var(--home-border)] px-4 py-3 text-sm text-[var(--home-muted)]">
+                    {results.length.toLocaleString()} {results.length === 1 ? "result" : "results"}
+                  </div>
+                  <ul className="divide-y divide-[var(--home-border)]">
+                    {visibleResults.map((result) => {
+                      const title = titleFromFileName(result.file);
+                      const slug = slugFromFileName(result.file);
+                      return (
+                        <li key={result.file}>
+                          <Link
+                            to={`/wiki/${slug}`}
+                            className="group block min-h-14 px-4 py-3 hover:bg-[var(--home-accent-soft)]"
+                          >
+                            <span className="block truncate text-[0.95rem] font-medium text-[var(--home-ink)] group-hover:text-[var(--home-accent)]">
+                              {title}
+                            </span>
+                            {result.matches.length > 0 ? (
+                              <span className="mt-1 line-clamp-2 block text-sm leading-5 text-[var(--home-muted)]">
+                                <HighlightedText
+                                  highlight={highlight}
+                                  text={result.matches[0].snippet}
+                                />
+                              </span>
+                            ) : null}
+                          </Link>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  {results.length > HOME_SEARCH_PREVIEW_LIMIT ? (
+                    <button
+                      type="button"
+                      onClick={() => setShowAllResults((expanded) => !expanded)}
+                      aria-expanded={showAllResults}
+                      className="min-h-12 w-full border-t border-[var(--home-border)] px-4 text-left text-sm font-medium text-[var(--home-accent)] hover:bg-[var(--home-accent-soft)]"
+                    >
+                      {showAllResults ? "Show fewer results" : `Show all ${results.length} results`}
+                    </button>
+                  ) : null}
+                </>
+              ) : null}
+            </section>
+          ) : null}
+        </div>
+
+        {!hasQuery ? (
+          <>
+            <nav aria-label="Explore your knowledge" className="mt-8 grid max-w-4xl gap-2 sm:grid-cols-3">
+              <Link to="/explorer" className="home-destination-link">
+                <span className="font-medium text-[var(--home-ink)]">Browse notes</span>
+                <span className="text-sm text-[var(--home-muted)]">Open the note explorer</span>
+              </Link>
+              <Link to="/graph" className="home-destination-link">
+                <span className="font-medium text-[var(--home-ink)]">{config.navigation.graphLabel}</span>
+                <span className="text-sm text-[var(--home-muted)]">See how notes connect</span>
+              </Link>
+              <Link to="/stats" className="home-destination-link">
+                <span className="font-medium text-[var(--home-ink)]">{config.navigation.statsLabel}</span>
+                <span className="text-sm text-[var(--home-muted)]">Review the vault index</span>
+              </Link>
+            </nav>
+            {children}
+          </>
+        ) : null}
+      </main>
     </div>
   );
 }

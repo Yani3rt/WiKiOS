@@ -661,12 +661,14 @@ function NeighborhoodGraph({
   neighbors,
   onClickNode,
   aliases,
+  showHeading = true,
 }: {
   currentTitle: string;
   currentCategories: string[];
   neighbors: WikiNeighbor[];
   onClickNode: (slug: string) => void;
   aliases: Record<string, TopicAliasConfig>;
+  showHeading?: boolean;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
@@ -791,10 +793,12 @@ function NeighborhoodGraph({
   if (neighbors.length === 0) return null;
 
   return (
-    <div className="mt-6">
-      <p className="mb-2 text-xs font-medium uppercase tracking-wider text-[var(--muted-foreground)]">
-        Connections
-      </p>
+    <div className={showHeading ? "mt-6" : "mt-3"}>
+      {showHeading ? (
+        <p className="mb-2 text-xs font-medium uppercase tracking-wider text-[var(--muted-foreground)]">
+          Connections
+        </p>
+      ) : null}
       <div className="overflow-hidden rounded-xl border border-[var(--border)]">
         <canvas
           ref={canvasRef}
@@ -810,7 +814,7 @@ function NeighborhoodGraph({
             <button
               type="button"
               aria-label={`Open connected note ${neighbor.title}`}
-              className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)]"
+              className="flex min-h-11 w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)] sm:min-h-0"
               onClick={() => onClickNode(neighbor.slug)}
             >
               <span
@@ -1049,7 +1053,7 @@ export function NoteViewer({
                   type="button"
                   onClick={() => void updatePersonOverride(personPrimaryTarget)}
                   disabled={personActionBusy}
-                  className="underline decoration-[var(--muted-foreground)]/30 underline-offset-2 transition-colors duration-150 hover:text-[var(--foreground)] disabled:cursor-wait disabled:opacity-70"
+                  className="inline-flex min-h-11 items-center underline decoration-[var(--muted-foreground)]/30 underline-offset-2 transition-colors duration-150 hover:text-[var(--foreground)] disabled:cursor-wait disabled:opacity-70 sm:min-h-0"
                 >
                   {personActionBusy ? "Saving..." : personPrimaryLabel}
                 </button>
@@ -1060,7 +1064,7 @@ export function NoteViewer({
                       type="button"
                       onClick={() => void updatePersonOverride(null)}
                       disabled={personActionBusy}
-                      className="underline decoration-[var(--muted-foreground)]/30 underline-offset-2 transition-colors duration-150 hover:text-[var(--foreground)] disabled:cursor-wait disabled:opacity-70"
+                      className="inline-flex min-h-11 items-center underline decoration-[var(--muted-foreground)]/30 underline-offset-2 transition-colors duration-150 hover:text-[var(--foreground)] disabled:cursor-wait disabled:opacity-70 sm:min-h-0"
                     >
                       Clear override
                     </button>
@@ -1073,7 +1077,7 @@ export function NoteViewer({
         </div>
       </div>
 
-      {filteredHeadings.length > 0 || page.neighbors.length > 0 ? (
+      {filteredHeadings.length > 0 ? (
         <div
           className="note-viewer-mobile-toc mb-6 rounded-lg border border-[var(--border)] bg-white px-4 py-3 lg:hidden"
           data-note-viewer-mobile-toc="true"
@@ -1089,27 +1093,13 @@ export function NoteViewer({
                     key={heading.id}
                     href={`#${heading.id}`}
                     onClick={(event) => handleTocHeadingClick(event, heading.id, scrollContainerRef)}
-                    className="text-sm text-[var(--muted-foreground)] transition-colors duration-150 hover:text-[var(--foreground)]"
+                    className="inline-flex min-h-11 items-center text-sm text-[var(--muted-foreground)] transition-colors duration-150 hover:text-[var(--foreground)] sm:min-h-0"
                   >
                     {heading.text}
                   </a>
                 ))}
               </div>
             </>
-          ) : null}
-          {page.neighbors.length > 0 ? (
-            <div
-              className={`note-viewer-inline-graph hidden ${filteredHeadings.length > 0 ? "mt-4" : ""}`}
-              data-note-viewer-inline-graph="true"
-            >
-              <NeighborhoodGraph
-                currentTitle={page.title}
-                currentCategories={page.categories}
-                neighbors={page.neighbors}
-                onClickNode={navigateToGraphNote}
-                aliases={config.categories.aliases}
-              />
-            </div>
           ) : null}
         </div>
       ) : null}
@@ -1139,13 +1129,34 @@ export function NoteViewer({
                     onClick={(event) => {
                       navigateToRelatedNote(link.href, event);
                     }}
-                    className="rounded-full border border-[var(--border)] bg-white px-3.5 py-1.5 text-sm transition-[color,background-color,transform] duration-150 hover:bg-[var(--secondary)] active:scale-[0.97]"
+                    className="inline-flex min-h-11 items-center rounded-full border border-[var(--border)] bg-white px-3.5 py-1.5 text-sm transition-[color,background-color,transform] duration-150 hover:bg-[var(--secondary)] active:scale-[0.97] sm:min-h-0"
                   >
                     <span className="font-display font-light text-[var(--foreground)]">{link.label}</span>
                   </Link>
                 ))}
               </div>
             </section>
+          ) : null}
+
+          {page.neighbors.length > 0 ? (
+            <details
+              className="note-viewer-mobile-connections mt-8 rounded-lg border border-[var(--border)] bg-white lg:hidden"
+              data-note-viewer-mobile-connections="true"
+            >
+              <summary className="min-h-11 cursor-pointer px-4 py-3 text-sm font-medium text-[var(--foreground)]">
+                {page.neighbors.length} {page.neighbors.length === 1 ? "connection" : "connections"}
+              </summary>
+              <div className="border-t border-[var(--border)] px-3 pb-3">
+                <NeighborhoodGraph
+                  currentTitle={page.title}
+                  currentCategories={page.categories}
+                  neighbors={page.neighbors}
+                  onClickNode={navigateToGraphNote}
+                  aliases={config.categories.aliases}
+                  showHeading={false}
+                />
+              </div>
+            </details>
           ) : null}
         </div>
 

@@ -218,10 +218,13 @@ function folderAncestorsForSlug(slug: string | null) {
   return paths;
 }
 
-function initialExpandedPaths(tree: ReturnType<typeof buildExplorerTree>, activeSlug: string | null) {
+export function initialExpandedPaths(
+  _tree: ReturnType<typeof buildExplorerTree>,
+  activeSlug: string | null,
+) {
   const activeAncestors = folderAncestorsForSlug(activeSlug);
   if (activeAncestors.length > 0) return new Set(activeAncestors);
-  return new Set(tree.folders.map((folder) => folder.path));
+  return new Set<string>();
 }
 
 function sameSet(left: ReadonlySet<string>, right: ReadonlySet<string>) {
@@ -330,21 +333,22 @@ export function ExplorerHeader({
   toggleButtonRef?: RefObject<HTMLButtonElement | null>;
 }) {
   return (
-    <header className="flex h-16 items-center justify-between border-b border-[var(--border)] px-4 md:px-5">
+    <header className="flex h-16 items-center justify-between border-b border-[var(--explorer-border)] bg-[var(--explorer-surface)] px-4 md:px-5">
       <Link
         to="/"
-        className="rounded-md px-1 py-1 text-left transition-colors hover:text-[var(--teal)]"
+        aria-label="Back to wiki home"
+        className="rounded-md px-1 py-1 text-left transition-colors hover:text-[var(--explorer-accent)]"
       >
-        <p className="text-xs uppercase tracking-[0.22em] text-[var(--muted-foreground)]">WikiOS</p>
+        <p className="text-xs font-medium text-[var(--explorer-muted-foreground)]">WikiOS</p>
         <div className="mt-0.5 flex items-center gap-2">
-          <House className="h-4 w-4 text-[var(--muted-foreground)]" />
-          <h1 className="font-display text-lg">Wiki Explorer</h1>
+          <House className="h-4 w-4 text-[var(--explorer-muted-foreground)]" />
+          <h1 className="text-base font-semibold">Wiki Explorer</h1>
         </div>
       </Link>
       <div className="flex items-center gap-2">
         <button
           type="button"
-          className={`hidden items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm md:inline-flex ${
+          className={`hidden items-center gap-2 rounded-md border border-[var(--explorer-border)] bg-[var(--explorer-surface)] px-3 py-2 text-sm hover:bg-[var(--explorer-surface-subtle)] md:inline-flex ${
             desktopSidebarVisible ? "md:invisible md:pointer-events-none" : ""
           }`}
           aria-expanded={desktopSidebarVisible}
@@ -358,14 +362,14 @@ export function ExplorerHeader({
         </button>
         <Link
           to="/"
-          className="surface rounded-full px-3.5 py-2 text-sm font-medium text-[var(--foreground)] transition-[transform] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.96] sm:px-4"
+          className="hidden min-h-11 items-center rounded-md border border-[var(--explorer-border)] bg-[var(--explorer-surface)] px-3.5 py-2 text-sm font-medium text-[var(--foreground)] transition-colors hover:bg-[var(--explorer-surface-subtle)] sm:inline-flex sm:px-4"
         >
           Back to wiki
         </Link>
         <button
           ref={toggleButtonRef}
           type="button"
-          className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm md:hidden"
+          className="inline-flex min-h-11 items-center gap-2 rounded-md border border-[var(--explorer-border)] bg-[var(--explorer-surface)] px-3 py-2 text-sm hover:bg-[var(--explorer-surface-subtle)] md:hidden"
           aria-expanded={sidebarOpen}
           aria-controls="explorer-sidebar"
           aria-label="Toggle note tree"
@@ -443,14 +447,10 @@ export function ExplorerSidebar({
 
   return (
     <nav aria-label="Notes" className="flex h-full min-h-0 flex-col">
-      <div className="border-b border-[var(--border)] px-3 py-3">
+      <div className="border-b border-[var(--explorer-border)] px-3 py-3">
         <div className="group relative">
-          <div
-            aria-hidden
-            className="absolute -inset-[1px] rounded-full bg-gradient-to-r from-[var(--teal)] via-[var(--lavender)] to-[var(--peach)] opacity-0 blur-sm transition-opacity duration-300 group-focus-within:opacity-70"
-          />
-          <div className="surface-raised relative rounded-full">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--muted-foreground)] transition-colors duration-200 group-focus-within:text-[var(--teal)]" />
+          <div className="relative rounded-md border border-[var(--explorer-border)] bg-[var(--explorer-surface)] transition-[border-color,box-shadow] duration-150 focus-within:border-[var(--explorer-focus)] focus-within:ring-2 focus-within:ring-[var(--explorer-focus-ring)]">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--explorer-muted-foreground)] transition-colors duration-150 group-focus-within:text-[var(--explorer-accent)]" />
           <input
             ref={filterInputRef}
             type="search"
@@ -458,13 +458,13 @@ export function ExplorerSidebar({
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Filter titles or paths"
             aria-label="Filter notes"
-            className="w-full rounded-full bg-transparent py-2 pl-9 pr-10 text-sm text-[var(--foreground)] outline-none placeholder:text-[var(--muted-foreground)]"
+            className="min-h-11 w-full rounded-md bg-transparent py-2 pl-9 pr-12 text-sm text-[var(--foreground)] outline-none placeholder:text-[var(--explorer-muted-foreground)]"
           />
             {query ? (
               <button
                 type="button"
                 aria-label="Clear note filter"
-                className="absolute right-2 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)]"
+                className="absolute right-0 top-1/2 inline-flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-md text-[var(--explorer-muted-foreground)] transition-colors hover:bg-[var(--explorer-surface-subtle)] hover:text-[var(--foreground)] md:right-2 md:h-7 md:w-7"
                 onClick={() => setQuery("")}
               >
                 <X className="h-4 w-4" />
@@ -474,7 +474,7 @@ export function ExplorerSidebar({
         </div>
         <div className="mt-3 flex items-center justify-between gap-2">
           <p
-            className="text-xs text-[var(--muted-foreground)]"
+            className="text-xs text-[var(--explorer-muted-foreground)]"
             role="status"
             aria-live="polite"
           >
@@ -485,7 +485,7 @@ export function ExplorerSidebar({
               type="button"
               aria-label={folderToggleLabel}
               title={folderToggleLabel}
-              className="rounded-full px-2.5 py-1.5 text-xs text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)]"
+              className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md px-2.5 py-1.5 text-xs text-[var(--explorer-muted-foreground)] hover:bg-[var(--explorer-surface-subtle)] hover:text-[var(--foreground)] md:min-h-0 md:min-w-0"
               aria-pressed={areAllFoldersExpanded}
               onClick={toggleAllFolders}
             >
@@ -499,7 +499,7 @@ export function ExplorerSidebar({
               type="button"
               aria-label={desktopSidebarVisible ? "Hide note tree" : "Show note tree"}
               title={desktopSidebarVisible ? "Hide note tree" : "Show note tree"}
-              className="hidden rounded-full px-2.5 py-1.5 text-xs text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)] md:inline-flex"
+              className="hidden rounded-md px-2.5 py-1.5 text-xs text-[var(--explorer-muted-foreground)] hover:bg-[var(--explorer-surface-subtle)] hover:text-[var(--foreground)] md:inline-flex"
               aria-pressed={!desktopSidebarVisible}
               onClick={onToggleDesktopSidebar}
             >
@@ -514,7 +514,7 @@ export function ExplorerSidebar({
       </div>
       <div className="explorer-scrollbar min-h-0 flex-1 overflow-y-auto px-2 py-2">
         {rows.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-[var(--border)] bg-[var(--card)] px-4 py-6 text-center text-sm text-[var(--muted-foreground)]">
+          <div className="rounded-md border border-dashed border-[var(--explorer-border)] bg-[var(--explorer-surface)] px-4 py-6 text-center text-sm text-[var(--explorer-muted-foreground)]">
             {hasFilter ? "No notes match this filter yet." : "No notes are available in this view."}
           </div>
         ) : (
@@ -523,26 +523,26 @@ export function ExplorerSidebar({
               <button
                 key={`folder:${row.path}`}
                 type="button"
-                className="flex w-full items-center gap-2 rounded-xl px-2 py-1.5 text-left text-sm hover:bg-[var(--muted)]"
+                className="min-h-11 md:min-h-0 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-[var(--explorer-surface-subtle)]"
                 style={{ paddingLeft: `${0.5 + row.depth * 0.875}rem` }}
                 aria-expanded={expandedPaths.has(row.path)}
                 onClick={() => toggleFolder(row.path)}
               >
                 {expandedPaths.has(row.path) ? (
-                  <ChevronDown aria-hidden="true" className="h-4 w-4 shrink-0 text-[var(--muted-foreground)]" />
+                  <ChevronDown aria-hidden="true" className="h-4 w-4 shrink-0 text-[var(--explorer-muted-foreground)]" />
                 ) : (
-                  <ChevronRight aria-hidden="true" className="h-4 w-4 shrink-0 text-[var(--muted-foreground)]" />
+                  <ChevronRight aria-hidden="true" className="h-4 w-4 shrink-0 text-[var(--explorer-muted-foreground)]" />
                 )}
                 <span className="truncate">{row.name}</span>
-                <span className="ml-auto text-xs text-[var(--muted-foreground)]">{row.count}</span>
+                <span className="ml-auto text-xs text-[var(--explorer-muted-foreground)]">{row.count}</span>
               </button>
             ) : (
               <button
                 key={row.page.slug}
                 type="button"
-                className={`w-full rounded-xl px-2 py-1.5 text-left text-sm hover:bg-[var(--muted)] ${
+                className={`min-h-11 md:min-h-0 w-full rounded-md px-2 py-1.5 text-left text-sm hover:bg-[var(--explorer-surface-subtle)] ${
                   activeSlug === row.page.slug
-                    ? "bg-[var(--accent)] font-medium text-[var(--foreground)] shadow-[inset_0_0_0_1px_rgba(196,167,231,0.35)]"
+                    ? "bg-[var(--explorer-selection)] font-medium text-[var(--foreground)]"
                     : "text-[var(--foreground)]"
                 }`}
                 style={{ paddingLeft: `${row.depth === 0 ? 0.5 : 1.75 + row.depth * 0.875}rem` }}
@@ -594,17 +594,12 @@ export function ExplorerTabs({
 
   return (
     <div
-      className="explorer-scrollbar flex min-h-11 overflow-x-auto border-b border-[var(--border)] bg-[var(--card)]/80"
+      className="explorer-scrollbar flex min-h-11 overflow-x-auto border-b border-[var(--explorer-border)] bg-[var(--explorer-surface)]"
       role="tablist"
       aria-label="Open notes"
     >
       {workspace.tabs.map((tab, index) => {
         const active = tab.slug === workspace.activeSlug;
-        const accentRail = [
-          "bg-[var(--teal)]",
-          "bg-[var(--peach)]",
-          "bg-[var(--lavender)]",
-        ][index % 3];
         const handleTabKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
           const nextIndex = getNextExplorerTabIndex(
             event.key,
@@ -622,11 +617,11 @@ export function ExplorerTabs({
         return (
           <div
             key={tab.slug}
-            className={`relative flex shrink-0 items-center overflow-hidden border-r border-[var(--border)] ${
-              active ? "bg-[var(--background)]" : "bg-[var(--muted)]"
+            className={`relative flex shrink-0 items-center overflow-hidden border-r border-[var(--explorer-border)] ${
+              active ? "bg-[var(--explorer-canvas)]" : "bg-[var(--explorer-surface-subtle)]"
             }`}
           >
-            {active ? <span aria-hidden="true" className={`absolute inset-y-0 left-0 w-1 ${accentRail}`} /> : null}
+            {active ? <span aria-hidden="true" className="absolute inset-y-0 left-0 w-0.5 bg-[var(--explorer-accent)]" /> : null}
             <button
               type="button"
               role="tab"
@@ -638,7 +633,7 @@ export function ExplorerTabs({
                 if (element) tabRefs.current.set(tab.slug, element);
                 else tabRefs.current.delete(tab.slug);
               }}
-              className={`h-full max-w-52 truncate px-3 py-3 text-sm ${active ? "font-medium" : ""}`}
+              className={`min-h-11 h-full max-w-52 truncate px-3 py-3 text-sm ${active ? "font-medium" : ""}`}
               onClick={() => onActivate(tab.slug)}
               onKeyDown={handleTabKeyDown}
             >
@@ -647,7 +642,7 @@ export function ExplorerTabs({
             {active && workspace.tabs.length > 1 ? (
               <button
                 type="button"
-                className="px-2 text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+                className="inline-flex min-h-11 min-w-11 items-center justify-center px-2 text-xs text-[var(--explorer-muted-foreground)] hover:bg-[var(--explorer-surface-subtle)] hover:text-[var(--foreground)]"
                 aria-label={`Close other notes except ${tab.title}`}
                 title="Close other tabs"
                 onClick={() => onCloseOthers(tab.slug)}
@@ -657,7 +652,7 @@ export function ExplorerTabs({
             ) : null}
             <button
               type="button"
-              className="px-2 text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+              className="inline-flex min-h-11 min-w-11 items-center justify-center px-2 text-[var(--explorer-muted-foreground)] hover:bg-[var(--explorer-surface-subtle)] hover:text-[var(--foreground)]"
               aria-label={`Close ${tab.title}`}
               onClick={() => onClose(tab.slug)}
             >
@@ -674,10 +669,77 @@ export function ExplorerEmptyState({ hasTabs }: { hasTabs: boolean }) {
   return (
     <div className="flex h-full items-center justify-center p-8 text-center">
       <div>
-        <h2 className="font-display text-xl">{hasTabs ? "No note selected" : "Open a note"}</h2>
-        <p className="mt-2 text-sm text-[var(--muted-foreground)]">
+        <h2 className="text-lg font-semibold">{hasTabs ? "No note selected" : "Open a note"}</h2>
+        <p className="mt-2 text-sm text-[var(--explorer-muted-foreground)]">
           {hasTabs ? "Choose an open tab to continue reading." : "Select a note from the sidebar to begin."}
         </p>
+      </div>
+    </div>
+  );
+}
+
+function ExplorerRecoveryState({
+  status,
+  onRetry,
+  onBrowseNotes,
+}: {
+  status: "missing" | "error";
+  onRetry: () => Promise<void>;
+  onBrowseNotes: () => void;
+}) {
+  const [isRetrying, setIsRetrying] = useState(false);
+  const [retryFailed, setRetryFailed] = useState(false);
+  const missing = status === "missing";
+
+  const retry = async () => {
+    setIsRetrying(true);
+    setRetryFailed(false);
+    try {
+      await onRetry();
+    } catch {
+      setRetryFailed(true);
+    } finally {
+      setIsRetrying(false);
+    }
+  };
+
+  return (
+    <div className="flex h-full items-center justify-center p-6 sm:p-8">
+      <div
+        role="alert"
+        aria-busy={isRetrying}
+        className="w-full max-w-md rounded-md border border-[var(--explorer-border)] bg-[var(--explorer-surface)] p-5"
+      >
+        <h2 className="text-base font-semibold">
+          {missing ? "This note is not available" : "Could not load this note"}
+        </h2>
+        <p className="mt-2 text-sm leading-6 text-[var(--explorer-muted-foreground)]">
+          {missing
+            ? "It may have moved or been removed from the vault."
+            : "The note remains open. Retry the request or choose another note."}
+        </p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button
+            type="button"
+            className="inline-flex min-h-11 items-center justify-center rounded-md bg-[var(--explorer-accent)] px-4 text-sm font-medium text-white transition-colors hover:bg-[#40576b] disabled:cursor-wait disabled:opacity-65"
+            disabled={isRetrying}
+            onClick={() => void retry()}
+          >
+            {isRetrying ? "Retrying…" : "Retry"}
+          </button>
+          <button
+            type="button"
+            className="inline-flex min-h-11 items-center justify-center rounded-md border border-[var(--explorer-border)] bg-[var(--explorer-surface)] px-4 text-sm font-medium transition-colors hover:bg-[var(--explorer-surface-subtle)]"
+            onClick={onBrowseNotes}
+          >
+            Browse notes
+          </button>
+        </div>
+        {retryFailed ? (
+          <p className="mt-3 text-sm text-[var(--explorer-muted-foreground)]" role="status">
+            The note is still unavailable. Try another note or retry again.
+          </p>
+        ) : null}
       </div>
     </div>
   );
@@ -688,18 +750,27 @@ export function ExplorerReader({
   hasTabs,
   onWikiLink,
   onRefreshPage,
+  onBrowseNotes,
   workspaceScrollRef,
 }: {
   state: ReaderState;
   hasTabs: boolean;
   onWikiLink: (slug: string) => void;
   onRefreshPage: () => Promise<void>;
+  onBrowseNotes: () => void;
   workspaceScrollRef: RefObject<HTMLElement | null>;
 }) {
   if (state.status === "idle") return <ExplorerEmptyState hasTabs={hasTabs} />;
-  if (state.status === "loading") return <p className="p-8 text-sm text-[var(--muted-foreground)]">Loading note…</p>;
-  if (state.status === "missing") return <p className="p-8">This note could not be found.</p>;
-  if (state.status === "error") return <p className="p-8">The note could not be loaded. Please try again.</p>;
+  if (state.status === "loading") return <p className="p-8 text-sm text-[var(--explorer-muted-foreground)]">Loading note…</p>;
+  if (state.status === "missing" || state.status === "error") {
+    return (
+      <ExplorerRecoveryState
+        status={state.status}
+        onRetry={onRefreshPage}
+        onBrowseNotes={onBrowseNotes}
+      />
+    );
+  }
 
   const { page } = state;
   return (
@@ -896,13 +967,22 @@ export function Component() {
   );
 
   const selectPage = (page: ExplorerPage) => selectSlug(page.slug);
+  const showNoteTree = useCallback(() => {
+    sidebarCloseFocusTargetRef.current = "toggle";
+    if (isDesktopSidebar) {
+      setDesktopSidebarVisible(true);
+    } else {
+      setSidebarOpen(true);
+    }
+    window.requestAnimationFrame(() => filterInputRef.current?.focus());
+  }, [isDesktopSidebar]);
   const visibleReaderState = selectExplorerReaderState(
     workspace.activeSlug,
     readerState,
   );
 
   return (
-    <main className="flex min-h-screen flex-col bg-[var(--background)] text-[var(--foreground)] md:h-dvh md:min-h-0 md:overflow-hidden">
+    <main className="explorer-shell flex min-h-screen flex-col bg-[var(--explorer-canvas)] text-[var(--foreground)] md:h-dvh md:min-h-0 md:overflow-hidden">
       <ExplorerHeader
         sidebarOpen={sidebarOpen}
         desktopSidebarVisible={desktopSidebarVisible}
@@ -930,7 +1010,7 @@ export function Component() {
           aria-hidden={!sidebarInteractive}
           aria-modal={sidebarModalActive}
           role="dialog"
-          className={`fixed inset-y-16 left-0 z-40 w-[18.5rem] max-w-[calc(100vw-2rem)] border-r border-[var(--border)] bg-[var(--background)] shadow-[0_18px_48px_-24px_rgba(21,19,26,0.4)] md:static md:inset-auto md:z-auto md:max-w-none md:shadow-none ${
+          className={`fixed inset-y-16 left-0 z-40 w-[18.5rem] max-w-[calc(100vw-2rem)] border-r border-[var(--explorer-border)] bg-[var(--explorer-surface)] shadow-[4px_0_8px_rgba(24,30,36,0.08)] md:static md:inset-auto md:z-auto md:max-w-none md:shadow-none ${
             sidebarOpen ? "translate-x-0" : "-translate-x-[calc(100%+1rem)]"
           } ${desktopSidebarVisible ? "md:w-[19rem] md:translate-x-0 md:opacity-100" : "md:w-0 md:translate-x-[-1rem] md:opacity-0 md:border-r-0"} ${prefersReducedMotion ? "transition-none" : "transition-all duration-200 ease-out"} overflow-hidden motion-reduce:transition-none`}
         >
@@ -976,6 +1056,7 @@ export function Component() {
                     hasTabs
                     onWikiLink={selectSlug}
                     onRefreshPage={refreshActivePage}
+                    onBrowseNotes={showNoteTree}
                     workspaceScrollRef={workspaceScrollRef}
                   />
                 ) : null}
@@ -992,6 +1073,7 @@ export function Component() {
                 hasTabs={workspace.tabs.length > 0}
                 onWikiLink={selectSlug}
                 onRefreshPage={refreshActivePage}
+                onBrowseNotes={showNoteTree}
                 workspaceScrollRef={workspaceScrollRef}
               />
             </div>

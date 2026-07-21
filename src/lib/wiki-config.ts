@@ -103,23 +103,23 @@ export interface WikiOsConfig {
 
 export const DEFAULT_WIKI_OS_CONFIG: WikiOsConfig = {
   siteTitle: "WikiOS",
-  tagline: "Plug-and-play Obsidian wiki for search, browsing, and local knowledge graphs.",
+  tagline: "Search your notes and follow the connections between them.",
   searchPlaceholder: "Search notes, ideas, and people...",
   navigation: {
     graphLabel: "Graph",
     statsLabel: "Stats",
     backToWikiLabel: "Back to wiki",
-    articlesLabel: "articles",
+    articlesLabel: "notes",
     conceptsLabel: "concepts",
     connectionsLabel: "connections",
   },
   homepage: {
     sectionOrder: [...HOMEPAGE_SECTION_KEYS],
     labels: {
-      featured: "Discover",
-      topConnected: "Most Connected",
+      featured: "Worth revisiting",
+      topConnected: "Highly connected",
       people: "People",
-      recentPages: "Recently Added",
+      recentPages: "Recently updated",
       spotlightBadge: "Spotlight",
       statsEyebrow: "Wiki Snapshot",
       statsDescription: "A live view of the Obsidian wiki index and backlink graph.",

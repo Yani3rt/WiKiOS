@@ -198,14 +198,29 @@ async function prepareRead(deps: WikiQueryDependencies) {
   await deps.drainPendingUpdates();
 }
 
-function pickRandom<T>(items: T[], count: number): T[] {
-  if (items.length <= count) return [...items];
-  const shuffled = [...items];
-  for (let i = shuffled.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-  }
-  return shuffled.slice(0, count);
+export function selectFeaturedPages(
+  pages: readonly PageSummary[],
+  recentPages: readonly PageSummary[],
+  topConnected: readonly PageSummary[],
+  count = 4,
+) {
+  const alreadyVisible = new Set(
+    [...recentPages, ...topConnected].map((page) => page.file),
+  );
+
+  return [...pages]
+    .sort((a, b) => {
+      const aVisible = alreadyVisible.has(a.file);
+      const bVisible = alreadyVisible.has(b.file);
+      if (aVisible !== bVisible) return aVisible ? 1 : -1;
+
+      return (
+        b.backlinkCount - a.backlinkCount ||
+        a.modifiedAt - b.modifiedAt ||
+        a.title.localeCompare(b.title)
+      );
+    })
+    .slice(0, count);
 }
 
 export async function getDerivedData(deps: WikiQueryDependencies): Promise<DerivedData> {
@@ -338,7 +353,7 @@ export async function getDerivedData(deps: WikiQueryDependencies): Promise<Deriv
     homepage: {
       totalPages: totals.totalPages,
       totalWords: totals.totalWords,
-      featured: pickRandom(pageSummaries, 4),
+      featured: selectFeaturedPages(pageSummaries, recentPages, topConnected),
       recentPages,
       categories,
       topConnected,

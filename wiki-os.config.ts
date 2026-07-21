@@ -2,14 +2,14 @@ import type { WikiOsConfigInput } from "./src/lib/wiki-config";
 
 const config: WikiOsConfigInput = {
   siteTitle: "WikiOS",
-  tagline: "Plug-and-play Obsidian wiki for search, browsing, and local knowledge graphs.",
+  tagline: "Search your notes and follow the connections between them.",
   searchPlaceholder: "Search notes, ideas, and people...",
   homepage: {
     labels: {
-      featured: "Discover",
-      topConnected: "Most Connected",
+      featured: "Worth revisiting",
+      topConnected: "Highly connected",
       people: "People",
-      recentPages: "Recently Added",
+      recentPages: "Recently updated",
     },
   },
   people: {

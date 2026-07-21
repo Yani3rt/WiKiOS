@@ -351,6 +351,31 @@ describe("shared note viewer rendering and route boundaries", () => {
     expect(markup).not.toContain("hidden source note");
   });
 
+  it("places mobile connections after the article behind a collapsed disclosure", () => {
+    const markup = renderToStaticMarkup(
+      createElement(
+        WikiConfigProvider as never,
+        { config: DEFAULT_WIKI_OS_CONFIG },
+        createElement(
+          MemoryRouter,
+          undefined,
+          createElement(NoteViewer, {
+            page: samplePage,
+            onNavigateNote: () => {},
+          }),
+        ),
+      ),
+    );
+    const articleEnd = markup.indexOf("</article>");
+    const mobileConnections = markup.indexOf('data-note-viewer-mobile-connections="true"');
+
+    expect(articleEnd).toBeGreaterThan(-1);
+    expect(mobileConnections).toBeGreaterThan(articleEnd);
+    expect(markup).toContain("<summary");
+    expect(markup).toContain("1 connection");
+    expect(markup).not.toContain('data-note-viewer-inline-graph="true"');
+  });
+
   it("labels tagged code blocks and leaves untagged blocks unlabeled", () => {
     const codePage: WikiPageData = {
       ...samplePage,
@@ -644,7 +669,7 @@ describe("shared note viewer rendering and route boundaries", () => {
     expect(routeSource).not.toContain("const markdownComponents = useMemo<Components>");
     expect(viewerSource).toContain('data-note-viewer-mobile-toc="true"');
     expect(viewerSource).toContain('data-note-viewer-side-rail="true"');
-    expect(viewerSource).toContain('data-note-viewer-inline-graph="true"');
+    expect(viewerSource).toContain('data-note-viewer-mobile-connections="true"');
     expect(viewerSource).toContain("xl:grid");
     expect(viewerSource).toContain("xl:max-w-[calc(48rem+13rem+2rem)]");
     expect(viewerSource).toContain("xl:grid-cols-[minmax(0,1fr)_13rem]");
@@ -658,7 +683,7 @@ describe("shared note viewer rendering and route boundaries", () => {
     expect(globalsSource).toContain(".explorer-note-viewer-shell");
     expect(globalsSource).toContain(".note-viewer-mobile-toc");
     expect(globalsSource).toContain(".note-viewer-side-rail");
-    expect(globalsSource).toContain(".note-viewer-inline-graph");
+    expect(globalsSource).toContain(".note-viewer-mobile-connections");
   });
 
   it("bounds the explorer to the viewport so its tab panel is the note scroll root", () => {
