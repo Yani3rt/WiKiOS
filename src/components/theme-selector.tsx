@@ -4,6 +4,31 @@ import { useEffect, useId, useRef, useState } from "react";
 import { useColorTheme } from "@/client/color-theme-provider";
 import { COLOR_THEMES, type ColorThemeId } from "@/client/color-theme";
 
+interface ThemeSelectorDismissOptions {
+  containsTarget(target: EventTarget | null): boolean;
+  close(): void;
+  focusTrigger(): void;
+}
+
+/** Shared event logic for the selector's document-level dismissal listeners. */
+export function createThemeSelectorDismissHandlers({
+  containsTarget,
+  close,
+  focusTrigger,
+}: ThemeSelectorDismissOptions) {
+  return {
+    onPointerDown(event: Pick<PointerEvent, "target">) {
+      if (!containsTarget(event.target)) close();
+    },
+    onKeyDown(event: Pick<KeyboardEvent, "key" | "preventDefault">) {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      close();
+      focusTrigger();
+    },
+  };
+}
+
 export function ThemeOptions({
   selectedTheme,
   onSelect,
@@ -56,15 +81,12 @@ export function ThemeSelector() {
   useEffect(() => {
     if (!open) return;
 
-    const onPointerDown = (event: PointerEvent) => {
-      if (!wrapperRef.current?.contains(event.target as Node)) setOpen(false);
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      setOpen(false);
-      triggerRef.current?.focus();
-    };
+    const { onPointerDown, onKeyDown } = createThemeSelectorDismissHandlers({
+      containsTarget: (target) =>
+        target instanceof Node && Boolean(wrapperRef.current?.contains(target)),
+      close: () => setOpen(false),
+      focusTrigger: () => triggerRef.current?.focus(),
+    });
 
     document.addEventListener("pointerdown", onPointerDown);
     document.addEventListener("keydown", onKeyDown);
