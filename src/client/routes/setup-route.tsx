@@ -9,6 +9,7 @@ import {
 } from "react-router-dom";
 
 import { useWikiConfig } from "@/client/wiki-config";
+import { ThemeSelector } from "@/components/theme-selector";
 
 import { fetchJson } from "../api";
 import { RouteErrorBoundary } from "../route-error-boundary";
@@ -226,6 +227,7 @@ export function Component() {
           >
             {config.navigation.statsLabel}
           </Link>
+          <ThemeSelector />
         </nav>
       </header>
 

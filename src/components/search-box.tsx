@@ -16,6 +16,7 @@ import {
   type HomeFooterRefreshStatus,
 } from "@/components/home-footer";
 import { HighlightedText, buildHighlightQuery } from "@/components/highlighted-text";
+import { ThemeSelector } from "@/components/theme-selector";
 import { slugFromFileName, titleFromFileName, type PageSummary, type SearchResult } from "@/lib/wiki-shared";
 
 export const HOME_SEARCH_PREVIEW_LIMIT = 4;
@@ -243,9 +244,12 @@ export function SearchBox({
             >
               {config.siteTitle}
             </Link>
-            <span className="shrink-0 text-sm tabular-nums text-[var(--home-hero-muted)]">
-              {totalPages.toLocaleString()} {totalPages === 1 ? "note" : "notes"} indexed
-            </span>
+            <div className="flex shrink-0 items-center gap-2">
+              <span className="text-sm tabular-nums text-[var(--home-hero-muted)]">
+                {totalPages.toLocaleString()} {totalPages === 1 ? "note" : "notes"} indexed
+              </span>
+              <ThemeSelector />
+            </div>
           </div>
         </header>
 

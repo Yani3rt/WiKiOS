@@ -132,6 +132,21 @@ describe("unified color system", () => {
     }
   });
 
+  it("places the shared theme selector in every page header", () => {
+    const files = [
+      "../src/components/search-box.tsx",
+      "../src/client/routes/explorer-route.tsx",
+      "../src/client/routes/graph-route.tsx",
+      "../src/client/routes/stats-route.tsx",
+      "../src/client/routes/wiki-route.tsx",
+      "../src/client/routes/setup-route.tsx",
+    ];
+    for (const file of files) {
+      expect(source(file), file).toContain('import { ThemeSelector } from "@/components/theme-selector"');
+      expect(source(file), file).toContain("<ThemeSelector />");
+    }
+  });
+
   it("pages the graph node index from ten notes in groups of five", () => {
     const graphSource = source("../src/client/routes/graph-route.tsx");
     const modelSource = source("../src/client/graph-overview-model.ts");

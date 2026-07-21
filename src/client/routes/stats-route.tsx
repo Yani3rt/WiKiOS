@@ -4,6 +4,7 @@ import { useLoaderData, Link, redirect } from "react-router-dom";
 import { useWikiConfig } from "@/client/wiki-config";
 import type { WikiStats } from "@/lib/wiki-shared";
 import { ChangeVaultLink } from "@/components/change-vault-link";
+import { ThemeSelector } from "@/components/theme-selector";
 
 import { fetchJson, isSetupRequiredResponse } from "../api";
 import { RouteErrorBoundary } from "../route-error-boundary";
@@ -83,6 +84,7 @@ export function Component() {
             <span className="hidden sm:inline">articles</span>
           </span>
           <ChangeVaultLink className="stats-route-control" />
+          <ThemeSelector />
         </div>
       </header>
 

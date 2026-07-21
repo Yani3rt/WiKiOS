@@ -26,6 +26,7 @@ import {
 } from "react-router-dom";
 import { Link } from "react-router-dom";
 import { NoteViewer } from "@/components/note-viewer";
+import { ThemeSelector } from "@/components/theme-selector";
 import type { ExplorerPage, WikiPageData } from "@/lib/wiki-shared";
 
 import { fetchJson, isSetupRequiredResponse } from "../api";
@@ -378,6 +379,7 @@ export function ExplorerHeader({
           <PanelLeft className="h-4 w-4" />
           Notes
         </button>
+        <ThemeSelector />
       </div>
     </header>
   );

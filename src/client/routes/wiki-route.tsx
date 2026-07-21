@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { Link, redirect, useLoaderData, useNavigate, useRevalidator, type LoaderFunctionArgs } from "react-router-dom";
 
 import { NoteViewer } from "@/components/note-viewer";
+import { ThemeSelector } from "@/components/theme-selector";
 import type { WikiPageData } from "@/lib/wiki-shared";
 
 import { useWikiConfig } from "../wiki-config";
@@ -119,6 +120,7 @@ export function Component() {
           >
             {config.navigation.statsLabel}
           </Link>
+          <ThemeSelector />
         </div>
       </header>
 

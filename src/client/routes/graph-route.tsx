@@ -17,6 +17,7 @@ import SigmaLib from "sigma";
 import type { NodeLabelDrawingFunction } from "sigma/rendering";
 
 import { useWikiConfig } from "@/client/wiki-config";
+import { ThemeSelector } from "@/components/theme-selector";
 import {
   getCollisionAwareGraphLabelPlacements,
   getDeterministicGraphPositions,
@@ -1538,6 +1539,7 @@ export function Component() {
           >
             {config.navigation.backToWikiLabel}
           </Link>
+          <ThemeSelector />
         </div>
         {data.nodes.length > 0 ? (
           <GraphSearch
