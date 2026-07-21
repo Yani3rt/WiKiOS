@@ -170,7 +170,7 @@ describe("Home status and discovery helpers", () => {
     expect(source).toContain("<HomeFooter");
     expect(source).toContain("onFocusSearch={handleFooterSearchFocus}");
     expect(source.match(/home-destination-icon/g)).toHaveLength(3);
-    expect(styles).toContain("--home-hero: var(--brand-deep-teal)");
+    expect(styles).toContain("--home-hero: var(--brand-deep)");
     expect(styles).toContain(".home-footer {");
     expect(styles).toContain(".home-footer::before {");
     expect(styles).toContain("clip-path: ellipse(");

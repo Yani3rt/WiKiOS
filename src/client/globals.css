@@ -4,10 +4,9 @@
 @import url("https://fonts.googleapis.com/css2?family=Urbanist:wght@300;400;500;600;700;800&display=swap");
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500&display=swap");
 
-:root {
-  /* Shared product palette — promoted from the approved Home direction. */
-  --brand-deep-teal: oklch(0.37 0.065 205);
-  --brand-deep-teal-hover: oklch(0.43 0.07 205);
+:root[data-color-theme="teal"] {
+  --brand-deep: oklch(0.37 0.065 205);
+  --brand-deep-hover: oklch(0.43 0.07 205);
   --brand-on-deep: oklch(0.97 0.012 205);
   --brand-on-deep-muted: oklch(0.83 0.025 205);
   --brand-on-deep-accent: oklch(0.88 0.085 190);
@@ -16,6 +15,7 @@
   --brand-deep-control: oklch(0.43 0.05 205);
   --brand-canvas: oklch(0.965 0.012 205);
   --brand-surface: oklch(0.99 0.005 205);
+  --brand-surface-subtle: oklch(0.94 0.02 205);
   --brand-ink: oklch(0.24 0.025 215);
   --brand-muted-ink: oklch(0.46 0.025 215);
   --brand-accent: oklch(0.45 0.085 205);
@@ -23,6 +23,85 @@
   --brand-border: oklch(0.85 0.018 205);
   --brand-control-border: oklch(0.635 0.03 205);
   --brand-focus-soft: oklch(0.45 0.085 205 / 0.2);
+  --brand-skeleton: oklch(0.89 0.015 205);
+  --brand-scrollbar: oklch(0.58 0.035 205);
+  --brand-overlay: oklch(0.24 0.025 215 / 0.32);
+  --graph-background: #ebf6f7;
+  --graph-foreground: #102227;
+  --graph-muted: #485c61;
+  --graph-node-default: #3a6c72;
+  --graph-node-muted: #93a9ac;
+  --graph-edge-default: #5a787b;
+  --graph-edge-muted: #a9bbbd;
+  --graph-label: #102227;
+}
+
+:root[data-color-theme="blue"] {
+  --brand-deep: oklch(0.37 0.09 250);
+  --brand-deep-hover: oklch(0.43 0.095 250);
+  --brand-on-deep: oklch(0.97 0.012 250);
+  --brand-on-deep-muted: oklch(0.83 0.025 250);
+  --brand-on-deep-accent: oklch(0.88 0.085 235);
+  --brand-deep-border: oklch(0.5 0.07 250);
+  --brand-deep-control-border: oklch(0.71 0.04 250);
+  --brand-deep-control: oklch(0.43 0.065 250);
+  --brand-canvas: oklch(0.965 0.012 250);
+  --brand-surface: oklch(0.99 0.005 250);
+  --brand-surface-subtle: oklch(0.94 0.02 250);
+  --brand-ink: oklch(0.24 0.03 255);
+  --brand-muted-ink: oklch(0.46 0.03 255);
+  --brand-accent: oklch(0.45 0.11 250);
+  --brand-accent-soft: oklch(0.91 0.035 250);
+  --brand-border: oklch(0.85 0.018 250);
+  --brand-control-border: oklch(0.635 0.04 250);
+  --brand-focus-soft: oklch(0.45 0.11 250 / 0.2);
+  --brand-skeleton: oklch(0.89 0.015 250);
+  --brand-scrollbar: oklch(0.58 0.045 250);
+  --brand-overlay: oklch(0.24 0.03 255 / 0.32);
+  --graph-background: #eef4fb;
+  --graph-foreground: #15202d;
+  --graph-muted: #4d5969;
+  --graph-node-default: #234566;
+  --graph-node-muted: #8494a8;
+  --graph-edge-default: #667d94;
+  --graph-edge-muted: #93a0ae;
+  --graph-label: #15202d;
+}
+
+:root[data-color-theme="violet"] {
+  --brand-deep: oklch(0.37 0.085 295);
+  --brand-deep-hover: oklch(0.43 0.09 295);
+  --brand-on-deep: oklch(0.97 0.012 295);
+  --brand-on-deep-muted: oklch(0.83 0.025 295);
+  --brand-on-deep-accent: oklch(0.88 0.08 310);
+  --brand-deep-border: oklch(0.5 0.065 295);
+  --brand-deep-control-border: oklch(0.71 0.04 295);
+  --brand-deep-control: oklch(0.43 0.06 295);
+  --brand-canvas: oklch(0.965 0.012 295);
+  --brand-surface: oklch(0.99 0.005 295);
+  --brand-surface-subtle: oklch(0.94 0.02 295);
+  --brand-ink: oklch(0.24 0.03 295);
+  --brand-muted-ink: oklch(0.46 0.03 295);
+  --brand-accent: oklch(0.45 0.105 295);
+  --brand-accent-soft: oklch(0.91 0.035 295);
+  --brand-border: oklch(0.85 0.018 295);
+  --brand-control-border: oklch(0.635 0.04 295);
+  --brand-focus-soft: oklch(0.45 0.105 295 / 0.2);
+  --brand-skeleton: oklch(0.89 0.015 295);
+  --brand-scrollbar: oklch(0.58 0.04 295);
+  --brand-overlay: oklch(0.24 0.03 295 / 0.32);
+  --graph-background: #f4f2fb;
+  --graph-foreground: #201c2c;
+  --graph-muted: #595567;
+  --graph-node-default: #453b61;
+  --graph-node-muted: #938ea6;
+  --graph-edge-default: #7c7690;
+  --graph-edge-muted: #9f9cad;
+  --graph-label: #201c2c;
+}
+
+:root {
+  /* Semantic colors remain stable across product color themes. */
   --brand-success: oklch(0.42 0.1 150);
   --brand-success-soft: oklch(0.93 0.035 150);
   --brand-error: oklch(0.45 0.13 35);
@@ -44,34 +123,26 @@
   --peach-soft: var(--brand-warning-soft);
   --lavender: var(--brand-accent);
   --lavender-soft: var(--brand-accent-soft);
-  --primary: var(--brand-deep-teal);
+  --primary: var(--brand-deep);
   --primary-foreground: var(--brand-on-deep);
-  --secondary: oklch(0.93 0.018 205);
+  --secondary: var(--brand-surface-subtle);
   --secondary-foreground: var(--brand-ink);
-  --muted: oklch(0.93 0.018 205);
+  --muted: var(--brand-surface-subtle);
   --muted-foreground: var(--brand-muted-ink);
   --accent: var(--brand-accent-soft);
   --accent-foreground: var(--brand-ink);
   --border: var(--brand-border);
-  --ring: oklch(0.45 0.085 205 / 0.45);
+  --ring: color-mix(in oklch, var(--brand-accent) 45%, transparent);
 
   /* Graph chrome follows the product palette; data encodings remain distinct.
      Sigma 3 only accepts hex/rgb renderer colors, so canvas-fed tokens stay hex. */
-  --graph-background: #ebf6f7;
   --graph-surface: var(--brand-surface);
-  --graph-foreground: #102227;
-  --graph-muted: #485c61;
   --graph-border: var(--brand-border);
   --graph-control-border: var(--brand-control-border);
   --graph-control-hover: var(--brand-accent-soft);
-  --graph-node-default: #3a6c72;
-  --graph-node-muted: #93a9ac;
-  --graph-edge-default: #5a787b;
-  --graph-edge-muted: #a9bbbd;
   --graph-edge-outgoing: #00628d;
   --graph-edge-incoming: #875800;
-  --graph-label: #102227;
-  --graph-action-hover: var(--brand-deep-teal-hover);
+  --graph-action-hover: var(--brand-deep-hover);
   --graph-action-foreground: var(--brand-on-deep);
   --graph-stat-accent: var(--brand-accent);
   --graph-panel-shadow: oklch(0.24 0.025 215 / 0.1);
@@ -353,7 +424,7 @@ html {
   border: 1px solid var(--border);
   border-radius: 0.875rem;
   background: var(--brand-surface);
-  box-shadow: 0 8px 24px -18px oklch(0.24 0.025 215 / 0.32);
+  box-shadow: 0 8px 24px -18px var(--brand-overlay);
   -webkit-overflow-scrolling: touch;
   scrollbar-width: thin;
   scrollbar-color: rgba(91, 74, 122, 0.3) transparent;
@@ -425,7 +496,7 @@ html {
 
 .app-route-header {
   border-bottom: 1px solid var(--brand-deep-border);
-  background: var(--brand-deep-teal);
+  background: var(--brand-deep);
   color: var(--brand-on-deep);
 }
 
@@ -447,7 +518,7 @@ html {
 }
 
 .app-route-header-control:hover {
-  background: var(--brand-deep-teal-hover);
+  background: var(--brand-deep-hover);
 }
 
 /* Stats uses a tighter corner vocabulary than the shared pill-shaped chrome. */
@@ -456,8 +527,8 @@ html {
 }
 
 .app-primary-action {
-  border: 1px solid var(--brand-deep-teal);
-  background: var(--brand-deep-teal);
+  border: 1px solid var(--brand-deep);
+  background: var(--brand-deep);
   color: var(--brand-on-deep);
   transition:
     background-color 150ms var(--ease-out),
@@ -466,8 +537,8 @@ html {
 }
 
 .app-primary-action:hover {
-  border-color: var(--brand-deep-teal-hover);
-  background: var(--brand-deep-teal-hover);
+  border-color: var(--brand-deep-hover);
+  background: var(--brand-deep-hover);
 }
 
 .app-secondary-action {
@@ -504,11 +575,11 @@ html {
 
 /* Home uses the shared system at a larger, search-first scale. */
 .home-shell {
-  --home-hero: var(--brand-deep-teal);
+  --home-hero: var(--brand-deep);
   --home-hero-ink: var(--brand-on-deep);
   --home-hero-muted: var(--brand-on-deep-muted);
   --home-hero-accent: var(--brand-on-deep-accent);
-  --home-hero-hover: var(--brand-deep-teal-hover);
+  --home-hero-hover: var(--brand-deep-hover);
   --home-hero-border: var(--brand-deep-border);
   --home-hero-control-border: var(--brand-deep-control-border);
   --home-hero-chip: var(--brand-deep-control);
@@ -524,7 +595,7 @@ html {
   --home-control-border: var(--brand-control-border);
   --home-focus-soft: var(--brand-focus-soft);
   --home-error: var(--brand-error);
-  --home-skeleton: oklch(0.89 0.015 205);
+  --home-skeleton: var(--brand-skeleton);
   background: var(--home-canvas);
   color: var(--home-ink);
   font-family: var(--font-sans);
@@ -931,14 +1002,14 @@ html {
 .explorer-shell {
   --explorer-canvas: var(--brand-canvas);
   --explorer-surface: var(--brand-surface);
-  --explorer-surface-subtle: oklch(0.94 0.02 205);
+  --explorer-surface-subtle: var(--brand-surface-subtle);
   --explorer-selection: var(--brand-accent-soft);
   --explorer-border: var(--brand-border);
   --explorer-muted-foreground: var(--brand-muted-ink);
   --explorer-accent: var(--brand-accent);
   --explorer-focus: var(--brand-accent);
   --explorer-focus-ring: var(--brand-focus-soft);
-  --explorer-scrollbar-thumb: oklch(0.58 0.035 205);
+  --explorer-scrollbar-thumb: var(--brand-scrollbar);
 }
 
 .explorer-scrollbar {
@@ -963,7 +1034,7 @@ html {
 }
 
 .explorer-sidebar-backdrop {
-  background: oklch(0.24 0.025 215 / 0.32);
+  background: var(--brand-overlay);
 }
 
 .command-palette-backdrop {
@@ -978,7 +1049,7 @@ html {
     max(1rem, env(safe-area-inset-right))
     max(1rem, env(safe-area-inset-bottom))
     max(1rem, env(safe-area-inset-left));
-  background: oklch(0.24 0.025 215 / 0.32);
+  background: var(--brand-overlay);
   animation: command-palette-backdrop-in 160ms var(--ease-out) both;
 }
 
@@ -1090,7 +1161,7 @@ html {
 .command-palette-state button {
   margin-top: 0.75rem;
   border-radius: 999px;
-  background: var(--brand-deep-teal);
+  background: var(--brand-deep);
   color: var(--brand-on-deep);
   padding: 0.45rem 0.9rem;
   font-size: 0.8rem;

@@ -7,17 +7,24 @@ function source(relativePath: string) {
   return readFileSync(fileURLToPath(new URL(relativePath, import.meta.url)), "utf8");
 }
 
-describe("unified teal color system", () => {
-  it("defines shared OKLCH brand tokens and reusable route chrome", () => {
+describe("unified color system", () => {
+  it("defines complete Teal, Blue, and Violet token presets", () => {
     const styles = source("../src/client/globals.css");
-
-    expect(styles).toContain("--brand-deep-teal: oklch(");
-    expect(styles).toContain("--brand-canvas: oklch(");
-    expect(styles).toContain("--brand-accent: oklch(");
-    expect(styles).toContain(".app-route-shell");
-    expect(styles).toContain(".app-route-header");
-    expect(styles).toContain(".app-primary-action");
-    expect(styles).toContain(".app-secondary-action");
+    const required = [
+      "brand-deep", "brand-deep-hover", "brand-canvas", "brand-surface",
+      "brand-ink", "brand-muted-ink", "brand-accent", "brand-accent-soft",
+      "brand-border", "brand-control-border", "graph-background",
+      "graph-foreground", "graph-node-default", "graph-edge-default", "graph-label",
+    ];
+    for (const id of ["teal", "blue", "violet"]) {
+      const start = styles.indexOf(`:root[data-color-theme="${id}"]`);
+      const end = styles.indexOf("\n}", start);
+      const block = styles.slice(start, end);
+      expect(start, id).toBeGreaterThan(-1);
+      for (const token of required) expect(block, `${id}:${token}`).toContain(`--${token}:`);
+    }
+    expect(styles).not.toContain("--brand-deep-teal");
+    expect(styles).not.toContain("--brand-deep-teal-hover");
   });
 
   it("applies the shared shell and header to every full-page route", () => {
