@@ -34,6 +34,27 @@
   --border: rgba(21, 19, 26, 0.08);
   --ring: rgba(132, 185, 201, 0.45);
 
+  /* Knowledge graph — neutral, legible, and independent from reading surfaces */
+  --graph-background: #f7f8fa;
+  --graph-surface: #ffffff;
+  --graph-foreground: #1d2430;
+  --graph-muted: #596474;
+  --graph-border: #d9dee6;
+  --graph-control-border: #7f8a99;
+  --graph-control-hover: #edf0f4;
+  --graph-node-default: #687383;
+  --graph-node-muted: #aab2bd;
+  --graph-edge-default: #75808f;
+  --graph-edge-muted: #c3c9d1;
+  --graph-edge-outgoing: #315fc4;
+  --graph-edge-incoming: #9a5b19;
+  --graph-label: #353d49;
+  --graph-action-hover: #303b4b;
+  --graph-action-foreground: #ffffff;
+  --graph-stat-accent: var(--lavender);
+  --graph-panel-shadow: rgba(29, 36, 48, 0.08);
+  --graph-focus-ring: var(--graph-edge-outgoing);
+
   --font-sans:
     "Urbanist", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-display:
@@ -394,6 +415,146 @@ html {
     0 1px 0 rgba(255, 255, 255, 1) inset,
     0 12px 40px -16px rgba(21, 19, 26, 0.18),
     0 4px 12px -6px rgba(196, 167, 231, 0.2);
+}
+
+.graph-shell {
+  background: var(--graph-background);
+  color: var(--graph-foreground);
+}
+
+.graph-canvas {
+  contain: strict;
+  isolation: isolate;
+}
+
+.graph-surface {
+  border: 1px solid var(--graph-control-border);
+  background: var(--graph-surface);
+}
+
+.graph-surface-raised {
+  border: 1px solid var(--graph-border);
+  background: var(--graph-surface);
+  box-shadow: 0 4px 8px var(--graph-panel-shadow);
+}
+
+.graph-toolbar {
+  bottom: max(1rem, env(safe-area-inset-bottom));
+  border: 1px solid var(--graph-control-border);
+  background: var(--graph-surface);
+}
+
+.graph-toolbar > button + button {
+  border-left: 1px solid var(--graph-control-border);
+}
+
+.graph-detail-panel-body {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  opacity: 1;
+  overflow: hidden;
+  transition:
+    grid-template-rows 260ms cubic-bezier(0.25, 1, 0.5, 1),
+    opacity 180ms cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+.graph-detail-panel-body-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+[data-collapsed="true"] .graph-detail-panel-body {
+  grid-template-rows: minmax(0, 0fr);
+  opacity: 0;
+}
+
+@media (max-width: 639px) {
+  .graph-toolbar--panel-open {
+    bottom: calc(
+      var(--graph-toolbar-panel-offset, 50px) +
+      max(0.75rem, env(safe-area-inset-bottom))
+    );
+  }
+}
+
+.graph-shell :focus-visible {
+  outline: 3px solid var(--graph-focus-ring);
+  outline-offset: 2px;
+}
+
+.graph-node-index-list,
+.graph-connection-list {
+  scrollbar-width: thin;
+  scrollbar-color: var(--graph-muted) transparent;
+}
+
+.graph-node-index-list::-webkit-scrollbar,
+.graph-connection-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.graph-node-index-list::-webkit-scrollbar-track,
+.graph-connection-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.graph-node-index-list::-webkit-scrollbar-thumb,
+.graph-connection-list::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: var(--graph-muted);
+  background-clip: padding-box;
+}
+
+.graph-node-index-list button[aria-current="true"] {
+  box-shadow: inset 0 0 0 2px var(--graph-foreground);
+}
+
+@keyframes graph-node-index-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-0.5rem) scale(0.985);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes graph-node-index-exit {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+
+  to {
+    opacity: 0;
+    transform: translateY(-0.375rem) scale(0.985);
+  }
+}
+
+.graph-node-index-panel {
+  transform-origin: top center;
+  animation: graph-node-index-enter 220ms cubic-bezier(0.25, 1, 0.5, 1) both;
+}
+
+.graph-node-index-panel--closing {
+  pointer-events: none;
+  animation: graph-node-index-exit 160ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@media (forced-colors: active) {
+  .graph-surface,
+  .graph-surface-raised,
+  .graph-toolbar {
+    border-color: CanvasText;
+  }
+
+  .graph-node-index-list button[aria-current="true"] {
+    outline: 2px solid CanvasText;
+    outline-offset: -4px;
+  }
 }
 
 /* Accent chip variants */
@@ -817,6 +978,15 @@ html {
     animation: none;
     opacity: 1;
     transform: none;
+  }
+
+  .graph-node-index-panel,
+  .graph-node-index-panel--closing {
+    animation: none;
+  }
+
+  .graph-detail-panel-body {
+    transition: none;
   }
 
   .explorer-sidebar-backdrop {

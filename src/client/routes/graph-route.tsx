@@ -1,31 +1,156 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, redirect, useLoaderData, useNavigate } from "react-router-dom";
 import Graph from "graphology";
-import forceAtlas2 from "graphology-layout-forceatlas2";
+import {
+  ArrowDownLeft,
+  ArrowUpRight,
+  ChevronDown,
+  ChevronUp,
+  ListTree,
+  Minus,
+  Plus,
+  Scan,
+  X,
+} from "lucide-react";
 import SigmaLib from "sigma";
+import type { NodeLabelDrawingFunction } from "sigma/rendering";
 
 import { useWikiConfig } from "@/client/wiki-config";
+import {
+  getCollisionAwareGraphLabelPlacements,
+  getDeterministicGraphPositions,
+  getGraphCameraCenterForViewportTarget,
+  getGraphConnectionGroups,
+  getGraphDetailPanelToggleState,
+  getGraphEdgeSize,
+  getGraphIndexNodes,
+  getGraphLayoutIterations,
+  getGraphLinkedNodePulseScale,
+  getGraphNodeClickSelection,
+  getGraphNodeFocusViewportPoint,
+  getGraphNodeSize,
+  getGraphToolbarPanelOffset,
+  getGraphViewportSettings,
+  getNextGraphIndex,
+  getPersistentLabelSlugs,
+  GRAPH_MOVEMENT_RENDERING_SETTINGS,
+  shouldCloseGraphNodeIndexAfterSelection,
+  shouldCollapseGraphDetailPanelOnSearchInteraction,
+  strengthenGraphColor,
+  truncateGraphLabel,
+  type GraphConnectionGroups,
+  type GraphLayoutRequest,
+  type GraphLayoutResult,
+} from "@/client/graph-overview-model";
 import { getTopicColor, type TopicAliasConfig } from "@/lib/wiki-config";
 import type { GraphData, GraphNode } from "@/lib/wiki-shared";
 import { fetchJson, isSetupRequiredResponse } from "../api";
 import { RouteErrorBoundary } from "../route-error-boundary";
 
-/* ── Colors ── */
+/* ── Graph theme ── */
 
-const DEFAULT_NODE_COLOR = "#c4c0cc";
-const EDGE_DEFAULT = "#ece5d2";
-const EDGE_HOVER = "rgba(132, 185, 201, 0.85)";
-const LABEL_COLOR = "#6b6673";
-const BG_COLOR = "#faf7f3";
+interface GraphThemeColors {
+  background: string;
+  label: string;
+  nodeDefault: string;
+  nodeMuted: string;
+  edgeDefault: string;
+  edgeMuted: string;
+  edgeOutgoing: string;
+  edgeIncoming: string;
+}
+
+const GRAPH_THEME_TOKENS: Record<keyof GraphThemeColors, string> = {
+  background: "--graph-background",
+  label: "--graph-label",
+  nodeDefault: "--graph-node-default",
+  nodeMuted: "--graph-node-muted",
+  edgeDefault: "--graph-edge-default",
+  edgeMuted: "--graph-edge-muted",
+  edgeOutgoing: "--graph-edge-outgoing",
+  edgeIncoming: "--graph-edge-incoming",
+};
+
+function getGraphThemeColors(element: HTMLElement): GraphThemeColors {
+  const styles = getComputedStyle(element);
+  return Object.fromEntries(
+    Object.entries(GRAPH_THEME_TOKENS).map(([name, token]) => [
+      name,
+      styles.getPropertyValue(token).trim(),
+    ]),
+  ) as unknown as GraphThemeColors;
+}
+
+function getGraphMotionDuration(duration: number) {
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : duration;
+}
+
+function animateGraphNodeFocus(sigma: SigmaLib, slug: string, duration: number) {
+  const position = sigma.getNodeDisplayData(slug);
+  if (!position) return;
+
+  const camera = sigma.getCamera();
+  const dimensions = sigma.getDimensions();
+  const searchBottom =
+    document.getElementById("graph-search-controls")?.getBoundingClientRect().bottom ?? 120;
+  const viewportTarget = getGraphNodeFocusViewportPoint(
+    dimensions.width,
+    dimensions.height,
+    searchBottom,
+  );
+  const centeredState = {
+    x: position.x,
+    y: position.y,
+    ratio: 0.55,
+    angle: camera.getState().angle,
+  };
+  const framedPositionAtTarget = sigma.viewportToFramedGraph(viewportTarget, {
+    cameraState: centeredState,
+  });
+  const cameraCenter = getGraphCameraCenterForViewportTarget(
+    position,
+    framedPositionAtTarget,
+  );
+
+  void camera.animate(
+    { ...cameraCenter, ratio: centeredState.ratio },
+    { duration: getGraphMotionDuration(duration) },
+  );
+}
 
 function getCategoryColor(
   categories: string[],
   aliases: Record<string, TopicAliasConfig>,
+  fallbackColor = "var(--graph-node-default)",
 ): string {
   for (const cat of categories) {
-    return getTopicColor(cat, aliases);
+    return strengthenGraphColor(getTopicColor(cat, aliases));
   }
-  return DEFAULT_NODE_COLOR;
+  return fallbackColor;
+}
+
+function createGraphLabelDrawer(colors: GraphThemeColors): NodeLabelDrawingFunction {
+  return (context, data, settings) => {
+    if (!data.label) return;
+
+    const labelColor = "color" in settings.labelColor ? settings.labelColor.color : colors.label;
+
+    context.save();
+    context.font = `${settings.labelWeight} ${settings.labelSize}px ${settings.labelFont}`;
+    const labelWidth = context.measureText(data.label).width;
+    const x =
+      data.labelPlacement === "left"
+        ? data.x - data.size - 5 - labelWidth
+        : data.x + data.size + 5;
+    const y = data.y + settings.labelSize / 3;
+    context.lineJoin = "round";
+    context.lineWidth = 4;
+    context.strokeStyle = colors.background;
+    context.strokeText(data.label, x, y);
+    context.fillStyle = labelColor ?? colors.label;
+    context.fillText(data.label, x, y);
+    context.restore();
+  };
 }
 
 /* ── Graph building ── */
@@ -33,20 +158,30 @@ function getCategoryColor(
 function buildGraph(
   data: GraphData,
   aliases: Record<string, TopicAliasConfig>,
+  colors: GraphThemeColors,
 ): Graph {
   const graph = new Graph();
+  const positions = getDeterministicGraphPositions(data.nodes);
+  const persistentLabels = getPersistentLabelSlugs(data.nodes);
 
   for (const node of data.nodes) {
-    const size = Math.max(2.5, Math.min(16, 2.5 + Math.sqrt(node.backlinkCount) * 2));
+    const position = positions.get(node.slug) ?? { x: 0, y: 0 };
+    const size = getGraphNodeSize(node);
     graph.addNode(node.slug, {
-      label: node.title,
+      label: truncateGraphLabel(node.title),
+      compactLabel: truncateGraphLabel(node.title, 24),
+      fullLabel: node.title,
       size,
-      color: getCategoryColor(node.categories, aliases),
-      originalColor: getCategoryColor(node.categories, aliases),
-      x: Math.random() * 1000,
-      y: Math.random() * 1000,
+      color: getCategoryColor(node.categories, aliases, colors.nodeDefault),
+      originalColor: getCategoryColor(node.categories, aliases, colors.nodeDefault),
+      x: position.x,
+      y: position.y,
+      forceLabel: false,
+      persistentLabel: persistentLabels.has(node.slug),
+      labelPlacement: "right",
       categories: node.categories,
       backlinkCount: node.backlinkCount,
+      connectionCount: node.neighbors.length,
       wordCount: node.wordCount,
     });
   }
@@ -57,8 +192,8 @@ function buildGraph(
       if (!graph.hasEdge(key)) {
         graph.addEdgeWithKey(key, edge.source, edge.target, {
           weight: edge.weight,
-          size: 0.3,
-          color: EDGE_DEFAULT,
+          size: getGraphEdgeSize(edge.weight),
+          color: colors.edgeDefault,
         });
       }
     }
@@ -67,89 +202,403 @@ function buildGraph(
   return graph;
 }
 
-function runLayout(graph: Graph) {
-  forceAtlas2.assign(graph, {
-    iterations: 500,
-    settings: {
-      gravity: 1,
-      scalingRatio: 10,
-      barnesHutOptimize: true,
-      strongGravityMode: true,
-      slowDown: 3,
-      outboundAttractionDistribution: false,
-      linLogMode: true,
-    },
+function startGraphLayoutWorker(graph: Graph, onComplete: () => void) {
+  if (typeof Worker === "undefined") return null;
+
+  const worker = new Worker(new URL("../graph-layout-worker.ts", import.meta.url), {
+    type: "module",
+    name: "wikios-graph-layout",
   });
+  const nodes: GraphLayoutRequest["nodes"] = [];
+  const edges: GraphLayoutRequest["edges"] = [];
+
+  graph.forEachNode((key, attributes) => {
+    nodes.push({
+      key,
+      x: attributes.x,
+      y: attributes.y,
+      size: attributes.size,
+    });
+  });
+  graph.forEachEdge((key, attributes, source, target) => {
+    edges.push({
+      key,
+      source,
+      target,
+      weight: attributes.weight ?? 1,
+    });
+  });
+
+  worker.addEventListener(
+    "message",
+    ({ data }: MessageEvent<GraphLayoutResult>) => {
+      for (const position of data.positions) {
+        if (!graph.hasNode(position.key)) continue;
+        graph.mergeNodeAttributes(position.key, { x: position.x, y: position.y });
+      }
+      worker.terminate();
+      onComplete();
+    },
+    { once: true },
+  );
+  worker.addEventListener("error", () => worker.terminate(), { once: true });
+  worker.postMessage({
+    nodes,
+    edges,
+    iterations: getGraphLayoutIterations(graph.order),
+  } satisfies GraphLayoutRequest);
+
+  return worker;
+}
+
+function updateCollisionAwareGraphLabels(sigma: SigmaLib, graph: Graph) {
+  const dimensions = sigma.getDimensions();
+  const viewportSettings = getGraphViewportSettings(dimensions.width, dimensions.height);
+
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d");
+  if (!context) return false;
+  context.font = `600 ${viewportSettings.labelSize}px "Urbanist", sans-serif`;
+
+  const candidates: Parameters<typeof getCollisionAwareGraphLabelPlacements>[0] = [];
+  graph.forEachNode((slug, attributes) => {
+    if (!attributes.persistentLabel) return;
+    const displayData = sigma.getNodeDisplayData(slug);
+    if (!displayData) return;
+    const point = sigma.framedGraphToViewport({ x: displayData.x, y: displayData.y });
+    const label = String(
+      viewportSettings.compact ? attributes.compactLabel ?? attributes.label ?? "" : attributes.label ?? "",
+    );
+    candidates.push({
+      slug,
+      x: point.x,
+      y: point.y,
+      nodeSize: sigma.scaleSize(displayData.size),
+      labelWidth: context.measureText(label).width + 4,
+      labelHeight: viewportSettings.labelSize + 8,
+      priority:
+        Number(attributes.connectionCount ?? 0) * 100_000 + Number(attributes.wordCount ?? 0),
+    });
+  });
+
+  const placements = getCollisionAwareGraphLabelPlacements(candidates, {
+    ...dimensions,
+    padding: Math.min(24, viewportSettings.stagePadding / 2),
+    gap: 5,
+  });
+  let changed = false;
+
+  graph.forEachNode((slug, attributes) => {
+    if (!attributes.persistentLabel) return;
+    const nextForceLabel = placements.has(slug);
+    const nextPlacement = placements.get(slug) ?? "right";
+    if (
+      attributes.forceLabel === nextForceLabel &&
+      attributes.labelPlacement === nextPlacement
+    ) {
+      return;
+    }
+    graph.mergeNodeAttributes(slug, {
+      forceLabel: nextForceLabel,
+      labelPlacement: nextPlacement,
+    });
+    changed = true;
+  });
+
+  return changed;
+}
+
+function GraphViewportControls({
+  sigmaRef,
+  compactPanelOpen,
+  detailPanelHeight,
+  onCameraSettled,
+}: {
+  sigmaRef: React.RefObject<SigmaLib | null>;
+  compactPanelOpen: boolean;
+  detailPanelHeight: number;
+  onCameraSettled: () => void;
+}) {
+  const zoomIn = () => {
+    const camera = sigmaRef.current?.getCamera();
+    if (!camera) return;
+    void camera
+      .animatedZoom({ factor: 1.5, duration: getGraphMotionDuration(180) })
+      .then(onCameraSettled);
+  };
+
+  const zoomOut = () => {
+    const camera = sigmaRef.current?.getCamera();
+    if (!camera) return;
+    void camera
+      .animatedUnzoom({ factor: 1.5, duration: getGraphMotionDuration(180) })
+      .then(onCameraSettled);
+  };
+
+  const fitGraph = () => {
+    const camera = sigmaRef.current?.getCamera();
+    if (!camera) return;
+    void camera
+      .animatedReset({ duration: getGraphMotionDuration(180) })
+      .then(onCameraSettled);
+  };
+
+  const controlClass =
+    "grid h-11 w-11 place-items-center text-[var(--graph-muted)] transition-colors hover:bg-[var(--graph-control-hover)] hover:text-[var(--graph-foreground)]";
+  const panelOffset = getGraphToolbarPanelOffset(detailPanelHeight, compactPanelOpen);
+
+  return (
+    <div
+      className={`graph-toolbar absolute left-4 z-10 flex overflow-hidden rounded-lg ${
+        panelOffset === null ? "" : "graph-toolbar--panel-open"
+      }`}
+      style={
+        panelOffset === null
+          ? undefined
+          : ({ "--graph-toolbar-panel-offset": `${panelOffset}px` } as React.CSSProperties)
+      }
+      role="group"
+      aria-label="Graph view controls"
+    >
+      <button type="button" onClick={zoomOut} className={controlClass} aria-label="Zoom out">
+        <Minus aria-hidden="true" className="h-4 w-4" />
+      </button>
+      <button type="button" onClick={fitGraph} className={controlClass} aria-label="Fit graph">
+        <Scan aria-hidden="true" className="h-4 w-4" />
+      </button>
+      <button type="button" onClick={zoomIn} className={controlClass} aria-label="Zoom in">
+        <Plus aria-hidden="true" className="h-4 w-4" />
+      </button>
+    </div>
+  );
 }
 
 /* ── Search ── */
 
 function GraphSearch({
-  graph,
+  nodes,
   sigmaRef,
   onSelect,
+  onCompactSearchInteraction,
+  selectedSlug,
+  browseButtonRef,
 }: {
-  graph: Graph | null;
+  nodes: GraphNode[];
   sigmaRef: React.RefObject<SigmaLib | null>;
   onSelect: (slug: string) => void;
+  onCompactSearchInteraction: () => void;
+  selectedSlug: string | null;
+  browseButtonRef: React.RefObject<HTMLButtonElement | null>;
 }) {
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<{ slug: string; label: string }[]>([]);
+  const [indexOpen, setIndexOpen] = useState(false);
+  const [indexClosing, setIndexClosing] = useState(false);
+  const [rovingSlug, setRovingSlug] = useState<string | null>(null);
+  const itemRefs = useRef(new Map<string, HTMLButtonElement>());
+  const closeTimerRef = useRef<number | null>(null);
+  const results = useMemo(() => getGraphIndexNodes(nodes, query), [nodes, query]);
+  const panelOpen = indexOpen || query.trim().length > 0;
+
+  useEffect(
+    () => () => {
+      if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
+    },
+    [],
+  );
 
   useEffect(() => {
-    if (!graph || !query.trim()) {
-      setResults([]);
+    if (results.length === 0) {
+      setRovingSlug(null);
+    } else if (!rovingSlug || !results.some((node) => node.slug === rovingSlug)) {
+      setRovingSlug(results[0].slug);
+    }
+  }, [results, rovingSlug]);
+
+  const focusResult = (index: number) => {
+    const result = results[index];
+    if (!result) return;
+    setRovingSlug(result.slug);
+    requestAnimationFrame(() => itemRefs.current.get(result.slug)?.focus());
+  };
+
+  const handleResultKeyDown = (event: React.KeyboardEvent, currentIndex: number) => {
+    const nextIndex = getNextGraphIndex(currentIndex, event.key, results.length);
+    if (nextIndex === null) return;
+    event.preventDefault();
+    focusResult(nextIndex);
+  };
+
+  const cancelPendingClose = () => {
+    if (closeTimerRef.current !== null) {
+      window.clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+    setIndexClosing(false);
+  };
+
+  const closeIndex = (returnFocus: boolean) => {
+    cancelPendingClose();
+    setQuery("");
+
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      setIndexOpen(false);
+      if (returnFocus) requestAnimationFrame(() => browseButtonRef.current?.focus());
       return;
     }
-    const q = query.toLowerCase();
-    const matched: { slug: string; label: string }[] = [];
-    graph.forEachNode((slug, attrs) => {
-      if (attrs.label?.toLowerCase().includes(q)) {
-        matched.push({ slug, label: attrs.label });
-      }
-    });
-    matched.sort((a, b) => a.label.localeCompare(b.label));
-    setResults(matched.slice(0, 8));
-  }, [graph, query]);
 
-  const handleSelect = (slug: string) => {
+    setIndexOpen(true);
+    setIndexClosing(true);
+    closeTimerRef.current = window.setTimeout(() => {
+      closeTimerRef.current = null;
+      setIndexOpen(false);
+      setIndexClosing(false);
+      if (returnFocus) requestAnimationFrame(() => browseButtonRef.current?.focus());
+    }, 160);
+  };
+
+  const handleSelect = (slug: string, returnFocusAfterClose = false) => {
     const sigma = sigmaRef.current;
-    if (sigma) {
-      const pos = sigma.getNodeDisplayData(slug);
-      if (pos) {
-        sigma.getCamera().animate({ x: pos.x, y: pos.y, ratio: 0.3 }, { duration: 400 });
-      }
-    }
+    if (sigma) animateGraphNodeFocus(sigma, slug, 280);
     onSelect(slug);
-    setQuery("");
-    setResults([]);
+    setRovingSlug(slug);
+
+    if (shouldCloseGraphNodeIndexAfterSelection(window.innerWidth)) {
+      closeIndex(returnFocusAfterClose);
+    } else {
+      cancelPendingClose();
+      setQuery("");
+      setIndexOpen(true);
+    }
   };
 
   return (
     <div
-      className="absolute left-4 right-4 z-10 sm:right-auto sm:w-64"
+      className="absolute left-4 right-4 z-10 sm:right-auto sm:w-80"
       style={{ top: "calc(env(safe-area-inset-top) + 4.75rem)" }}
     >
-      <input
-        type="search"
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        placeholder="Find a concept..."
-        className="surface w-full rounded-full px-4 py-2.5 text-sm text-[var(--foreground)] outline-none placeholder:text-[var(--muted-foreground)]"
-      />
-      {results.length > 0 && (
-        <div className="surface-raised mt-2 overflow-hidden rounded-2xl">
-          {results.map((r) => (
+      <div id="graph-search-controls" className="flex gap-2">
+        <input
+          type="search"
+          value={query}
+          onFocus={onCompactSearchInteraction}
+          onChange={(event) => {
+            cancelPendingClose();
+            setQuery(event.target.value);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "ArrowDown" && panelOpen && results.length > 0) {
+              event.preventDefault();
+              focusResult(0);
+            }
+          }}
+          placeholder="Find a concept..."
+          aria-label="Find a concept"
+          aria-controls="graph-node-index"
+          aria-expanded={panelOpen}
+          className="graph-surface min-w-0 flex-1 rounded-lg px-4 py-2.5 text-sm text-[var(--graph-foreground)] outline-none placeholder:text-[var(--graph-muted)]"
+        />
+        <button
+          ref={browseButtonRef}
+          type="button"
+          onClick={() => {
+            if (panelOpen) {
+              closeIndex(true);
+            } else {
+              cancelPendingClose();
+              onCompactSearchInteraction();
+              setIndexOpen(true);
+            }
+          }}
+          className="graph-surface grid h-11 w-11 shrink-0 place-items-center rounded-lg text-[var(--graph-muted)] transition-colors hover:bg-[var(--graph-control-hover)] hover:text-[var(--graph-foreground)]"
+          aria-label={panelOpen ? "Close node index" : "Browse nodes"}
+          aria-controls="graph-node-index"
+          aria-expanded={panelOpen}
+        >
+          <ListTree aria-hidden="true" className="h-4 w-4" />
+        </button>
+      </div>
+
+      {panelOpen && (
+        <section
+          id="graph-node-index"
+          className={`graph-node-index-panel graph-surface-raised mt-2 overflow-hidden rounded-xl ${
+            indexClosing ? "graph-node-index-panel--closing" : ""
+          }`}
+          data-state={indexClosing ? "closing" : "open"}
+          aria-labelledby="graph-node-index-title"
+        >
+          <div className="flex min-h-11 items-center justify-between border-b border-[var(--graph-border)] px-3 py-2">
+            <div className="min-w-0">
+              <h2 id="graph-node-index-title" className="text-sm font-semibold text-[var(--graph-foreground)]">
+                {query.trim() ? "Matching notes" : "All notes"}
+              </h2>
+              <p className="text-xs text-[var(--graph-muted)]">
+                {results.length} {results.length === 1 ? "result" : "results"}
+              </p>
+            </div>
             <button
-              key={r.slug}
               type="button"
-              onClick={() => handleSelect(r.slug)}
-              className="block w-full px-4 py-2 text-left text-sm font-display text-[var(--foreground)] transition-colors hover:bg-[var(--teal-soft)]/50"
+              onClick={() => closeIndex(true)}
+              className="grid h-11 w-11 shrink-0 place-items-center rounded-lg text-[var(--graph-muted)] transition-colors hover:bg-[var(--graph-control-hover)] hover:text-[var(--graph-foreground)]"
+              aria-label="Close node index"
             >
-              {r.label}
+              <X aria-hidden="true" className="h-4 w-4" />
             </button>
-          ))}
-        </div>
+          </div>
+
+          <p className="sr-only">Use the arrow keys to move between notes and Enter to select.</p>
+          {results.length > 0 ? (
+            <ul className="graph-node-index-list max-h-[min(62vh,34rem)] overflow-y-auto py-1">
+              {results.map((node, index) => {
+                const connectionCount = node.neighbors.length;
+                return (
+                  <li key={node.slug}>
+                    <button
+                      ref={(element) => {
+                        if (element) itemRefs.current.set(node.slug, element);
+                        else itemRefs.current.delete(node.slug);
+                      }}
+                      type="button"
+                      tabIndex={rovingSlug === node.slug ? 0 : -1}
+                      onFocus={() => setRovingSlug(node.slug)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          handleSelect(node.slug, true);
+                          return;
+                        }
+                        handleResultKeyDown(event, index);
+                      }}
+                      onClick={() => handleSelect(node.slug)}
+                      aria-current={selectedSlug === node.slug ? "true" : undefined}
+                      aria-label={`${node.title}, ${connectionCount} ${
+                        connectionCount === 1 ? "connection" : "connections"
+                      }`}
+                      className="flex min-h-11 w-full items-center justify-between gap-3 px-3 py-2 text-left transition-colors hover:bg-[var(--graph-control-hover)] focus-visible:bg-[var(--graph-control-hover)] aria-[current=true]:bg-[var(--graph-control-hover)]"
+                    >
+                      <span className="min-w-0 break-words text-sm font-medium text-[var(--graph-foreground)]">
+                        {node.title}
+                      </span>
+                      <span className="shrink-0 text-xs tabular-nums text-[var(--graph-muted)]">
+                        {connectionCount}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <p className="px-4 py-5 text-sm text-[var(--graph-muted)]">
+              No notes match “{query.trim()}”. Try a title, path, or category.
+            </p>
+          )}
+
+          {!query.trim() && nodes.length > results.length && (
+            <p className="border-t border-[var(--graph-border)] px-3 py-2 text-xs text-[var(--graph-muted)]">
+              Showing the first {results.length} notes. Search to narrow the full vault.
+            </p>
+          )}
+        </section>
       )}
     </div>
   );
@@ -159,115 +608,237 @@ function GraphSearch({
 
 function InfoPanel({
   node,
-  neighborNodes,
+  connections,
+  panelRef,
+  collapsed,
+  onCollapsedChange,
   onClose,
   onClickNeighbor,
+  onHoverNeighbor,
   onNavigate,
   aliases,
 }: {
   node: GraphNode;
-  neighborNodes: GraphNode[];
+  connections: GraphConnectionGroups;
+  panelRef: React.RefObject<HTMLElement | null>;
+  collapsed: boolean;
+  onCollapsedChange: (collapsed: boolean) => void;
   onClose: () => void;
   onClickNeighbor: (slug: string) => void;
+  onHoverNeighbor: (slug: string | null) => void;
   onNavigate: (slug: string) => void;
   aliases: Record<string, TopicAliasConfig>;
 }) {
   const catColor = getCategoryColor(node.categories, aliases);
+  const connectedSlugs = new Set([
+    ...connections.outgoing.map(({ node: connectedNode }) => connectedNode.slug),
+    ...connections.incoming.map(({ node: connectedNode }) => connectedNode.slug),
+  ]);
+  const connectionCount = connectedSlugs.size;
+  const toggleState = getGraphDetailPanelToggleState(collapsed);
+
+  useEffect(() => () => onHoverNeighbor(null), [node.slug, onHoverNeighbor]);
 
   return (
-    <div
-      className="surface-raised absolute left-4 right-4 z-20 overflow-hidden rounded-3xl sm:left-auto sm:right-4 sm:w-80"
-      style={{ top: "calc(env(safe-area-inset-top) + 4.75rem)" }}
+    <aside
+      ref={panelRef}
+      className="graph-surface-raised absolute bottom-[max(0.75rem,env(safe-area-inset-bottom))] left-3 right-3 top-auto z-20 flex max-h-[52dvh] flex-col overflow-hidden rounded-xl sm:bottom-auto sm:left-auto sm:right-4 sm:top-[calc(env(safe-area-inset-top)+4.75rem)] sm:max-h-[calc(100dvh-6rem)] sm:w-80"
+      aria-labelledby="graph-node-details-title"
+      data-collapsed={collapsed ? "true" : "false"}
     >
       {/* Header */}
-      <div className="border-b border-[var(--border)] px-5 py-4">
+      <div className="border-b border-[var(--graph-border)] px-5 py-4">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
-            <h3 className="truncate font-display text-[1.1rem] text-[var(--foreground)]">
+            <h2
+              id="graph-node-details-title"
+              className="line-clamp-2 text-[1.05rem] font-semibold text-[var(--graph-foreground)] sm:truncate"
+            >
               {node.title}
-            </h3>
+            </h2>
             <div className="mt-1.5 flex items-center gap-2">
               {node.categories.length > 0 && (
                 <div className="flex items-center gap-1.5">
                   <span
                     className="h-1.5 w-1.5 rounded-full"
                     style={{ backgroundColor: catColor, boxShadow: `0 0 8px ${catColor}80` }}
+                    aria-hidden="true"
                   />
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--graph-muted)]">
                     {node.categories[0]}
                   </span>
                 </div>
               )}
-              <span className="text-[10px] text-[var(--muted-foreground)]">
-                {node.backlinkCount} · {node.wordCount}w
+              <span
+                className="text-[10px] text-[var(--graph-muted)]"
+                aria-label={`${connectionCount} ${
+                  connectionCount === 1 ? "direct connection" : "direct connections"
+                }, ${node.wordCount} words`}
+              >
+                {connectionCount} · {node.wordCount}w
               </span>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="shrink-0 rounded-full p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--secondary)] hover:text-[var(--foreground)]"
-          >
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-              <path
-                d="M3 3l8 8M11 3l-8 8"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-              />
-            </svg>
-          </button>
-        </div>
-      </div>
-
-      {/* Summary */}
-      {node.summary && (
-        <div className="border-b border-[var(--border)] px-5 py-3">
-          <p className="line-clamp-3 text-[0.8rem] leading-relaxed text-[var(--muted-foreground)]">
-            {node.summary}
-          </p>
-        </div>
-      )}
-
-      {/* Open article button */}
-      <div className="border-b border-[var(--border)] px-5 py-3">
-        <button
-          type="button"
-          onClick={() => onNavigate(node.slug)}
-          className="w-full rounded-full bg-[var(--foreground)] px-4 py-2 text-xs font-semibold text-[var(--background)] transition-[background,transform] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] hover:bg-[var(--teal)] active:scale-[0.97]"
-        >
-          Open article →
-        </button>
-      </div>
-
-      {/* Connections list */}
-      {neighborNodes.length > 0 && (
-        <div className="max-h-56 overflow-y-auto">
-          <p className="px-5 pb-1.5 pt-3 text-[0.65rem] font-semibold uppercase tracking-[0.16em] text-[var(--muted-foreground)]">
-            Connections ({neighborNodes.length})
-          </p>
-          {neighborNodes.map((n) => (
+          <div className="flex shrink-0 items-center">
             <button
-              key={n.slug}
               type="button"
-              onClick={() => onClickNeighbor(n.slug)}
-              className="group flex w-full items-center gap-2.5 px-5 py-2 text-left transition-colors hover:bg-white/60"
+              onClick={() => onCollapsedChange(toggleState.nextCollapsed)}
+              className="grid h-11 w-11 place-items-center rounded-lg text-[var(--graph-muted)] transition-colors hover:bg-[var(--graph-control-hover)] hover:text-[var(--graph-foreground)]"
+              aria-label={toggleState.label}
+              aria-controls="graph-node-details-body"
+              aria-expanded={toggleState.expanded}
             >
-              <span
-                className="h-1.5 w-1.5 shrink-0 rounded-full transition-all duration-200 group-hover:scale-125"
-                style={{
-                  backgroundColor: getCategoryColor(n.categories, aliases),
-                  boxShadow: `0 0 6px ${getCategoryColor(n.categories, aliases)}60`,
-                }}
-              />
-              <span className="truncate font-display text-[0.85rem] text-[var(--foreground)]">
-                {n.title}
-              </span>
+              {collapsed ? (
+                <ChevronUp aria-hidden="true" className="h-4 w-4" />
+              ) : (
+                <ChevronDown aria-hidden="true" className="h-4 w-4" />
+              )}
             </button>
-          ))}
+            <button
+              type="button"
+              onClick={onClose}
+              className="grid h-11 w-11 place-items-center rounded-lg text-[var(--graph-muted)] transition-colors hover:bg-[var(--graph-control-hover)] hover:text-[var(--graph-foreground)]"
+              aria-label="Close node details"
+            >
+              <X aria-hidden="true" className="h-4 w-4" />
+            </button>
+          </div>
         </div>
-      )}
-    </div>
+      </div>
+
+      <div
+        id="graph-node-details-body"
+        className="graph-detail-panel-body min-h-0"
+        aria-hidden={collapsed}
+        inert={collapsed}
+      >
+        <div className="graph-detail-panel-body-inner flex min-h-0 flex-col overflow-hidden">
+          {/* Summary */}
+          {node.summary && (
+            <div className="border-b border-[var(--graph-border)] px-5 py-3">
+              <p className="line-clamp-3 text-[0.8rem] leading-relaxed text-[var(--graph-muted)]">
+                {node.summary}
+              </p>
+            </div>
+          )}
+
+          <div className="border-b border-[var(--graph-border)] px-5 py-3">
+            <p className="text-xs leading-relaxed text-[var(--graph-muted)]">
+              Direct links only. Blue arrows leave this note; amber arrows point to it. Select a
+              linked note to continue tracing.
+            </p>
+          </div>
+
+          {/* Open article button */}
+          <div className="border-b border-[var(--graph-border)] px-5 py-3">
+            <button
+              type="button"
+              onClick={() => onNavigate(node.slug)}
+              className="min-h-11 w-full rounded-lg bg-[var(--graph-foreground)] px-4 py-2 text-xs font-semibold text-[var(--graph-action-foreground)] transition-colors hover:bg-[var(--graph-action-hover)]"
+            >
+              Open article →
+            </button>
+          </div>
+
+          {/* Directional connections */}
+          <div className="graph-connection-list min-h-0 flex-1 overflow-y-auto py-2">
+        {connections.outgoing.length > 0 && (
+          <section aria-labelledby="graph-links-to-title">
+            <h3
+              id="graph-links-to-title"
+              className="flex items-center gap-2 px-5 pb-1.5 pt-2 text-[0.65rem] font-semibold uppercase tracking-[0.16em] text-[var(--graph-muted)]"
+            >
+              <ArrowUpRight
+                aria-hidden="true"
+                className="h-3.5 w-3.5 text-[var(--graph-edge-outgoing)]"
+              />
+              Links to ({connections.outgoing.length})
+            </h3>
+            {connections.outgoing.map(({ node: connectedNode, weight }) => (
+              <button
+                key={`outgoing-${connectedNode.slug}`}
+                type="button"
+                onClick={() => onClickNeighbor(connectedNode.slug)}
+                onPointerEnter={() => onHoverNeighbor(connectedNode.slug)}
+                onPointerLeave={() => onHoverNeighbor(null)}
+                onFocus={() => onHoverNeighbor(connectedNode.slug)}
+                onBlur={() => onHoverNeighbor(null)}
+                aria-label={`${node.title} links to ${connectedNode.title}, ${weight} ${
+                  weight === 1 ? "mention" : "mentions"
+                }`}
+                className="group flex min-h-11 w-full items-center gap-2.5 px-5 py-2 text-left transition-colors hover:bg-[var(--graph-control-hover)]"
+              >
+                <span
+                  className="h-1.5 w-1.5 shrink-0 rounded-full"
+                  style={{ backgroundColor: getCategoryColor(connectedNode.categories, aliases) }}
+                  aria-hidden="true"
+                />
+                <span className="min-w-0 flex-1 truncate text-[0.85rem] font-medium text-[var(--graph-foreground)]">
+                  {connectedNode.title}
+                </span>
+                {weight > 1 && (
+                  <span className="shrink-0 text-[10px] tabular-nums text-[var(--graph-muted)]">
+                    ×{weight}
+                  </span>
+                )}
+              </button>
+            ))}
+          </section>
+        )}
+
+        {connections.incoming.length > 0 && (
+          <section aria-labelledby="graph-linked-from-title">
+            <h3
+              id="graph-linked-from-title"
+              className="flex items-center gap-2 px-5 pb-1.5 pt-3 text-[0.65rem] font-semibold uppercase tracking-[0.16em] text-[var(--graph-muted)]"
+            >
+              <ArrowDownLeft
+                aria-hidden="true"
+                className="h-3.5 w-3.5 text-[var(--graph-edge-incoming)]"
+              />
+              Linked from ({connections.incoming.length})
+            </h3>
+            {connections.incoming.map(({ node: connectedNode, weight }) => (
+              <button
+                key={`incoming-${connectedNode.slug}`}
+                type="button"
+                onClick={() => onClickNeighbor(connectedNode.slug)}
+                onPointerEnter={() => onHoverNeighbor(connectedNode.slug)}
+                onPointerLeave={() => onHoverNeighbor(null)}
+                onFocus={() => onHoverNeighbor(connectedNode.slug)}
+                onBlur={() => onHoverNeighbor(null)}
+                aria-label={`${connectedNode.title}, links to ${node.title}, ${weight} ${
+                  weight === 1 ? "mention" : "mentions"
+                }`}
+                className="group flex min-h-11 w-full items-center gap-2.5 px-5 py-2 text-left transition-colors hover:bg-[var(--graph-control-hover)]"
+              >
+                <span
+                  className="h-1.5 w-1.5 shrink-0 rounded-full"
+                  style={{ backgroundColor: getCategoryColor(connectedNode.categories, aliases) }}
+                  aria-hidden="true"
+                />
+                <span className="min-w-0 flex-1 truncate text-[0.85rem] font-medium text-[var(--graph-foreground)]">
+                  {connectedNode.title}
+                </span>
+                {weight > 1 && (
+                  <span className="shrink-0 text-[10px] tabular-nums text-[var(--graph-muted)]">
+                    ×{weight}
+                  </span>
+                )}
+              </button>
+            ))}
+          </section>
+        )}
+
+        {connectionCount === 0 && (
+          <p className="px-5 py-4 text-sm leading-relaxed text-[var(--graph-muted)]">
+            This note has no direct links yet.
+          </p>
+        )}
+          </div>
+        </div>
+      </div>
+    </aside>
   );
 }
 
@@ -278,7 +849,7 @@ function NodeTooltip({
   position,
   aliases,
 }: {
-  node: { label: string; categories: string[]; backlinkCount: number; wordCount: number } | null;
+  node: { label: string; categories: string[]; connectionCount: number; wordCount: number } | null;
   position: { x: number; y: number };
   aliases: Record<string, TopicAliasConfig>;
 }) {
@@ -287,12 +858,14 @@ function NodeTooltip({
 
   return (
     <div
-      className="surface-raised pointer-events-none absolute z-20 max-w-xs rounded-2xl px-4 py-2.5"
+      className="graph-surface-raised pointer-events-none absolute z-20 max-w-xs rounded-lg px-4 py-2.5"
       style={{ left: position.x + 14, top: position.y - 12 }}
     >
-      <p className="font-display text-[0.95rem] text-[var(--foreground)]">{node.label}</p>
-      <div className="mt-1 flex items-center gap-1.5 text-[0.7rem] font-medium text-[var(--muted-foreground)]">
-        <span>{node.backlinkCount} connections</span>
+      <p className="text-[0.95rem] font-semibold text-[var(--graph-foreground)]">{node.label}</p>
+      <div className="mt-1 flex items-center gap-1.5 text-[0.7rem] font-medium text-[var(--graph-muted)]">
+        <span>
+          {node.connectionCount} {node.connectionCount === 1 ? "connection" : "connections"}
+        </span>
         <span>·</span>
         <span>{node.wordCount} words</span>
       </div>
@@ -302,7 +875,7 @@ function NodeTooltip({
             className="h-1.5 w-1.5 rounded-full"
             style={{ backgroundColor: catColor, boxShadow: `0 0 8px ${catColor}80` }}
           />
-          <span className="text-[0.7rem] font-semibold text-[var(--muted-foreground)]">
+          <span className="text-[0.7rem] font-semibold text-[var(--graph-muted)]">
             {node.categories.join(", ")}
           </span>
         </div>
@@ -333,93 +906,208 @@ export function Component() {
   const sigmaRef = useRef<SigmaLib | null>(null);
   const graphRef = useRef<Graph | null>(null);
   const hoveredRef = useRef<string | null>(null);
-  const selectedRef = useRef<string | null>(null);
   const focusedRef = useRef<string | null>(null);
+  const linkedHoverRef = useRef<string | null>(null);
+  const linkedPulseScaleRef = useRef(1);
+  const linkedPulseFrameRef = useRef<number | null>(null);
+  const labelLayoutCallbackRef = useRef<(() => void) | null>(null);
+  const browseButtonRef = useRef<HTMLButtonElement>(null);
+  const detailPanelRef = useRef<HTMLElement>(null);
   const [focusedSlug, setFocusedSlug] = useState<string | null>(null);
+  const [detailPanelHeight, setDetailPanelHeight] = useState(0);
+  const [detailPanelCollapsed, setDetailPanelCollapsed] = useState(false);
   const [tooltip, setTooltip] = useState<{
-    node: { label: string; categories: string[]; backlinkCount: number; wordCount: number };
+    node: { label: string; categories: string[]; connectionCount: number; wordCount: number };
     position: { x: number; y: number };
   } | null>(null);
-  const [graphReady, setGraphReady] = useState(false);
 
-  // Build a lookup map for node data
-  const nodeMap = useRef(new Map<string, GraphNode>());
+  const nodeMap = useMemo(
+    () => new Map(data.nodes.map((node) => [node.slug, node])),
+    [data.nodes],
+  );
+  const focusedNode = focusedSlug ? nodeMap.get(focusedSlug) ?? null : null;
+  const focusedConnections = useMemo(
+    () =>
+      focusedSlug
+        ? getGraphConnectionGroups(focusedSlug, data.nodes, data.edges)
+        : { outgoing: [], incoming: [] },
+    [data.edges, data.nodes, focusedSlug],
+  );
+
   useEffect(() => {
-    const map = new Map<string, GraphNode>();
-    for (const n of data.nodes) map.set(n.slug, n);
-    nodeMap.current = map;
-  }, [data]);
+    const panel = detailPanelRef.current;
+    if (!focusedNode || !panel) {
+      setDetailPanelHeight(0);
+      return;
+    }
 
-  const focusedNode = focusedSlug ? nodeMap.current.get(focusedSlug) ?? null : null;
-  const focusedNeighbors = focusedNode
-    ? focusedNode.neighbors
-        .map((s) => nodeMap.current.get(s))
-        .filter((n): n is GraphNode => n !== undefined)
-        .sort((a, b) => b.backlinkCount - a.backlinkCount)
-    : [];
+    const updateHeight = () => {
+      setDetailPanelHeight(panel.getBoundingClientRect().height);
+    };
+    updateHeight();
+
+    const resizeObserver = new ResizeObserver(updateHeight);
+    resizeObserver.observe(panel);
+    return () => resizeObserver.disconnect();
+  }, [focusedNode]);
 
   const handleSearchSelect = useCallback((slug: string) => {
     focusedRef.current = slug;
     setFocusedSlug(slug);
+    setDetailPanelCollapsed(false);
     sigmaRef.current?.refresh();
+  }, []);
+
+  const handleCompactSearchInteraction = useCallback(() => {
+    if (
+      shouldCollapseGraphDetailPanelOnSearchInteraction(
+        window.innerWidth,
+        Boolean(focusedRef.current),
+      )
+    ) {
+      setDetailPanelCollapsed(true);
+    }
   }, []);
 
   const handleInfoClose = useCallback(() => {
     focusedRef.current = null;
     setFocusedSlug(null);
+    setDetailPanelCollapsed(false);
     sigmaRef.current?.refresh();
+    requestAnimationFrame(() => browseButtonRef.current?.focus());
   }, []);
 
   const handleInfoNeighborClick = useCallback((slug: string) => {
     focusedRef.current = slug;
     setFocusedSlug(slug);
     sigmaRef.current?.refresh();
-    const pos = sigmaRef.current?.getNodeDisplayData(slug);
-    if (pos) {
-      sigmaRef.current?.getCamera().animate({ x: pos.x, y: pos.y, ratio: 0.5 }, { duration: 300 });
-    }
+    if (sigmaRef.current) animateGraphNodeFocus(sigmaRef.current, slug, 240);
   }, []);
 
-  useEffect(() => {
-    if (!containerRef.current) return;
+  const handleInfoNeighborHover = useCallback((slug: string | null) => {
+    const previousSlug = linkedHoverRef.current;
+    if (linkedPulseFrameRef.current !== null) {
+      cancelAnimationFrame(linkedPulseFrameRef.current);
+      linkedPulseFrameRef.current = null;
+    }
 
-    const graph = buildGraph(data, config.categories.aliases);
-    runLayout(graph);
+    linkedHoverRef.current = slug;
+    linkedPulseScaleRef.current = 1;
+    const sigma = sigmaRef.current;
+    const affectedNodes = [...new Set([previousSlug, slug].filter((value): value is string => Boolean(value)))];
+
+    if (!slug) {
+      if (sigma && affectedNodes.length > 0) {
+        sigma.refresh({
+          partialGraph: { nodes: affectedNodes },
+          skipIndexation: true,
+          schedule: true,
+        });
+      }
+      return;
+    }
+
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reducedMotion) {
+      linkedPulseScaleRef.current = getGraphLinkedNodePulseScale(0, true);
+      sigma?.refresh({
+        partialGraph: { nodes: affectedNodes },
+        skipIndexation: true,
+        schedule: true,
+      });
+      return;
+    }
+
+    const startedAt = performance.now();
+    const animatePulse = (timestamp: number) => {
+      if (linkedHoverRef.current !== slug) return;
+      linkedPulseScaleRef.current = getGraphLinkedNodePulseScale(timestamp - startedAt, false);
+      sigmaRef.current?.refresh({
+        partialGraph: { nodes: [slug] },
+        skipIndexation: true,
+        schedule: true,
+      });
+      linkedPulseFrameRef.current = requestAnimationFrame(animatePulse);
+    };
+    linkedPulseFrameRef.current = requestAnimationFrame(animatePulse);
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (linkedPulseFrameRef.current !== null) {
+        cancelAnimationFrame(linkedPulseFrameRef.current);
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!containerRef.current || data.nodes.length === 0) return;
+
+    const graphTheme = getGraphThemeColors(containerRef.current);
+    const graph = buildGraph(data, config.categories.aliases, graphTheme);
     graphRef.current = graph;
+    let viewportSettings = getGraphViewportSettings(
+      containerRef.current.clientWidth,
+      containerRef.current.clientHeight,
+    );
 
     const sigma = new SigmaLib(graph, containerRef.current, {
       allowInvalidContainer: true,
+      ...GRAPH_MOVEMENT_RENDERING_SETTINGS,
       renderLabels: true,
       renderEdgeLabels: false,
-      labelColor: { color: LABEL_COLOR },
+      defaultDrawNodeLabel: createGraphLabelDrawer(graphTheme),
+      labelColor: { color: graphTheme.label },
       labelFont: '"Urbanist", -apple-system, BlinkMacSystemFont, sans-serif',
-      labelSize: 11,
-      labelWeight: "500",
-      labelRenderedSizeThreshold: 6,
-      defaultEdgeColor: EDGE_DEFAULT,
+      labelSize: viewportSettings.labelSize,
+      labelWeight: "600",
+      labelDensity: viewportSettings.labelDensity,
+      labelGridCellSize: viewportSettings.labelGridCellSize,
+      labelRenderedSizeThreshold: 1_000,
+      defaultEdgeColor: graphTheme.edgeDefault,
       defaultEdgeType: "line",
-      defaultNodeColor: DEFAULT_NODE_COLOR,
-      stagePadding: 60,
+      defaultNodeColor: graphTheme.nodeDefault,
+      minEdgeThickness: 1,
+      stagePadding: viewportSettings.stagePadding,
       edgeReducer(edge, data) {
-        const active = focusedRef.current ?? hoveredRef.current;
+        const focused = focusedRef.current;
+        const hovered = hoveredRef.current;
         const res = { ...data };
+        const src = graph.source(edge);
+        const tgt = graph.target(edge);
 
-        if (active) {
-          const src = graph.source(edge);
-          const tgt = graph.target(edge);
-          if (src === active || tgt === active) {
-            res.color = EDGE_HOVER;
-            res.size = 1;
+        if (focused) {
+          if (src === focused) {
+            res.color = graphTheme.edgeOutgoing;
+            res.size = Math.max(2.1, res.size ?? 1);
+            res.type = "arrow";
+          } else if (tgt === focused) {
+            res.color = graphTheme.edgeIncoming;
+            res.size = Math.max(2.1, res.size ?? 1);
+            res.type = "arrow";
           } else {
             res.hidden = true;
+          }
+        } else if (hovered) {
+          if (src === hovered || tgt === hovered) {
+            res.color = graphTheme.edgeOutgoing;
+            res.size = Math.max(1.8, res.size ?? 1);
+          } else {
+            res.color = graphTheme.edgeMuted;
+            res.size = Math.max(0.8, (res.size ?? 1) * 0.7);
           }
         }
         return res;
       },
       nodeReducer(node, data) {
-        const active = focusedRef.current ?? hoveredRef.current;
-        const selected = selectedRef.current;
+        const focused = focusedRef.current;
+        const hovered = hoveredRef.current;
+        const linkedHover = linkedHoverRef.current;
+        const active = focused ?? hovered;
         const res = { ...data };
+        res.label = viewportSettings.compact ? data.compactLabel : data.label;
+        res.forceLabel = Boolean(data.forceLabel);
 
         if (active) {
           const isActive = node === active;
@@ -431,18 +1119,25 @@ export function Component() {
             res.size = (res.size ?? 4) * 1.3;
           } else if (isNeighbor) {
             res.zIndex = 1;
-            if (focusedRef.current) res.forceLabel = true;
+            if (focused) {
+              res.forceLabel = true;
+              res.size = (res.size ?? 4) * 1.08;
+            }
           } else {
-            res.color = "#e8e3d4";
-            res.label = "";
+            res.color = graphTheme.nodeMuted;
             res.zIndex = 0;
+            if (focused) {
+              res.label = "";
+              res.forceLabel = false;
+            }
           }
         }
 
-        if (selected === node) {
+        if (node === linkedHover) {
           res.highlighted = true;
+          res.forceLabel = true;
           res.zIndex = 3;
-          res.size = (res.size ?? 4) * 1.4;
+          res.size = (res.size ?? 4) * linkedPulseScaleRef.current;
         }
 
         return res;
@@ -450,7 +1145,41 @@ export function Component() {
     });
 
     sigmaRef.current = sigma;
-    setGraphReady(true);
+    let labelLayoutFrame: number | null = null;
+    const schedulePersistentLabelLayout = () => {
+      if (labelLayoutFrame !== null) cancelAnimationFrame(labelLayoutFrame);
+      labelLayoutFrame = requestAnimationFrame(() => {
+        labelLayoutFrame = null;
+        if (updateCollisionAwareGraphLabels(sigma, graph)) sigma.refresh();
+      });
+    };
+    labelLayoutCallbackRef.current = schedulePersistentLabelLayout;
+    const layoutWorker = startGraphLayoutWorker(graph, () => {
+      sigma.refresh();
+      if (!focusedRef.current) {
+        void sigma.getCamera()
+          .animatedReset({ duration: getGraphMotionDuration(180) })
+          .then(schedulePersistentLabelLayout);
+      } else {
+        schedulePersistentLabelLayout();
+      }
+    });
+    schedulePersistentLabelLayout();
+
+    const resizeObserver = new ResizeObserver(([entry]) => {
+      viewportSettings = getGraphViewportSettings(
+        entry.contentRect.width,
+        entry.contentRect.height,
+      );
+      sigma.setSettings({
+        labelSize: viewportSettings.labelSize,
+        labelDensity: viewportSettings.labelDensity,
+        labelGridCellSize: viewportSettings.labelGridCellSize,
+        stagePadding: viewportSettings.stagePadding,
+      });
+      schedulePersistentLabelLayout();
+    });
+    resizeObserver.observe(containerRef.current);
 
     sigma.on("enterNode", ({ node }) => {
       hoveredRef.current = node;
@@ -466,93 +1195,125 @@ export function Component() {
     });
 
     sigma.on("clickNode", ({ node }) => {
-      const focused = focusedRef.current;
+      const selection = getGraphNodeClickSelection(focusedRef.current, node);
+      if (!selection.shouldCenter) return;
 
-      if (focused === node) {
-        navigate(`/wiki/${node}`);
-        return;
-      }
-
-      if (focused && (graph.hasEdge(focused, node) || graph.hasEdge(node, focused))) {
-        navigate(`/wiki/${node}`);
-        return;
-      }
-
-      focusedRef.current = node;
-      setFocusedSlug(node);
+      focusedRef.current = selection.focusedSlug;
+      setFocusedSlug(selection.focusedSlug);
       sigma.refresh();
 
-      const pos = sigma.getNodeDisplayData(node);
-      if (pos) {
-        sigma.getCamera().animate({ x: pos.x, y: pos.y, ratio: 0.5 }, { duration: 300 });
-      }
+      animateGraphNodeFocus(sigma, node, 240);
     });
 
     sigma.on("clickStage", () => {
       if (focusedRef.current) {
         focusedRef.current = null;
         setFocusedSlug(null);
+        setDetailPanelCollapsed(false);
         sigma.refresh();
       }
     });
 
     return () => {
+      layoutWorker?.terminate();
+      if (labelLayoutFrame !== null) cancelAnimationFrame(labelLayoutFrame);
+      labelLayoutCallbackRef.current = null;
+      resizeObserver.disconnect();
       sigma.kill();
       sigmaRef.current = null;
       graphRef.current = null;
     };
-  }, [config.categories.aliases, data, navigate]);
+  }, [config.categories.aliases, data]);
 
   // Tooltip tracking
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
+    let tooltipFrame: number | null = null;
+    let pointerPosition = { x: 0, y: 0 };
 
     const handleMouseMove = (e: MouseEvent) => {
-      const hovered = hoveredRef.current;
-      if (!hovered || !graphRef.current || focusedRef.current) {
-        if (!focusedRef.current) setTooltip(null);
-        return;
-      }
-      const attrs = graphRef.current.getNodeAttributes(hovered);
-      setTooltip({
-        node: {
-          label: attrs.label,
-          categories: attrs.categories ?? [],
-          backlinkCount: attrs.backlinkCount ?? 0,
-          wordCount: attrs.wordCount ?? 0,
-        },
-        position: { x: e.clientX, y: e.clientY },
+      pointerPosition = { x: e.clientX, y: e.clientY };
+      if (tooltipFrame !== null) return;
+
+      tooltipFrame = requestAnimationFrame(() => {
+        tooltipFrame = null;
+        const hovered = hoveredRef.current;
+        if (!hovered || !graphRef.current || focusedRef.current) {
+          if (!focusedRef.current) setTooltip(null);
+          return;
+        }
+        const attrs = graphRef.current.getNodeAttributes(hovered);
+        setTooltip({
+          node: {
+            label: attrs.fullLabel ?? attrs.label,
+            categories: attrs.categories ?? [],
+            connectionCount: attrs.connectionCount ?? 0,
+            wordCount: attrs.wordCount ?? 0,
+          },
+          position: pointerPosition,
+        });
       });
     };
 
     container.addEventListener("mousemove", handleMouseMove);
-    return () => container.removeEventListener("mousemove", handleMouseMove);
+    return () => {
+      container.removeEventListener("mousemove", handleMouseMove);
+      if (tooltipFrame !== null) cancelAnimationFrame(tooltipFrame);
+    };
   }, []);
 
   return (
-    <div className="fixed inset-0" style={{ background: BG_COLOR }}>
+    <main
+      className="graph-shell fixed inset-0"
+      aria-label="Knowledge graph"
+      aria-describedby="graph-instructions"
+    >
+      <p id="graph-instructions" className="sr-only">
+        Explore {data.nodes.length} notes and {data.edges.length} connections. Use Find a
+        concept or Browse nodes for keyboard-accessible navigation. Selecting a note isolates its
+        direct links and separates notes it links to from notes that link back to it.
+      </p>
+      <div className="sr-only" aria-live="polite" aria-atomic="true">
+        {focusedNode
+          ? (() => {
+              const connectionCount = focusedNode.neighbors.length;
+              return `${focusedNode.title} selected. ${connectionCount} ${
+                connectionCount === 1 ? "connection" : "connections"
+              } and ${focusedNode.wordCount} words.`;
+            })()
+          : "Graph overview active."}
+      </div>
       {/* Header */}
       <header className="absolute left-0 right-0 top-0 z-10 flex items-center justify-between gap-2 px-4 pb-3 pt-[calc(env(safe-area-inset-top)+1.5rem)] sm:gap-3 sm:px-6 sm:pb-4 sm:pt-[calc(env(safe-area-inset-top)+1.25rem)]">
-        <Link to="/" className="font-display text-lg text-[var(--foreground)] sm:text-xl">
-          {config.siteTitle}
+        <Link
+          to="/"
+          className="flex min-h-11 items-center gap-3 text-[var(--graph-foreground)]"
+        >
+          <span className="text-lg font-semibold tracking-[-0.02em] sm:text-xl">{config.siteTitle}</span>
+          <span className="hidden text-xs font-medium text-[var(--graph-muted)] sm:inline">
+            Knowledge graph
+          </span>
         </Link>
         <div className="flex items-center gap-1.5 sm:gap-2.5">
-          <span className="surface hidden items-center gap-2 rounded-full px-3.5 py-2 text-xs text-[var(--muted-foreground)] sm:flex">
-            <span className="h-1.5 w-1.5 rounded-full bg-[var(--lavender)]" />
-            <span className="font-semibold tabular-nums text-[var(--foreground)]">
+          <span className="graph-surface hidden items-center gap-2 rounded-lg px-3.5 py-2 text-xs text-[var(--graph-muted)] sm:flex">
+            <span
+              className="h-1.5 w-1.5 rounded-full bg-[var(--graph-stat-accent)]"
+              aria-hidden="true"
+            />
+            <span className="font-semibold tabular-nums text-[var(--graph-foreground)]">
               {data.nodes.length}
             </span>
             <span>{config.navigation.conceptsLabel}</span>
             <span>·</span>
-            <span className="font-semibold tabular-nums text-[var(--foreground)]">
+            <span className="font-semibold tabular-nums text-[var(--graph-foreground)]">
               {data.edges.length}
             </span>
             <span>{config.navigation.connectionsLabel}</span>
           </span>
           <Link
             to="/"
-            className="surface rounded-full px-3.5 py-2 text-sm font-medium text-[var(--foreground)] transition-[transform] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.96] sm:px-4"
+            className="graph-surface inline-flex min-h-11 items-center justify-center rounded-lg px-3.5 py-2 text-sm font-medium text-[var(--graph-foreground)] transition-colors hover:bg-[var(--graph-control-hover)] sm:px-4"
           >
             <span className="sm:hidden">Back</span>
             <span className="hidden sm:inline">{config.navigation.backToWikiLabel}</span>
@@ -560,37 +1321,71 @@ export function Component() {
         </div>
       </header>
 
-      {/* Search */}
-      <GraphSearch
-        graph={graphReady ? graphRef.current : null}
-        sigmaRef={sigmaRef}
-        onSelect={handleSearchSelect}
-      />
+      {data.nodes.length > 0 ? (
+        <>
+          <GraphSearch
+            nodes={data.nodes}
+            sigmaRef={sigmaRef}
+            onSelect={handleSearchSelect}
+            onCompactSearchInteraction={handleCompactSearchInteraction}
+            selectedSlug={focusedSlug}
+            browseButtonRef={browseButtonRef}
+          />
 
-      {/* Tooltip (only when not focused) */}
-      {!focusedSlug && (
-        <NodeTooltip
-          node={tooltip?.node ?? null}
-          position={tooltip?.position ?? { x: 0, y: 0 }}
-          aliases={config.categories.aliases}
-        />
+          {/* Tooltip (only when not focused) */}
+          {!focusedSlug && (
+            <NodeTooltip
+              node={tooltip?.node ?? null}
+              position={tooltip?.position ?? { x: 0, y: 0 }}
+              aliases={config.categories.aliases}
+            />
+          )}
+
+          {/* Info panel (when focused) */}
+          {focusedNode && (
+            <InfoPanel
+              node={focusedNode}
+              connections={focusedConnections}
+              panelRef={detailPanelRef}
+              collapsed={detailPanelCollapsed}
+              onCollapsedChange={setDetailPanelCollapsed}
+              onClose={handleInfoClose}
+              onClickNeighbor={handleInfoNeighborClick}
+              onHoverNeighbor={handleInfoNeighborHover}
+              onNavigate={(slug) => navigate(`/wiki/${slug}`)}
+              aliases={config.categories.aliases}
+            />
+          )}
+
+          <GraphViewportControls
+            sigmaRef={sigmaRef}
+            compactPanelOpen={Boolean(focusedNode)}
+            detailPanelHeight={detailPanelHeight}
+            onCameraSettled={() => labelLayoutCallbackRef.current?.()}
+          />
+
+          {/* Sigma canvas is a visual duplicate of the semantic node index. */}
+          <div ref={containerRef} className="graph-canvas h-full w-full" aria-hidden="true" />
+        </>
+      ) : (
+        <section className="absolute inset-0 grid place-items-center px-6 text-center">
+          <div className="max-w-md">
+            <h1 className="text-xl font-semibold text-[var(--graph-foreground)]">
+              No notes to map yet
+            </h1>
+            <p className="mt-2 text-sm leading-relaxed text-[var(--graph-muted)]">
+              Add notes to the current vault or reindex it, then return to see their relationships.
+            </p>
+            <Link
+              to="/"
+              className="graph-surface mt-5 inline-flex min-h-11 items-center rounded-lg px-4 text-sm font-semibold text-[var(--graph-foreground)]"
+            >
+              Back to wiki
+            </Link>
+          </div>
+        </section>
       )}
-
-      {/* Info panel (when focused) */}
-      {focusedNode && (
-        <InfoPanel
-          node={focusedNode}
-          neighborNodes={focusedNeighbors}
-          onClose={handleInfoClose}
-          onClickNeighbor={handleInfoNeighborClick}
-          onNavigate={(slug) => navigate(`/wiki/${slug}`)}
-          aliases={config.categories.aliases}
-        />
-      )}
-
-      {/* Sigma canvas */}
-      <div ref={containerRef} className="h-full w-full" />
-    </div>
+    </main>
   );
 }
 
