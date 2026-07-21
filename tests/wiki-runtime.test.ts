@@ -22,6 +22,15 @@ afterEach(() => {
 });
 
 describe("wiki runtime settings", () => {
+  it("keeps recent vault history ordered, deduplicated, and capped", async () => {
+    const runtime = await import("../src/server/wiki-runtime");
+    const roots = Array.from({ length: 10 }, (_, index) => `/tmp/vault-${index}`);
+
+    expect(runtime.buildRecentVaultHistory(roots[0], roots[1], [roots[0], ...roots.slice(2)])).toEqual(
+      roots.slice(0, 8),
+    );
+  });
+
   it("persists a saved vault path and reloads it from the local setup config", async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "wiki-os-runtime-"));
     const wikiRoot = path.join(tempDir, "vault");

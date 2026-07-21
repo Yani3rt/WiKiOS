@@ -10,6 +10,7 @@ const HOME = process.env.HOME ?? os.homedir();
 const STATE_DIR = path.join(HOME, ".wiki-os");
 const DEFAULT_SETUP_CONFIG_PATH =
   process.env.WIKIOS_SETUP_CONFIG ?? path.join(STATE_DIR, "config.json");
+const MAX_RECENT_VAULTS = 8;
 
 type WikiRootSource = "env" | "saved" | "none";
 
@@ -21,7 +22,14 @@ export interface WikiRuntimeConfigError {
 
 export interface StoredWikiRuntimeConfig {
   wikiRoot?: string | null;
+  recentVaults?: string[];
   personOverridesByVault?: Record<string, Record<string, PersonOverrideValue>>;
+}
+
+export interface RecentVaultStatus {
+  name: string;
+  path: string;
+  available: boolean;
 }
 
 export interface WikiRuntimeSettings {
@@ -32,6 +40,7 @@ export interface WikiRuntimeSettings {
   indexDbPath: string | null;
   setupConfigPath: string;
   sampleVaultPath: string | null;
+  recentVaultPaths: string[];
   personOverrides: Record<string, PersonOverrideValue>;
   configError: WikiRuntimeConfigError | null;
 }
@@ -42,6 +51,7 @@ export interface WikiSetupStatus {
   wikiRootSource: WikiRootSource;
   hasEnvOverride: boolean;
   sampleVaultPath: string | null;
+  recentVaults: RecentVaultStatus[];
   folderPickerAvailable: boolean;
   configError: WikiRuntimeConfigError | null;
 }
@@ -76,6 +86,43 @@ function normalizeInputPath(value: string | null | undefined) {
   }
 
   return path.resolve(trimmed);
+}
+
+function normalizeRecentVaultPaths(values: unknown[]) {
+  const normalizedPaths: string[] = [];
+  const seen = new Set<string>();
+
+  for (const value of values) {
+    if (typeof value !== "string" || value.length > 4096 || value.includes("\0")) {
+      continue;
+    }
+
+    const normalized = normalizeInputPath(value);
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+
+    normalizedPaths.push(normalized);
+    seen.add(normalized);
+
+    if (normalizedPaths.length === MAX_RECENT_VAULTS) {
+      break;
+    }
+  }
+
+  return normalizedPaths;
+}
+
+export function buildRecentVaultHistory(
+  activeWikiRoot: string,
+  previousWikiRoot: string | null,
+  storedRecentVaults: unknown,
+) {
+  return normalizeRecentVaultPaths([
+    activeWikiRoot,
+    previousWikiRoot,
+    ...(Array.isArray(storedRecentVaults) ? storedRecentVaults : []),
+  ]);
 }
 
 async function pathIsDirectory(filePath: string) {
@@ -207,6 +254,15 @@ export async function resolveWikiRuntimeSettings(): Promise<WikiRuntimeSettings>
     storedConfigState.configError === null
       ? normalizeInputPath(storedConfigState.config.wikiRoot ?? null)
       : null;
+  const recentVaultPaths =
+    storedConfigState.configError === null
+      ? normalizeRecentVaultPaths([
+          storedWikiRoot,
+          ...(Array.isArray(storedConfigState.config.recentVaults)
+            ? storedConfigState.config.recentVaults
+            : []),
+        ])
+      : [];
 
   const selectedWikiRoot = forcedEnvWikiRoot ?? storedWikiRoot ?? envWikiRoot ?? null;
   const wikiRootSource: WikiRootSource = forcedEnvWikiRoot
@@ -248,6 +304,7 @@ export async function resolveWikiRuntimeSettings(): Promise<WikiRuntimeSettings>
       : null,
     setupConfigPath,
     sampleVaultPath,
+    recentVaultPaths,
     personOverrides,
     configError,
   };
@@ -257,11 +314,11 @@ export async function validateWikiRootPath(inputPath: string) {
   const normalized = normalizeInputPath(inputPath);
 
   if (!normalized) {
-    throw new Error("Enter the path to your Obsidian vault.");
+    throw new Error("Enter a vault folder path to continue.");
   }
 
   if (!(await pathIsDirectory(normalized))) {
-    throw new Error("That path does not exist or is not a folder.");
+    throw new Error("We couldn’t find a folder at that path. Check the path and try again.");
   }
 
   return normalized;
@@ -339,6 +396,13 @@ export async function saveWikiPersonOverride(
 
 export async function getWikiSetupStatus(): Promise<WikiSetupStatus> {
   const runtime = await resolveWikiRuntimeSettings();
+  const recentVaults = await Promise.all(
+    runtime.recentVaultPaths.map(async (recentPath) => ({
+      name: path.basename(recentPath) || recentPath,
+      path: recentPath,
+      available: await pathIsDirectory(recentPath),
+    })),
+  );
 
   return {
     configured: runtime.wikiRoot !== null,
@@ -346,6 +410,7 @@ export async function getWikiSetupStatus(): Promise<WikiSetupStatus> {
     wikiRootSource: runtime.wikiRootSource,
     hasEnvOverride: runtime.hasForcedEnvOverride,
     sampleVaultPath: runtime.sampleVaultPath,
+    recentVaults,
     folderPickerAvailable: process.platform === "darwin",
     configError: runtime.configError,
   };

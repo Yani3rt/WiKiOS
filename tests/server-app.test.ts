@@ -211,6 +211,7 @@ describe("server app", () => {
       const homeAfter = await app.inject({ method: "GET", url: "/api/home" });
       const savedConfig = JSON.parse(await readFile(setupConfigPath, "utf8")) as {
         wikiRoot?: string;
+        recentVaults?: string[];
       };
 
       expect(setupStatus.statusCode).toBe(200);
@@ -256,6 +257,13 @@ describe("server app", () => {
         wikiRootSource: "saved",
         hasEnvOverride: false,
         folderPickerAvailable: process.platform === "darwin",
+        recentVaults: [
+          {
+            name: "vault",
+            path: root,
+            available: true,
+          },
+        ],
       });
 
       expect(homeAfter.statusCode).toBe(200);
@@ -263,7 +271,7 @@ describe("server app", () => {
         totalPages: 1,
       });
 
-      expect(savedConfig).toEqual({ wikiRoot: root });
+      expect(savedConfig).toEqual({ wikiRoot: root, recentVaults: [root] });
 
       await app.close();
     } finally {
@@ -371,6 +379,13 @@ describe("server app", () => {
         wikiRoot: missingRoot,
         wikiRootSource: "saved",
         hasEnvOverride: false,
+        recentVaults: [
+          {
+            name: "missing-vault",
+            path: missingRoot,
+            available: false,
+          },
+        ],
         configError: {
           code: "INVALID_WIKI_ROOT",
           path: missingRoot,
@@ -444,6 +459,7 @@ describe("server app", () => {
       const home = await app.inject({ method: "GET", url: "/api/home" });
       const savedConfig = JSON.parse(await readFile(setupConfigPath, "utf8")) as {
         wikiRoot?: string;
+        recentVaults?: string[];
       };
 
       expect(firstSetup.statusCode).toBe(200);
@@ -453,6 +469,18 @@ describe("server app", () => {
         configured: true,
         wikiRoot: secondRoot,
         wikiRootSource: "saved",
+        recentVaults: [
+          {
+            name: "personal-vault",
+            path: secondRoot,
+            available: true,
+          },
+          {
+            name: "demo-vault",
+            path: firstRoot,
+            available: true,
+          },
+        ],
       });
 
       expect(health.statusCode).toBe(200);
@@ -467,7 +495,10 @@ describe("server app", () => {
         totalPages: 2,
       });
 
-      expect(savedConfig).toEqual({ wikiRoot: secondRoot });
+      expect(savedConfig).toEqual({
+        wikiRoot: secondRoot,
+        recentVaults: [secondRoot, firstRoot],
+      });
 
       await app.close();
     } finally {

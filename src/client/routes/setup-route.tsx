@@ -1,10 +1,23 @@
+import { ArrowRight, Folder, FolderX, LoaderCircle } from "lucide-react";
 import { useState } from "react";
-import { Link, redirect, useLoaderData, useNavigate, type LoaderFunctionArgs } from "react-router-dom";
+import {
+  Link,
+  redirect,
+  useLoaderData,
+  useNavigate,
+  type LoaderFunctionArgs,
+} from "react-router-dom";
 
 import { useWikiConfig } from "@/client/wiki-config";
 
 import { fetchJson } from "../api";
 import { RouteErrorBoundary } from "../route-error-boundary";
+
+interface RecentVault {
+  name: string;
+  path: string;
+  available: boolean;
+}
 
 interface SetupStatus {
   configured: boolean;
@@ -12,6 +25,7 @@ interface SetupStatus {
   wikiRootSource: "env" | "saved" | "none";
   hasEnvOverride: boolean;
   sampleVaultPath: string | null;
+  recentVaults: RecentVault[];
   folderPickerAvailable: boolean;
   configError: {
     code: "INVALID_JSON" | "INVALID_CONFIG" | "INVALID_WIKI_ROOT";
@@ -23,6 +37,11 @@ interface SetupStatus {
 interface SetupLoaderData extends SetupStatus {
   mode: "setup" | "change";
 }
+
+type SetupError = {
+  message: string;
+  source: "path" | "picker" | "recent" | "sample";
+};
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const requestUrl = new URL(request.url);
@@ -39,6 +58,14 @@ export async function loader({ request }: LoaderFunctionArgs) {
   } satisfies SetupLoaderData;
 }
 
+function requestErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof TypeError) {
+    return "We couldn’t reach WikiOS. Check that the server is running, then try again.";
+  }
+
+  return error instanceof Error ? error.message : fallback;
+}
+
 export function Component() {
   const config = useWikiConfig();
   const setupStatus = useLoaderData() as SetupLoaderData;
@@ -46,36 +73,52 @@ export function Component() {
   const [wikiRoot, setWikiRoot] = useState(setupStatus.wikiRoot ?? "");
   const [isSaving, setIsSaving] = useState(false);
   const [isPickingFolder, setIsPickingFolder] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [pendingVaultPath, setPendingVaultPath] = useState<string | null>(null);
+  const [error, setError] = useState<SetupError | null>(null);
   const isChangeMode = setupStatus.mode === "change";
+  const recentVaults = setupStatus.recentVaults.filter(
+    (vault) => vault.path !== setupStatus.wikiRoot,
+  );
+  const isBusy = isSaving || isPickingFolder;
   const requiresCorruptReset =
     setupStatus.configError !== null && setupStatus.configError.code !== "INVALID_WIKI_ROOT";
   const issueTitle =
     setupStatus.configError?.code === "INVALID_WIKI_ROOT"
       ? setupStatus.hasEnvOverride
-        ? "This vault path is broken for this session."
-        : "Your saved vault can’t be found."
-      : "Local config needs attention.";
+        ? "This vault folder isn’t available for this session."
+        : "WikiOS can’t find your saved vault."
+      : "Your local settings need attention.";
   const primaryActionLabel = setupStatus.configError
     ? isSaving
-      ? "Fixing..."
+      ? "Opening vault…"
       : setupStatus.configError.code === "INVALID_WIKI_ROOT"
         ? "Reconnect vault"
-        : "Repair config and continue"
-    : isChangeMode
-      ? isSaving
-        ? "Switching..."
-        : "Switch vault"
-      : isSaving
-        ? "Saving..."
-        : "Next";
+        : "Repair settings and open vault"
+    : isSaving
+      ? "Opening vault…"
+      : isChangeMode
+        ? "Open vault"
+        : "Connect vault";
 
-  async function submitSetup(body: {
-    wikiRoot?: string;
-    useSampleVault?: boolean;
-    resetCorruptConfig?: boolean;
-  }) {
+  async function submitSetup(
+    body: {
+      wikiRoot?: string;
+      useSampleVault?: boolean;
+      resetCorruptConfig?: boolean;
+    },
+    source: SetupError["source"],
+  ) {
+    const requestedPath = body.wikiRoot?.trim();
+    if (body.wikiRoot !== undefined && !requestedPath) {
+      setError({
+        message: "Enter a vault folder path to continue.",
+        source: "path",
+      });
+      return;
+    }
+
     setIsSaving(true);
+    setPendingVaultPath(requestedPath ?? null);
     setError(null);
 
     try {
@@ -85,20 +128,27 @@ export function Component() {
           "content-type": "application/json",
           accept: "application/json",
         },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ ...body, wikiRoot: requestedPath }),
       });
 
       const payload = (await response.json().catch(() => null)) as { error?: string } | null;
 
       if (!response.ok) {
-        throw new Error(payload?.error ?? "Setup failed");
+        throw new Error(payload?.error ?? "WikiOS couldn’t open that vault. Try again.");
       }
 
       navigate("/", { replace: true });
     } catch (setupError) {
-      setError(setupError instanceof Error ? setupError.message : "Setup failed");
+      setError({
+        message: requestErrorMessage(
+          setupError,
+          "WikiOS couldn’t open that vault. Your previous vault is still active.",
+        ),
+        source,
+      });
     } finally {
       setIsSaving(false);
+      setPendingVaultPath(null);
     }
   }
 
@@ -123,145 +173,312 @@ export function Component() {
         | null;
 
       if (!response.ok) {
-        throw new Error(payload?.error ?? "Could not open Finder");
+        throw new Error(payload?.error ?? "Finder couldn’t open.");
       }
 
       if (!payload?.cancelled && payload?.wikiRoot) {
         setWikiRoot(payload.wikiRoot);
       }
     } catch (pickerError) {
-      setError(pickerError instanceof Error ? pickerError.message : "Could not open Finder");
+      setError({
+        message: requestErrorMessage(
+          pickerError,
+          "Finder couldn’t open. Enter the vault folder path instead.",
+        ),
+        source: "picker",
+      });
     } finally {
       setIsPickingFolder(false);
     }
   }
 
+  const formError = error?.source === "path" || error?.source === "picker" ? error : null;
+  const alternateActionError = error && !formError ? error : null;
+
   return (
-    <div className="relative min-h-screen overflow-hidden">
+    <div className="relative min-h-screen overflow-x-clip">
       <div
         aria-hidden
         className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(133,185,201,0.18),_transparent_38%),radial-gradient(circle_at_bottom_right,_rgba(244,177,131,0.16),_transparent_30%)]"
       />
 
       <header className="relative flex items-center justify-between gap-2 px-4 pb-3 pt-[calc(env(safe-area-inset-top)+1.5rem)] sm:gap-3 sm:px-6 sm:pb-4 sm:pt-[calc(env(safe-area-inset-top)+1.25rem)]">
-        <Link
-          to="/"
-          className="font-display text-lg text-[var(--foreground)] sm:text-xl"
-        >
+        <Link to="/" className="font-display text-lg text-[var(--foreground)] sm:text-xl">
           {config.siteTitle}
         </Link>
-        <div className="flex items-center gap-1.5 sm:gap-2.5">
+        <nav aria-label="Main navigation" className="flex items-center gap-1.5 sm:gap-2.5">
           <Link
             to="/graph"
-            className="surface rounded-full px-3.5 py-2 text-sm font-medium text-[var(--foreground)] transition-[transform] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.96] sm:px-4"
+            className="surface inline-flex min-h-11 items-center rounded-full px-3.5 py-2 text-sm font-medium text-[var(--foreground)] transition-[transform] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.96] sm:px-4"
           >
             {config.navigation.graphLabel}
           </Link>
           <Link
             to="/stats"
-            className="surface rounded-full px-3.5 py-2 text-sm font-medium text-[var(--foreground)] transition-[transform] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.96] sm:px-4"
+            className="surface inline-flex min-h-11 items-center rounded-full px-3.5 py-2 text-sm font-medium text-[var(--foreground)] transition-[transform] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.96] sm:px-4"
           >
             {config.navigation.statsLabel}
           </Link>
-        </div>
+        </nav>
       </header>
 
-      <main className="relative flex flex-1 items-center justify-center px-4 py-20 sm:px-6">
-      <div className="w-full max-w-md space-y-6">
-        {(setupStatus.configured || setupStatus.wikiRoot) && (
-          <div>
-            <p className="text-xs font-medium uppercase tracking-widest text-[var(--muted-foreground)]">
-              {setupStatus.configured ? "Current vault" : "Last vault path"}
-            </p>
-            <p className="mt-1 break-all text-sm leading-relaxed text-[var(--foreground)]">
-              {setupStatus.wikiRoot}
-            </p>
-          </div>
-        )}
-
-        {setupStatus.hasEnvOverride && (
-          <div className="rounded-2xl bg-[var(--teal-soft)] px-4 py-3 text-sm text-[var(--foreground)]">
-            Session locked by <code>WIKIOS_FORCE_WIKI_ROOT</code>. Restart without it to choose a
-            different vault here.
-          </div>
-        )}
-
-        {setupStatus.configError && (
-          <div className="rounded-2xl bg-[var(--peach-soft)] px-4 py-3 text-sm text-[var(--foreground)]">
-            <p className="font-medium">{issueTitle}</p>
-            <p className="mt-1 leading-relaxed">{setupStatus.configError.message}</p>
-            <p className="mt-2 break-all text-xs text-[var(--muted-foreground)]">
-              {setupStatus.configError.path}
+      <main className="relative flex flex-1 justify-center px-4 py-12 sm:px-6 sm:py-20">
+        <div className="w-full max-w-lg space-y-7">
+          <div className="space-y-2">
+            <h1 className="font-display text-4xl leading-tight tracking-[-0.03em] text-[var(--foreground)] sm:text-5xl">
+              {isChangeMode ? "Choose your vault" : "Connect your vault"}
+            </h1>
+            <p className="max-w-[62ch] text-pretty text-sm leading-relaxed text-[var(--muted-foreground)] sm:text-base">
+              {isChangeMode
+                ? "Open a recent vault or choose another folder. WikiOS remembers up to eight vaults on this device."
+                : "Choose the folder that contains your Obsidian notes. WikiOS stores its path only on this device."}
             </p>
           </div>
-        )}
 
-        <div className="space-y-3">
-          <label className="block">
-            <span className="mb-1.5 block text-sm font-medium text-[var(--foreground)]">
-              {isChangeMode ? "Choose a new path" : "Vault path"}
-            </span>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={wikiRoot}
-                onChange={(event) => setWikiRoot(event.target.value)}
-                placeholder="/Users/you/Documents/My Vault"
-                className="surface min-w-0 flex-1 rounded-xl px-4 py-2.5 text-[0.9rem] text-[var(--foreground)] outline-none placeholder:text-[var(--muted-foreground)]"
-                spellCheck={false}
-                autoCapitalize="off"
-                autoCorrect="off"
-              />
-              {setupStatus.folderPickerAvailable && (
-                <button
-                  type="button"
-                  onClick={() => void pickFolder()}
-                  disabled={isPickingFolder || isSaving || setupStatus.hasEnvOverride}
-                  className="surface shrink-0 rounded-xl px-3 py-2.5 text-sm font-medium text-[var(--foreground)] transition-[transform,opacity] duration-150 hover:opacity-80 active:scale-[0.97] disabled:cursor-wait disabled:opacity-60"
-                >
-                  {isPickingFolder ? "Opening..." : "Browse"}
-                </button>
-              )}
+          {(setupStatus.configured || setupStatus.wikiRoot) && (
+            <section aria-labelledby="current-vault-heading" className="min-w-0">
+              <h2
+                id="current-vault-heading"
+                className="text-sm font-semibold text-[var(--foreground)]"
+              >
+                {setupStatus.configured ? "Current vault" : "Last vault folder"}
+              </h2>
+              <p
+                className="mt-1 break-words font-mono text-xs leading-relaxed text-[var(--muted-foreground)]"
+                dir="auto"
+              >
+                {setupStatus.wikiRoot}
+              </p>
+            </section>
+          )}
+
+          {setupStatus.hasEnvOverride && (
+            <div
+              role="status"
+              className="rounded-xl bg-[var(--teal-soft)] px-4 py-3 text-sm leading-relaxed text-[var(--foreground)]"
+            >
+              <p className="font-semibold">Vault changes are locked for this session.</p>
+              <p className="mt-1">
+                WikiOS started with <code>WIKIOS_FORCE_WIKI_ROOT</code>. Restart it without that
+                setting to choose another vault.
+              </p>
             </div>
-          </label>
+          )}
 
-          <button
-            type="button"
-            onClick={() =>
-              void submitSetup({
-                wikiRoot,
-                resetCorruptConfig: requiresCorruptReset,
-              })
-            }
-            disabled={isSaving || isPickingFolder || setupStatus.hasEnvOverride}
-            className="w-full rounded-xl bg-[var(--foreground)] px-5 py-2.5 text-sm font-semibold text-[var(--background)] transition-[transform,opacity] duration-150 hover:opacity-90 active:scale-[0.98] disabled:cursor-wait disabled:opacity-60"
-          >
-            {primaryActionLabel}
-          </button>
+          {setupStatus.configError && (
+            <div
+              role="alert"
+              className="rounded-xl bg-[var(--peach-soft)] px-4 py-3 text-sm text-[var(--foreground)]"
+            >
+              <p className="font-semibold">{issueTitle}</p>
+              <p className="mt-1 leading-relaxed">{setupStatus.configError.message}</p>
+              <p
+                className="mt-2 break-words font-mono text-xs leading-relaxed text-[var(--muted-foreground)]"
+                dir="auto"
+              >
+                {setupStatus.configError.path}
+              </p>
+            </div>
+          )}
 
-          {error && (
-            <p className="rounded-xl bg-[var(--peach-soft)] px-4 py-3 text-sm text-[var(--foreground)]">
-              {error}
+          {isChangeMode && (
+            <section aria-labelledby="recent-vaults-heading">
+              <div>
+                <h2
+                  id="recent-vaults-heading"
+                  className="text-lg font-semibold text-[var(--foreground)]"
+                >
+                  Recent vaults
+                </h2>
+                <p className="mt-1 text-sm leading-relaxed text-[var(--muted-foreground)]">
+                  Vaults you open successfully appear here for next time.
+                </p>
+              </div>
+
+              {recentVaults.length > 0 ? (
+                <ul className="mt-3 divide-y divide-[var(--border)] border-y border-[var(--border)]">
+                  {recentVaults.map((vault) => {
+                    const isPending = isSaving && pendingVaultPath === vault.path;
+
+                    return (
+                      <li key={vault.path} className="min-w-0">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void submitSetup(
+                              {
+                                wikiRoot: vault.path,
+                                resetCorruptConfig: requiresCorruptReset,
+                              },
+                              "recent",
+                            )
+                          }
+                          disabled={isBusy || setupStatus.hasEnvOverride || !vault.available}
+                          aria-label={
+                            vault.available
+                              ? `Open recent vault ${vault.name}`
+                              : `${vault.name} is unavailable because its folder could not be found`
+                          }
+                          className="group flex w-full min-w-0 items-center gap-3 py-3 text-start transition-colors duration-150 hover:text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-55"
+                        >
+                          <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-[var(--lavender-soft)] text-[var(--foreground)]">
+                            {vault.available ? (
+                              <Folder aria-hidden className="size-4" />
+                            ) : (
+                              <FolderX aria-hidden className="size-4" />
+                            )}
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block break-words text-sm font-semibold text-[var(--foreground)]">
+                              {vault.name}
+                            </span>
+                            <span
+                              className="mt-0.5 block truncate font-mono text-xs text-[var(--muted-foreground)]"
+                              dir="auto"
+                              title={vault.path}
+                            >
+                              {vault.path}
+                            </span>
+                          </span>
+                          <span
+                            aria-live="polite"
+                            className="flex shrink-0 items-center gap-1.5 text-xs font-medium text-[var(--muted-foreground)]"
+                          >
+                            {isPending ? (
+                              <>
+                                <LoaderCircle
+                                  aria-hidden
+                                  className="size-4 animate-spin motion-reduce:animate-none"
+                                />
+                                Opening…
+                              </>
+                            ) : vault.available ? (
+                              <ArrowRight
+                                aria-hidden
+                                className="size-4 transition-transform duration-150 group-hover:translate-x-0.5 motion-reduce:transition-none rtl:rotate-180 rtl:group-hover:-translate-x-0.5"
+                              />
+                            ) : (
+                              "Folder not found"
+                            )}
+                          </span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : (
+                <p className="mt-3 rounded-xl bg-[var(--muted)] px-4 py-3 text-sm leading-relaxed text-[var(--muted-foreground)]">
+                  No other vaults yet. Open another folder and it will appear here next time.
+                </p>
+              )}
+            </section>
+          )}
+
+          {alternateActionError && (
+            <p
+              role="alert"
+              className="rounded-xl bg-[var(--peach-soft)] px-4 py-3 text-sm leading-relaxed text-[var(--foreground)]"
+            >
+              {alternateActionError.message}
             </p>
           )}
-        </div>
 
-        {setupStatus.sampleVaultPath && (
-          <button
-            type="button"
-            onClick={() =>
-              void submitSetup({
-                useSampleVault: true,
-                resetCorruptConfig: requiresCorruptReset,
-              })
-            }
-            disabled={isSaving || isPickingFolder || setupStatus.hasEnvOverride}
-            className="w-full text-center text-sm text-[var(--muted-foreground)] transition-colors duration-150 hover:text-[var(--foreground)] disabled:cursor-wait disabled:opacity-60"
+          <form
+            className="space-y-3"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void submitSetup(
+                {
+                  wikiRoot,
+                  resetCorruptConfig: requiresCorruptReset,
+                },
+                "path",
+              );
+            }}
           >
-            Or use the demo vault
-          </button>
-        )}
-      </div>
+            <div>
+              <label
+                htmlFor="vault-folder-path"
+                className="block text-lg font-semibold text-[var(--foreground)]"
+              >
+                {isChangeMode ? "Open another vault" : "Vault folder path"}
+              </label>
+              <p
+                id="vault-folder-hint"
+                className="mt-1 text-sm leading-relaxed text-[var(--muted-foreground)]"
+              >
+                Enter a folder path this WikiOS server can access.
+              </p>
+              <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                <input
+                  id="vault-folder-path"
+                  name="wikiRoot"
+                  type="text"
+                  value={wikiRoot}
+                  onChange={(event) => {
+                    setWikiRoot(event.target.value);
+                    if (error?.source === "path") setError(null);
+                  }}
+                  placeholder="/Users/you/Documents/My Vault"
+                  aria-describedby={`vault-folder-hint${formError ? " vault-folder-error" : ""}`}
+                  aria-invalid={error?.source === "path" || undefined}
+                  disabled={isBusy || setupStatus.hasEnvOverride}
+                  autoComplete="off"
+                  spellCheck={false}
+                  autoCapitalize="off"
+                  autoCorrect="off"
+                  className="surface min-h-11 min-w-0 flex-1 rounded-xl px-4 py-2.5 text-[0.9rem] text-[var(--foreground)] outline-none placeholder:text-[var(--muted-foreground)] disabled:cursor-not-allowed disabled:opacity-60"
+                />
+                {setupStatus.folderPickerAvailable && (
+                  <button
+                    type="button"
+                    onClick={() => void pickFolder()}
+                    disabled={isBusy || setupStatus.hasEnvOverride}
+                    className="surface min-h-11 shrink-0 rounded-xl px-4 py-2.5 text-sm font-medium text-[var(--foreground)] transition-[transform,opacity] duration-150 hover:opacity-80 active:scale-[0.97] disabled:cursor-wait disabled:opacity-60"
+                  >
+                    {isPickingFolder ? "Opening Finder…" : "Choose folder"}
+                  </button>
+                )}
+              </div>
+              {formError && (
+                <p
+                  id="vault-folder-error"
+                  role="alert"
+                  className="mt-2 rounded-xl bg-[var(--peach-soft)] px-4 py-3 text-sm leading-relaxed text-[var(--foreground)]"
+                >
+                  {formError.message}
+                </p>
+              )}
+            </div>
+
+            <button
+              type="submit"
+              disabled={isBusy || setupStatus.hasEnvOverride}
+              className="min-h-11 w-full rounded-xl bg-[var(--foreground)] px-5 py-2.5 text-sm font-semibold text-[var(--background)] transition-[transform,opacity] duration-150 hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {primaryActionLabel}
+            </button>
+          </form>
+
+          {setupStatus.sampleVaultPath && (
+            <button
+              type="button"
+              onClick={() =>
+                void submitSetup(
+                  {
+                    useSampleVault: true,
+                    resetCorruptConfig: requiresCorruptReset,
+                  },
+                  "sample",
+                )
+              }
+              disabled={isBusy || setupStatus.hasEnvOverride}
+              className="min-h-11 w-full text-center text-sm text-[var(--muted-foreground)] transition-colors duration-150 hover:text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Explore with the demo vault
+            </button>
+          )}
+        </div>
       </main>
     </div>
   );

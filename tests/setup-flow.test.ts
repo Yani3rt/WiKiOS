@@ -44,6 +44,8 @@ describe("setup flow routes", () => {
       wikiRootSource: "none",
       hasEnvOverride: false,
       sampleVaultPath: null,
+      recentVaults: [],
+      folderPickerAvailable: false,
       configError: null,
     });
 
@@ -64,6 +66,8 @@ describe("setup flow routes", () => {
       wikiRootSource: "saved",
       hasEnvOverride: false,
       sampleVaultPath: null,
+      recentVaults: [],
+      folderPickerAvailable: false,
       configError: null,
     });
 
@@ -82,6 +86,14 @@ describe("setup flow routes", () => {
       wikiRootSource: "saved",
       hasEnvOverride: false,
       sampleVaultPath: "/tmp/sample-vault",
+      recentVaults: [
+        {
+          name: "Vault",
+          path: "/Users/example/Vault",
+          available: true,
+        },
+      ],
+      folderPickerAvailable: false,
       configError: null,
     });
 

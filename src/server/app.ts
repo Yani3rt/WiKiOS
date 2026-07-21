@@ -8,6 +8,7 @@ import { getBuiltClientRoot, getVersionInfoPath } from "./app-paths";
 import { configureServerWikiCore } from "./wiki-core-adapter";
 import { getWikiOsConfig } from "./wiki-config";
 import {
+  buildRecentVaultHistory,
   getWikiSetupStatus,
   loadWikiRuntimeConfig,
   saveWikiPersonOverride,
@@ -249,7 +250,7 @@ export async function buildServer({
           : request.body?.wikiRoot;
 
         if (!requestedPath) {
-          return reply.code(400).send({ error: "Enter the path to your Obsidian vault." });
+          return reply.code(400).send({ error: "Enter a vault folder path to continue." });
         }
 
         const wikiRoot = await validateWikiRootPath(requestedPath);
@@ -265,6 +266,11 @@ export async function buildServer({
           await saveWikiRuntimeConfig({
             ...existingConfig,
             wikiRoot,
+            recentVaults: buildRecentVaultHistory(
+              wikiRoot,
+              setupStatus.wikiRoot,
+              "recentVaults" in existingConfig ? existingConfig.recentVaults : undefined,
+            ),
           }, {
             overwriteCorrupt: shouldResetCorruptConfig,
           });
