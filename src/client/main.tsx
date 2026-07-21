@@ -3,6 +3,8 @@ import { createRoot } from "react-dom/client";
 import { RouterProvider } from "react-router-dom";
 
 import { fetchJson } from "@/client/api";
+import { initializeBrowserColorTheme } from "@/client/color-theme";
+import { ColorThemeProvider } from "@/client/color-theme-provider";
 import { WikiConfigProvider, applyThemeVariables } from "@/client/wiki-config";
 import { DEFAULT_WIKI_OS_CONFIG, type WikiOsConfig } from "@/lib/wiki-config";
 
@@ -16,6 +18,7 @@ if (!(container instanceof HTMLElement)) {
 }
 
 const rootContainer: HTMLElement = container;
+const initialColorTheme = initializeBrowserColorTheme();
 
 async function bootstrap() {
   const config = await fetchJson<WikiOsConfig>("/api/config").catch(() => DEFAULT_WIKI_OS_CONFIG);
@@ -26,7 +29,9 @@ async function bootstrap() {
   createRoot(rootContainer).render(
     <StrictMode>
       <WikiConfigProvider config={config}>
-        <RouterProvider router={router} />
+        <ColorThemeProvider initialTheme={initialColorTheme}>
+          <RouterProvider router={router} />
+        </ColorThemeProvider>
       </WikiConfigProvider>
     </StrictMode>,
   );
