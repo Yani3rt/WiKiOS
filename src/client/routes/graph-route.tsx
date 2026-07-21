@@ -153,7 +153,11 @@ export function applyGraphThemeColors(
   colors: GraphThemeColors,
 ) {
   graph.forEachNode((node, attributes) => {
-    const categories = Array.isArray(attributes.categories) ? attributes.categories : [];
+    const categories = Array.isArray(attributes.categories)
+      ? attributes.categories.filter(
+          (category: unknown): category is string => typeof category === "string",
+        )
+      : [];
     const color = getCategoryColor(categories, aliases, colors.nodeDefault);
     graph.mergeNodeAttributes(node, { color, originalColor: color });
   });
@@ -182,6 +186,28 @@ function createGraphLabelDrawer(colors: GraphThemeColors): NodeLabelDrawingFunct
     context.fillText(data.label, x, y);
     context.restore();
   };
+}
+
+interface GraphThemeRenderer {
+  setSettings(settings: Parameters<SigmaLib["setSettings"]>[0]): unknown;
+  refresh(): unknown;
+}
+
+/** Recolors the current graph and renderer without replacing graph lifecycle state. */
+export function updateGraphThemeInPlace(
+  graph: Graph,
+  sigma: GraphThemeRenderer,
+  aliases: Record<string, TopicAliasConfig>,
+  colors: GraphThemeColors,
+) {
+  applyGraphThemeColors(graph, aliases, colors);
+  sigma.setSettings({
+    defaultDrawNodeLabel: createGraphLabelDrawer(colors),
+    labelColor: { color: colors.label },
+    defaultEdgeColor: colors.edgeDefault,
+    defaultNodeColor: colors.nodeDefault,
+  });
+  sigma.refresh();
 }
 
 /* ── Graph building ── */
@@ -1475,14 +1501,7 @@ export function Component() {
 
     const colors = getGraphThemeColors(container);
     graphThemeRef.current = colors;
-    applyGraphThemeColors(graph, config.categories.aliases, colors);
-    sigma.setSettings({
-      defaultDrawNodeLabel: createGraphLabelDrawer(colors),
-      labelColor: { color: colors.label },
-      defaultEdgeColor: colors.edgeDefault,
-      defaultNodeColor: colors.nodeDefault,
-    });
-    sigma.refresh();
+    updateGraphThemeInPlace(graph, sigma, config.categories.aliases, colors);
   }, [colorTheme, config.categories.aliases]);
 
   // Tooltip tracking

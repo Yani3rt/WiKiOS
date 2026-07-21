@@ -118,16 +118,86 @@ describe("ThemeSelector", () => {
     ]);
   });
 
-  it("selects an unselected radio without requesting popover closure", () => {
-    const onSelect = vi.fn();
-    const close = vi.fn();
-    const radios = themeOptionRadios("teal", onSelect);
-    const violetRadio = radios.find((radio) => radio.props.value === "violet");
-    if (!violetRadio) throw new Error("Violet radio is missing");
+  it("keeps the open selector mounted after choosing another theme", async () => {
+    let open = false;
+    let selectedTheme: "teal" | "blue" | "violet" = "teal";
+    const setOpen = vi.fn((next: boolean | ((current: boolean) => boolean)) => {
+      open = typeof next === "function" ? next(open) : next;
+    });
+    const selectColorTheme = vi.fn((theme: "teal" | "blue" | "violet") => {
+      selectedTheme = theme;
+    });
 
-    (violetRadio.props.onChange as () => void)();
+    vi.resetModules();
+    vi.doMock("react", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("react")>();
+      return {
+        ...actual,
+        useEffect: () => undefined,
+        useId: () => "theme-popover",
+        useRef: <T,>(initialValue: T) => ({ current: initialValue }),
+        useState: () => [open, setOpen],
+      };
+    });
+    vi.doMock("@/client/color-theme-provider", () => ({
+      useColorTheme: () => ({ colorTheme: selectedTheme, selectColorTheme }),
+    }));
 
-    expect(onSelect).toHaveBeenCalledExactlyOnceWith("violet");
-    expect(close).not.toHaveBeenCalled();
+    try {
+      const {
+        ThemeOptions: StatefulThemeOptions,
+        ThemeSelector: StatefulThemeSelector,
+      } = await import("../src/components/theme-selector");
+
+      const closedSelector = StatefulThemeSelector();
+      const closedTrigger = childElements(closedSelector).find(
+        (child) => child.type === "button",
+      );
+      if (!closedTrigger) throw new Error("Theme trigger is missing");
+      (closedTrigger.props.onClick as () => void)();
+
+      const openSelector = StatefulThemeSelector();
+      const openChildren = childElements(openSelector);
+      const openTrigger = openChildren.find((child) => child.type === "button");
+      const popover = openChildren.find((child) => child.props.role === "dialog");
+      if (!openTrigger || !popover) throw new Error("Open theme selector is incomplete");
+      expect(openTrigger.props["aria-expanded"]).toBe(true);
+
+      const optionsElement = childElements(popover).find(
+        (child) => child.type === StatefulThemeOptions,
+      );
+      if (!optionsElement) throw new Error("Theme options are missing");
+      const options = StatefulThemeOptions(
+        optionsElement.props as Parameters<typeof StatefulThemeOptions>[0],
+      );
+      const violetRadio = childElements(options)
+        .flatMap(childElements)
+        .find((child) => child.type === "input" && child.props.value === "violet");
+      if (!violetRadio) throw new Error("Violet radio is missing");
+      (violetRadio.props.onChange as () => void)();
+
+      const selectorAfterSelection = StatefulThemeSelector();
+      const childrenAfterSelection = childElements(selectorAfterSelection);
+      const triggerAfterSelection = childrenAfterSelection.find(
+        (child) => child.type === "button",
+      );
+      const popoverAfterSelection = childrenAfterSelection.find(
+        (child) => child.props.role === "dialog",
+      );
+      const optionsAfterSelection = popoverAfterSelection
+        ? childElements(popoverAfterSelection).find(
+            (child) => child.type === StatefulThemeOptions,
+          )
+        : undefined;
+
+      expect(selectColorTheme).toHaveBeenCalledExactlyOnceWith("violet");
+      expect(triggerAfterSelection?.props["aria-expanded"]).toBe(true);
+      expect(popoverAfterSelection).toBeDefined();
+      expect(optionsAfterSelection?.props.selectedTheme).toBe("violet");
+    } finally {
+      vi.doUnmock("react");
+      vi.doUnmock("@/client/color-theme-provider");
+      vi.resetModules();
+    }
   });
 });

@@ -4,7 +4,10 @@ import Graph from "graphology";
 vi.mock("sigma", () => ({ default: class Sigma {} }));
 
 import type { GraphNode } from "../src/lib/wiki-shared";
-import { applyGraphThemeColors } from "../src/client/routes/graph-route";
+import {
+  applyGraphThemeColors,
+  updateGraphThemeInPlace,
+} from "../src/client/routes/graph-route";
 import {
   GRAPH_INDEX_LIMIT,
   GRAPH_MOVEMENT_RENDERING_SETTINGS,
@@ -70,12 +73,115 @@ describe("graph overview model", () => {
       label: "#15202d",
     };
 
-    applyGraphThemeColors(graph, {}, colors);
+    applyGraphThemeColors(graph, { design: { color: "#85b9c9" } }, colors);
 
     expect(graph.getNodeAttribute("neutral", "color")).toBe("#234566");
     expect(graph.getNodeAttribute("neutral", "originalColor")).toBe("#234566");
-    expect(graph.getNodeAttribute("topic", "color")).not.toBe("#234566");
+    expect(graph.getNodeAttribute("topic", "color")).toBe("#5d8091");
+    expect(graph.getNodeAttribute("topic", "originalColor")).toBe("#5d8091");
     expect(graph.getEdgeAttribute(graph.edges()[0], "color")).toBe("#667d94");
+  });
+
+  it("ignores non-string runtime categories before resolving aliases", () => {
+    const graph = new Graph();
+    graph.addNode("mixed", {
+      categories: [
+        null,
+        {
+          trim: () => {
+            throw new Error("invalid category reached lookup");
+          },
+        },
+        "Design",
+        42,
+      ],
+      color: "#000000",
+      originalColor: "#000000",
+    });
+    const colors = {
+      background: "#eef4fb",
+      foreground: "#15202d",
+      muted: "#4d5969",
+      nodeDefault: "#234566",
+      nodeMuted: "#8494a8",
+      edgeDefault: "#667d94",
+      edgeMuted: "#93a0ae",
+      edgeOutgoing: "#00628d",
+      edgeIncoming: "#875800",
+      label: "#15202d",
+    };
+
+    expect(() =>
+      applyGraphThemeColors(graph, { design: { color: "#85b9c9" } }, colors),
+    ).not.toThrow();
+    expect(graph.getNodeAttribute("mixed", "color")).toBe("#5d8091");
+  });
+
+  it("reapplies provider theme colors in place without touching layout or camera state", () => {
+    const graph = new Graph();
+    graph.addNode("note", {
+      categories: [],
+      color: "#000000",
+      originalColor: "#000000",
+      x: 0.25,
+      y: 0.75,
+    });
+    const camera = { marker: "same-camera" };
+    const sigma = {
+      setSettings: vi.fn(),
+      refresh: vi.fn(),
+      getCamera: vi.fn(() => camera),
+      kill: vi.fn(),
+    };
+    const initialColors = {
+      background: "#eef4fb",
+      foreground: "#15202d",
+      muted: "#4d5969",
+      nodeDefault: "#234566",
+      nodeMuted: "#8494a8",
+      edgeDefault: "#667d94",
+      edgeMuted: "#93a0ae",
+      edgeOutgoing: "#00628d",
+      edgeIncoming: "#875800",
+      label: "#15202d",
+    };
+    const colors = {
+      background: "#f4f2fb",
+      foreground: "#251f34",
+      muted: "#635b73",
+      nodeDefault: "#433567",
+      nodeMuted: "#928aa1",
+      edgeDefault: "#796d91",
+      edgeMuted: "#aaa3b5",
+      edgeOutgoing: "#5a4789",
+      edgeIncoming: "#875800",
+      label: "#251f34",
+    };
+
+    updateGraphThemeInPlace(graph, sigma, {}, initialColors);
+    sigma.setSettings.mockClear();
+    sigma.refresh.mockClear();
+
+    updateGraphThemeInPlace(graph, sigma, {}, colors);
+
+    expect(graph.getNodeAttributes("note")).toMatchObject({
+      color: "#433567",
+      originalColor: "#433567",
+      x: 0.25,
+      y: 0.75,
+    });
+    expect(sigma.setSettings).toHaveBeenCalledOnce();
+    expect(sigma.setSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        labelColor: { color: "#251f34" },
+        defaultEdgeColor: "#796d91",
+        defaultNodeColor: "#433567",
+      }),
+    );
+    expect(sigma.refresh).toHaveBeenCalledOnce();
+    expect(sigma.getCamera).not.toHaveBeenCalled();
+    expect(sigma.kill).not.toHaveBeenCalled();
+    expect(camera).toEqual({ marker: "same-camera" });
   });
 
   it("keeps sparse notes large enough to identify and connected notes more prominent", () => {
