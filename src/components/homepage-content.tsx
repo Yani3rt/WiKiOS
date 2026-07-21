@@ -210,7 +210,7 @@ export function HomepageContent({ homepage }: { homepage: HomepageData }) {
   };
 
   return (
-    <div className="w-full pb-[calc(env(safe-area-inset-bottom)+3rem)] pt-4 sm:pt-6">
+    <div className="w-full pb-[calc(env(safe-area-inset-bottom)+9rem)] pt-12 sm:pt-18">
       <div className="grid grid-cols-1 gap-x-12 gap-y-10 lg:grid-cols-2">
         {columns.map((column, index) => (
           <div key={index} className="space-y-10">

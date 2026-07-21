@@ -82,6 +82,9 @@ describe("Home progressive disclosure", () => {
     expect(markup).toContain("text-lg font-semibold");
     expect(markup).toContain("border-t-2 border-[var(--home-accent)]");
     expect(markup).toContain("home-note-link group");
+    expect(markup).toContain(
+      "pb-[calc(env(safe-area-inset-bottom)+9rem)] pt-12 sm:pt-18",
+    );
     expect(markup).not.toContain(">Note 5<");
     expect(markup).not.toContain("font-display");
   });
@@ -127,6 +130,7 @@ describe("Home status and discovery helpers", () => {
     expect(markup).toContain("⌘K");
     expect(markup).toContain("Local-first");
     expect(markup).toContain("Your notes stay on your device.");
+    expect(markup).toContain("px-4 py-12 sm:px-6 sm:py-16");
     expect(markup).not.toContain("Your notes stay on this machine.");
   });
 

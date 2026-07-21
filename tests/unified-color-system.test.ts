@@ -64,7 +64,11 @@ describe("unified teal color system", () => {
     expect(searchPlacement).toBeGreaterThan(headerStart);
     expect(searchPlacement).toBeLessThan(headerEnd);
     expect(graphSource).toContain("pb-[4.5rem]");
-    expect(graphSource).toContain("sm:pb-4");
+    expect(graphSource).toContain("sm:h-16");
+    expect(graphSource).toContain("sm:py-0");
+    expect(graphSource).toContain("md:px-5");
+    expect(graphSource).not.toContain("sm:pb-4");
+    expect(graphSource).not.toContain("sm:pt-[calc(env(safe-area-inset-top)+1.25rem)]");
     expect(graphSource).toContain("sm:left-6 sm:right-auto sm:w-80");
     expect(graphSource).toMatch(/app-route-header-control hidden[^"]*sm:inline-flex/);
     expect(graphSource).toMatch(/app-route-header-brand hidden[^"]*sm:flex/);

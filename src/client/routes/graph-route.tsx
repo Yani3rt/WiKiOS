@@ -1502,7 +1502,7 @@ export function Component() {
           : "Graph overview active."}
       </div>
       {/* Header */}
-      <header className="app-route-header absolute left-0 right-0 top-0 z-10 flex items-center justify-between gap-2 px-4 pb-[4.5rem] pt-[calc(env(safe-area-inset-top)+1.5rem)] sm:gap-3 sm:px-6 sm:pb-4 sm:pt-[calc(env(safe-area-inset-top)+1.25rem)]">
+      <header className="app-route-header absolute left-0 right-0 top-0 z-10 flex items-center justify-between gap-2 px-4 pb-[4.5rem] pt-[calc(env(safe-area-inset-top)+1.5rem)] sm:h-16 sm:px-4 sm:py-0 md:px-5">
         <Link
           to="/"
           aria-label="Back to wiki home"
