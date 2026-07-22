@@ -101,6 +101,9 @@ describe("unified color system", () => {
     expect(graphSource).toContain("sm:left-6 sm:right-auto sm:w-80");
     expect(graphSource).toMatch(/app-route-header-control hidden[^"]*sm:inline-flex/);
     expect(graphSource).toMatch(/app-route-header-brand hidden[^"]*sm:flex/);
+    expect(graphSource).toContain(
+      "relative z-20 ml-auto flex items-center gap-1.5 sm:gap-2.5",
+    );
     expect(graphSource).toContain("order-last");
     expect(styles).toContain(".graph-search {");
     expect(styles).toContain("top: calc(env(safe-area-inset-top) + 1.625rem);");
@@ -132,11 +135,10 @@ describe("unified color system", () => {
     }
   });
 
-  it("places the shared theme selector in every page header", () => {
+  it("places the shared theme selector in every page header except the graph canvas", () => {
     const files = [
       "../src/components/search-box.tsx",
       "../src/client/routes/explorer-route.tsx",
-      "../src/client/routes/graph-route.tsx",
       "../src/client/routes/stats-route.tsx",
       "../src/client/routes/wiki-route.tsx",
       "../src/client/routes/setup-route.tsx",
@@ -154,6 +156,10 @@ describe("unified color system", () => {
       expect(selectorIndex, file).toBeGreaterThan(headerStart);
       expect(selectorIndex, file).toBeLessThan(headerEnd);
     }
+
+    const graphSource = source("../src/client/routes/graph-route.tsx");
+    expect(graphSource).not.toContain("<ThemeSelector />");
+    expect(graphSource).not.toContain('from "@/components/theme-selector"');
   });
 
   it("keeps compact Graph and Setup header controls from overlapping", () => {
@@ -161,10 +167,10 @@ describe("unified color system", () => {
     const setupSource = source("../src/client/routes/setup-route.tsx");
 
     expect(graphSource).toContain(
-      'className="graph-search absolute left-4 right-[4.5rem] z-10 sm:left-6 sm:right-auto sm:w-80"',
+      'className="graph-search absolute left-4 right-4 z-10 sm:left-6 sm:right-auto sm:w-80"',
     );
     expect(graphSource).toContain(
-      '<div className="relative z-20 flex items-center gap-1.5 sm:gap-2.5">',
+      '<div className="relative z-20 ml-auto flex items-center gap-1.5 sm:gap-2.5">',
     );
     expect(setupSource).toContain("Network");
     expect(setupSource).toContain("ChartNoAxesCombined");
