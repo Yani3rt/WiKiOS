@@ -118,12 +118,20 @@ describe("ThemeSelector", () => {
     ]);
   });
 
-  it("keeps the open selector mounted after choosing another theme", async () => {
-    let open = false;
+  it("animates the selector closed after choosing a theme", async () => {
+    let state: "closed" | "open" | "closing" = "closed";
     let selectedTheme: "teal" | "blue" | "violet" = "teal";
-    const setOpen = vi.fn((next: boolean | ((current: boolean) => boolean)) => {
-      open = typeof next === "function" ? next(open) : next;
-    });
+    const setState = vi.fn(
+      (
+        next:
+          | "closed"
+          | "open"
+          | "closing"
+          | ((current: "closed" | "open" | "closing") => "closed" | "open" | "closing"),
+      ) => {
+        state = typeof next === "function" ? next(state) : next;
+      },
+    );
     const selectColorTheme = vi.fn((theme: "teal" | "blue" | "violet") => {
       selectedTheme = theme;
     });
@@ -136,7 +144,7 @@ describe("ThemeSelector", () => {
         useEffect: () => undefined,
         useId: () => "theme-popover",
         useRef: <T,>(initialValue: T) => ({ current: initialValue }),
-        useState: () => [open, setOpen],
+        useState: () => [state, setState],
       };
     });
     vi.doMock("@/client/color-theme-provider", () => ({
@@ -149,19 +157,30 @@ describe("ThemeSelector", () => {
         ThemeSelector: StatefulThemeSelector,
       } = await import("../src/components/theme-selector");
 
+      const findTrigger = (children: ReturnType<typeof childElements>) =>
+        children.find((child) => child.type === "button");
+      const findPopover = (children: ReturnType<typeof childElements>) =>
+        children.find((child) => child.props.role === "dialog");
+
       const closedSelector = StatefulThemeSelector();
-      const closedTrigger = childElements(closedSelector).find(
-        (child) => child.type === "button",
-      );
-      if (!closedTrigger) throw new Error("Theme trigger is missing");
+      const closedChildren = childElements(closedSelector);
+      const closedTrigger = findTrigger(closedChildren);
+      const closedPopover = findPopover(closedChildren);
+      if (!closedTrigger || !closedPopover) throw new Error("Closed theme selector is incomplete");
+      expect(closedTrigger.props["aria-expanded"]).toBe(false);
+      expect(closedPopover.props.className).toContain("t-dropdown");
+      expect(closedPopover.props.className).not.toContain("is-open");
+      expect(closedPopover.props.inert).toBe(true);
       (closedTrigger.props.onClick as () => void)();
 
       const openSelector = StatefulThemeSelector();
       const openChildren = childElements(openSelector);
-      const openTrigger = openChildren.find((child) => child.type === "button");
-      const popover = openChildren.find((child) => child.props.role === "dialog");
+      const openTrigger = findTrigger(openChildren);
+      const popover = findPopover(openChildren);
       if (!openTrigger || !popover) throw new Error("Open theme selector is incomplete");
       expect(openTrigger.props["aria-expanded"]).toBe(true);
+      expect(popover.props.className).toContain("is-open");
+      expect(popover.props.inert).toBe(false);
 
       const optionsElement = childElements(popover).find(
         (child) => child.type === StatefulThemeOptions,
@@ -178,22 +197,16 @@ describe("ThemeSelector", () => {
 
       const selectorAfterSelection = StatefulThemeSelector();
       const childrenAfterSelection = childElements(selectorAfterSelection);
-      const triggerAfterSelection = childrenAfterSelection.find(
-        (child) => child.type === "button",
-      );
-      const popoverAfterSelection = childrenAfterSelection.find(
-        (child) => child.props.role === "dialog",
-      );
-      const optionsAfterSelection = popoverAfterSelection
-        ? childElements(popoverAfterSelection).find(
-            (child) => child.type === StatefulThemeOptions,
-          )
-        : undefined;
+      const triggerAfterSelection = findTrigger(childrenAfterSelection);
+      const popoverAfterSelection = findPopover(childrenAfterSelection);
+      if (!triggerAfterSelection || !popoverAfterSelection) {
+        throw new Error("Closing theme selector is incomplete");
+      }
 
       expect(selectColorTheme).toHaveBeenCalledExactlyOnceWith("violet");
-      expect(triggerAfterSelection?.props["aria-expanded"]).toBe(true);
-      expect(popoverAfterSelection).toBeDefined();
-      expect(optionsAfterSelection?.props.selectedTheme).toBe("violet");
+      expect(triggerAfterSelection.props["aria-expanded"]).toBe(false);
+      expect(popoverAfterSelection.props.className).toContain("is-closing");
+      expect(popoverAfterSelection.props.inert).toBe(true);
     } finally {
       vi.doUnmock("react");
       vi.doUnmock("@/client/color-theme-provider");

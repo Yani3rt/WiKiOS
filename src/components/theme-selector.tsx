@@ -71,12 +71,34 @@ export function ThemeOptions({
   );
 }
 
+type ThemeSelectorState = "closed" | "open" | "closing";
+
+/** Reads --dropdown-close-dur from the document so the unmount delay tracks the CSS token. */
+function readDropdownCloseDurationMs(fallback = 150): number {
+  const raw = getComputedStyle(document.documentElement)
+    .getPropertyValue("--dropdown-close-dur")
+    .trim();
+  const parsed = Number.parseFloat(raw);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
 export function ThemeSelector() {
   const { colorTheme, selectColorTheme } = useColorTheme();
-  const [open, setOpen] = useState(false);
+  const [state, setState] = useState<ThemeSelectorState>("closed");
   const wrapperRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const popoverId = useId();
+  const open = state === "open";
+
+  // Hold .is-closing for the exit duration, then return to the closed base state.
+  useEffect(() => {
+    if (state !== "closing") return;
+    const timer = window.setTimeout(
+      () => setState("closed"),
+      readDropdownCloseDurationMs(),
+    );
+    return () => window.clearTimeout(timer);
+  }, [state]);
 
   useEffect(() => {
     if (!open) return;
@@ -84,7 +106,7 @@ export function ThemeSelector() {
     const { onPointerDown, onKeyDown } = createThemeSelectorDismissHandlers({
       containsTarget: (target) =>
         target instanceof Node && Boolean(wrapperRef.current?.contains(target)),
-      close: () => setOpen(false),
+      close: () => setState("closing"),
       focusTrigger: () => triggerRef.current?.focus(),
     });
 
@@ -96,6 +118,12 @@ export function ThemeSelector() {
     };
   }, [open]);
 
+  const handleSelect = (theme: ColorThemeId) => {
+    selectColorTheme(theme);
+    setState("closing");
+    triggerRef.current?.focus();
+  };
+
   return (
     <div ref={wrapperRef} className="theme-selector">
       <button
@@ -105,23 +133,24 @@ export function ThemeSelector() {
         aria-label="Choose color theme"
         aria-haspopup="dialog"
         aria-expanded={open}
-        aria-controls={open ? popoverId : undefined}
-        onClick={() => setOpen((value) => !value)}
+        aria-controls={popoverId}
+        onClick={() => setState((current) => (current === "open" ? "closing" : "open"))}
       >
         <Palette aria-hidden className="h-4 w-4" />
-        <span className="hidden lg:inline">Theme</span>
       </button>
-      {open ? (
-        <div
-          id={popoverId}
-          role="dialog"
-          aria-label="Choose color theme"
-          className="theme-selector-popover"
-        >
-          <p className="theme-selector-title">Color theme</p>
-          <ThemeOptions selectedTheme={colorTheme} onSelect={selectColorTheme} />
-        </div>
-      ) : null}
+      <div
+        id={popoverId}
+        role="dialog"
+        aria-label="Choose color theme"
+        inert={!open}
+        data-origin="top-right"
+        className={`theme-selector-popover t-dropdown${
+          state === "open" ? " is-open" : state === "closing" ? " is-closing" : ""
+        }`}
+      >
+        <p className="theme-selector-title">Color theme</p>
+        <ThemeOptions selectedTheme={colorTheme} onSelect={handleSelect} />
+      </div>
     </div>
   );
 }
