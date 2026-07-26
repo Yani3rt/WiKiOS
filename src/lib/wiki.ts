@@ -17,7 +17,6 @@ import {
 import {
   deletePageByFile,
   openIndexDb,
-  reconcileBacklinkTargets,
   runDbMigrations,
   runStartupIntegrityCheck,
   seedCategoryRules,
@@ -236,7 +235,6 @@ const indexer = createWikiIndexer<SqliteDb, WikiOsConfig>({
   requireDb,
   upsertPageRecord,
   deletePageByFile,
-  reconcileBacklinkTargets,
   selectPageModifiedAt: (db, file) =>
     (db.prepare("SELECT modified_at AS modifiedAt FROM pages WHERE file = ?").get(file) as
       | { modifiedAt: number }
