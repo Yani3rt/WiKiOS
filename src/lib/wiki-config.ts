@@ -116,7 +116,7 @@ export const DEFAULT_WIKI_OS_CONFIG: WikiOsConfig = {
   homepage: {
     sectionOrder: [...HOMEPAGE_SECTION_KEYS],
     labels: {
-      featured: "Worth revisiting",
+      featured: "Recently visited",
       topConnected: "Highly connected",
       people: "People",
       recentPages: "Recently updated",

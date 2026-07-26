@@ -18,7 +18,12 @@ import {
 } from "../src/components/search-box";
 import { DEFAULT_WIKI_OS_CONFIG } from "../src/lib/wiki-config";
 import { selectFeaturedPages } from "../src/lib/wiki-queries";
-import type { HomepageData, PageSummary, SearchResult } from "../src/lib/wiki-shared";
+import type {
+  ExplorerPage,
+  HomepageData,
+  PageSummary,
+  SearchResult,
+} from "../src/lib/wiki-shared";
 
 function page(index: number): PageSummary {
   return {
@@ -51,6 +56,14 @@ describe("Home progressive disclosure", () => {
 
   it("renders named browse landmarks and caps each initial list", () => {
     const pages = Array.from({ length: 6 }, (_, index) => page(index + 1));
+    const recentlyVisitedPages: ExplorerPage[] = [
+      {
+        file: "Development/Git & Terminal/Terminal Reference.md",
+        slug: "Development/Git & Terminal/Terminal Reference",
+        title: "Terminal Reference",
+        modifiedAt: 10,
+      },
+    ];
     const homepage: HomepageData = {
       totalPages: pages.length,
       totalWords: 1_000,
@@ -69,7 +82,10 @@ describe("Home progressive disclosure", () => {
           WikiConfigProvider,
           {
             config: DEFAULT_WIKI_OS_CONFIG,
-            children: createElement(HomepageContent, { homepage }),
+            children: createElement(HomepageContent, {
+              homepage,
+              recentlyVisitedPages,
+            }),
           },
         ),
       ),
@@ -77,7 +93,7 @@ describe("Home progressive disclosure", () => {
 
     expect(markup).toContain("<h2");
     expect(markup).toContain('aria-labelledby="home-featured-heading"');
-    expect(markup).toContain('aria-controls="home-featured-list"');
+    expect(markup).toContain('aria-controls="home-topConnected-list"');
     expect(markup).toContain("Show all 6");
     expect(markup).toContain("text-lg font-semibold");
     expect(markup).toContain("border-t-2 border-[var(--home-accent)]");
@@ -87,6 +103,46 @@ describe("Home progressive disclosure", () => {
     );
     expect(markup).not.toContain(">Note 5<");
     expect(markup).not.toContain("font-display");
+    expect(markup).toContain("Recently visited");
+    expect(markup).toContain("Notes you opened most recently on this device.");
+    expect(markup).toContain("Terminal Reference");
+    expect(markup).toContain("Development/Git &amp; Terminal/Terminal Reference");
+    expect(markup).toContain(
+      'href="/wiki/Development/Git%20%26%20Terminal/Terminal%20Reference"',
+    );
+    expect(markup).not.toContain("Worth revisiting");
+    expect(markup).not.toContain("Connected notes worth another look.");
+  });
+
+  it("keeps Recently visited useful before a note has been opened", () => {
+    const homepage: HomepageData = {
+      totalPages: 0,
+      totalWords: 0,
+      featured: [],
+      recentPages: [],
+      categories: [],
+      topConnected: [],
+      people: [],
+    };
+    const markup = renderToStaticMarkup(
+      createElement(
+        MemoryRouter,
+        null,
+        createElement(
+          WikiConfigProvider,
+          {
+            config: DEFAULT_WIKI_OS_CONFIG,
+            children: createElement(HomepageContent, {
+              homepage,
+              recentlyVisitedPages: [],
+            }),
+          },
+        ),
+      ),
+    );
+
+    expect(markup).toContain("Recently visited");
+    expect(markup).toContain("Open a note to start your recent history.");
   });
 });
 

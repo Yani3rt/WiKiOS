@@ -6,7 +6,7 @@ const config: WikiOsConfigInput = {
   searchPlaceholder: "Search notes, ideas, and people...",
   homepage: {
     labels: {
-      featured: "Worth revisiting",
+      featured: "Recently visited",
       topConnected: "Highly connected",
       people: "People",
       recentPages: "Recently updated",

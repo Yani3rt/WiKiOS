@@ -6,35 +6,16 @@ import type { ExplorerPage } from "@/lib/wiki-shared";
 
 import { fetchJson } from "./api";
 import {
-  COMMAND_PALETTE_RECENTS_KEY,
   commandPaletteExplorerPath,
   isCommandPaletteShortcut,
   normalizeCommandPalettePages,
   noteSlugFromPathname,
-  parseRecentNoteSlugs,
   promoteRecentNote,
-  serializeRecentNoteSlugs,
 } from "./command-palette-model";
-
-function readRecentNoteSlugs() {
-  if (typeof window === "undefined") return [];
-  try {
-    return parseRecentNoteSlugs(window.localStorage.getItem(COMMAND_PALETTE_RECENTS_KEY));
-  } catch {
-    return [];
-  }
-}
-
-function persistRecentNoteSlugs(recents: readonly string[]) {
-  try {
-    window.localStorage.setItem(
-      COMMAND_PALETTE_RECENTS_KEY,
-      serializeRecentNoteSlugs(recents),
-    );
-  } catch {
-    // Storage can be unavailable in privacy-restricted browsing contexts.
-  }
-}
+import {
+  persistRecentNoteSlugs,
+  readRecentNoteSlugs,
+} from "./recent-note-storage";
 
 export function AppShell() {
   const location = useLocation();
