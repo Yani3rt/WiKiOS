@@ -100,12 +100,17 @@ Existing indexes self-heal through the established quarantine-and-rebuild path.
 
 ### Wiki route lookup
 
-The Wiki API first attempts a canonical exact-slug lookup. If that fails, it applies the
-basename resolver without source context:
+The Wiki API classifies the requested target before lookup:
 
+- a target containing a folder path performs an exact canonical-slug lookup;
+- a basename-only target always uses the resolver, even when a root-level note has that
+  basename;
 - a unique basename returns the canonical page;
 - duplicates return a structured multiple-choice response;
 - no match returns 404.
+
+This prevents `/wiki/Note` from silently preferring root-level `Note.md` when another
+folder also contains `Note.md`.
 
 The direct Wiki loader replaces a successful short URL with the canonical full-path URL.
 An ambiguous result renders the shared chooser.

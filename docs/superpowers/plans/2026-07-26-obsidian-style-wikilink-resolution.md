@@ -893,11 +893,19 @@ source file for direct routes.
 
 In `getWikiPage`:
 
-1. canonicalize and attempt `WHERE slug = ?`;
-2. if missing, resolve the decoded requested target against the page index;
-3. use the resolved candidate's slug for a second exact lookup;
-4. throw `WikiLinkAmbiguityError` for duplicates;
-5. preserve `Wiki page not found` for missing targets.
+1. canonicalize and decode the requested target;
+2. if the target contains a folder path, perform one exact `WHERE slug = ?` lookup and
+   preserve `Wiki page not found` when it is absent;
+3. if the target is basename-only, always resolve it against the page index with `null`
+   source context, even when a root-level page has the same slug;
+4. use a uniquely resolved candidate's canonical slug for the page lookup;
+5. throw `WikiLinkAmbiguityError` whenever more than one basename candidate exists,
+   including the case where one candidate is root-level `Note.md`;
+6. preserve `Wiki page not found` when the resolver returns `missing`.
+
+Add a server fixture containing both `Note.md` and `Archive/Note.md` and assert
+`/api/wiki/Note` returns HTTP 300 with both candidates rather than silently returning the
+root note.
 
 - [ ] **Step 6: Canonicalize hrefs when returning page Markdown**
 
