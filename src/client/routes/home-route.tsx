@@ -1,15 +1,44 @@
 import { redirect, useLoaderData } from "react-router-dom";
 
+import {
+  normalizeCommandPalettePages,
+  resolveCommandPalettePages,
+} from "@/client/command-palette-model";
+import { readRecentNoteSlugs } from "@/client/recent-note-storage";
 import { HomepageContent } from "@/components/homepage-content";
 import { SearchBox } from "@/components/search-box";
-import type { HomepageData } from "@/lib/wiki-shared";
+import type { ExplorerPage, HomepageData } from "@/lib/wiki-shared";
 
 import { fetchJson, isSetupRequiredResponse } from "../api";
 import { RouteErrorBoundary } from "../route-error-boundary";
 
-export async function loader() {
+export interface HomeRouteData {
+  homepage: HomepageData;
+  recentlyVisitedPages: ExplorerPage[];
+}
+
+export async function loadRecentlyVisitedPages(
+  recentSlugs: readonly string[],
+  loadExplorer: () => Promise<ExplorerPage[]> = () =>
+    fetchJson<ExplorerPage[]>("/api/explorer"),
+): Promise<ExplorerPage[]> {
+  if (recentSlugs.length === 0) return [];
+
   try {
-    return await fetchJson<HomepageData>("/api/home");
+    const pages = normalizeCommandPalettePages(await loadExplorer());
+    return resolveCommandPalettePages(pages, recentSlugs, "");
+  } catch {
+    return [];
+  }
+}
+
+export async function loader(): Promise<HomeRouteData> {
+  try {
+    const homepage = await fetchJson<HomepageData>("/api/home");
+    const recentlyVisitedPages = await loadRecentlyVisitedPages(
+      readRecentNoteSlugs(),
+    );
+    return { homepage, recentlyVisitedPages };
   } catch (error) {
     if (isSetupRequiredResponse(error)) {
       throw redirect("/setup");
@@ -20,11 +49,14 @@ export async function loader() {
 }
 
 export function Component() {
-  const homepage = useLoaderData() as HomepageData;
+  const { homepage, recentlyVisitedPages } = useLoaderData() as HomeRouteData;
 
   return (
     <SearchBox totalPages={homepage.totalPages}>
-      <HomepageContent homepage={homepage} />
+      <HomepageContent
+        homepage={homepage}
+        recentlyVisitedPages={recentlyVisitedPages}
+      />
     </SearchBox>
   );
 }
