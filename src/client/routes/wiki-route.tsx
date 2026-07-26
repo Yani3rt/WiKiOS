@@ -3,10 +3,10 @@ import { Link, redirect, useLoaderData, useNavigate, useRevalidator, type Loader
 
 import { NoteViewer } from "@/components/note-viewer";
 import { ThemeSelector } from "@/components/theme-selector";
-import type { WikiPageData } from "@/lib/wiki-shared";
+import { WikilinkAmbiguityView } from "@/components/wikilink-ambiguity-view";
 
 import { useWikiConfig } from "../wiki-config";
-import { fetchJson, isSetupRequiredResponse } from "../api";
+import { fetchWikiPage, isSetupRequiredResponse, type WikiPageLoadResult } from "../api";
 import { RouteErrorBoundary } from "../route-error-boundary";
 
 function normalizeSplatParam(rawSplat: string | undefined) {
@@ -65,7 +65,11 @@ export function createRevalidationRefreshController() {
 export async function loader({ params }: LoaderFunctionArgs) {
   const slug = normalizeSplatParam(params["*"]);
   try {
-    return await fetchJson<WikiPageData>(`/api/wiki/${slug}`);
+    const result = await fetchWikiPage(`/api/wiki/${slug}`);
+    if (result.status === "ready" && result.page.slug !== slug) {
+      throw redirect(`/wiki/${result.page.slug}`);
+    }
+    return result;
   } catch (error) {
     if (isSetupRequiredResponse(error)) {
       throw redirect("/setup");
@@ -76,7 +80,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 }
 
 export function Component() {
-  const page = useLoaderData() as WikiPageData;
+  const result = useLoaderData() as WikiPageLoadResult;
   const config = useWikiConfig();
   const navigate = useNavigate();
   const { revalidate, state: revalidationState } = useRevalidator();
@@ -128,19 +132,30 @@ export function Component() {
         className="mx-auto w-full max-w-6xl px-4 pt-4 sm:px-6 sm:pt-8 lg:px-8"
         style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 4rem)" }}
       >
-        <nav className="mb-6 flex items-center gap-2 text-sm text-[var(--muted-foreground)]">
-          <Link to="/" className="transition-colors duration-150 hover:text-[var(--foreground)]">
-            Home
-          </Link>
-          <span className="select-none">/</span>
-          <span className="text-[var(--foreground)]">{page.title}</span>
-        </nav>
+        {result.status === "ambiguous" ? (
+          <WikilinkAmbiguityView
+            target={result.ambiguity.target}
+            candidates={result.ambiguity.candidates}
+            onSelect={(candidate) => navigate(`/wiki/${candidate.slug}`, { replace: true })}
+            onBrowseNotes={() => navigate("/explorer")}
+          />
+        ) : (
+          <>
+            <nav className="mb-6 flex items-center gap-2 text-sm text-[var(--muted-foreground)]">
+              <Link to="/" className="transition-colors duration-150 hover:text-[var(--foreground)]">
+                Home
+              </Link>
+              <span className="select-none">/</span>
+              <span className="text-[var(--foreground)]">{result.page.title}</span>
+            </nav>
 
-        <NoteViewer
-          page={page}
-          onNavigateNote={(slug) => navigate(`/wiki/${slug}`)}
-          onRefreshPage={refreshPage}
-        />
+            <NoteViewer
+              page={result.page}
+              onNavigateNote={(slug) => navigate(`/wiki/${slug}`)}
+              onRefreshPage={refreshPage}
+            />
+          </>
+        )}
       </main>
 
       <footer className="pb-16" />

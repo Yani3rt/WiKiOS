@@ -7,6 +7,7 @@ import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 
 import { WikiConfigProvider } from "../src/client/wiki-config";
+import { fetchWikiPage } from "../src/client/api";
 import {
   NoteViewer,
   copyCodeBlockText,
@@ -20,10 +21,11 @@ import {
   savePersonOverride,
   scrollHeadingIntoView,
 } from "../src/components/note-viewer";
+import { WikilinkAmbiguityView } from "../src/components/wikilink-ambiguity-view";
 import { applyExplorerRefreshResult } from "../src/client/routes/explorer-route";
-import { createRevalidationRefreshController } from "../src/client/routes/wiki-route";
+import { createRevalidationRefreshController, loader as wikiLoader } from "../src/client/routes/wiki-route";
 import { DEFAULT_WIKI_OS_CONFIG } from "../src/lib/wiki-config";
-import type { WikiPageData } from "../src/lib/wiki-shared";
+import type { WikiLinkAmbiguityData, WikiPageData } from "../src/lib/wiki-shared";
 
 const samplePage: WikiPageData = {
   slug: "people/Ada%20Lovelace",
@@ -43,6 +45,15 @@ const samplePage: WikiPageData = {
   ],
   isPerson: false,
   personOverride: null,
+};
+
+const ambiguousWikiLink: WikiLinkAmbiguityData = {
+  code: "AMBIGUOUS_WIKILINK",
+  target: "Note",
+  candidates: [
+    { file: "Archive/Note.md", slug: "Archive/Note", title: "Note" },
+    { file: "Projects/Note.md", slug: "Projects/Note", title: "Note" },
+  ],
 };
 
 describe("shared note viewer behavioral helpers", () => {
@@ -318,6 +329,72 @@ describe("shared note viewer behavioral helpers", () => {
 });
 
 describe("shared note viewer rendering and route boundaries", () => {
+  it("parses an HTTP 300 WikiLink ambiguity as a normal page-load result", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(ambiguousWikiLink), {
+        status: 300,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchImpl);
+    try {
+      await expect(fetchWikiPage("/api/wiki/Note")).resolves.toEqual({
+        status: "ambiguous",
+        ambiguity: ambiguousWikiLink,
+      });
+      expect(fetchImpl).toHaveBeenCalledWith("/api/wiki/Note", {
+        headers: { accept: "application/json" },
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("redirects a unique short Wiki URL to its canonical full slug", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ ...samplePage, slug: "Archive/Note" }), {
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchImpl);
+    try {
+      const redirectResponse = await wikiLoader({ params: { "*": "Note" } } as never).catch(
+        (error: unknown) => error,
+      );
+
+      expect(redirectResponse).toBeInstanceOf(Response);
+      expect((redirectResponse as Response).headers.get("Location")).toBe("/wiki/Archive/Note");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("renders an accessible chooser for ambiguous wikilinks", () => {
+    const markup = renderToStaticMarkup(
+      createElement(WikilinkAmbiguityView, {
+        target: ambiguousWikiLink.target,
+        candidates: ambiguousWikiLink.candidates,
+        onSelect: () => {},
+        onBrowseNotes: () => {},
+      }),
+    );
+
+    expect(markup).toContain("Which note did you mean?");
+    expect(markup).toContain("Archive/Note.md");
+    expect(markup).toContain("Projects/Note.md");
+    expect(markup).toContain("Browse notes");
+    expect(markup.match(/<button\b/gu)).toHaveLength(3);
+  });
+
+  it("wires every ambiguity candidate button to its selection callback", () => {
+    const chooserSource = readFileSync(
+      fileURLToPath(new URL("../src/components/wikilink-ambiguity-view.tsx", import.meta.url)),
+      "utf8",
+    );
+
+    expect(chooserSource).toContain("onClick={() => onSelect(candidate)}");
+  });
+
   it("renders article content, metadata, toc, related concepts, and graph markers without added category chips", () => {
     const markup = renderToStaticMarkup(
       createElement(
