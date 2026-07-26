@@ -27,9 +27,20 @@ import {
 import { Link } from "react-router-dom";
 import { NoteViewer } from "@/components/note-viewer";
 import { ThemeSelector } from "@/components/theme-selector";
-import type { ExplorerPage, WikiPageData } from "@/lib/wiki-shared";
+import { WikilinkAmbiguityView } from "@/components/wikilink-ambiguity-view";
+import type { WikiLinkCandidate } from "@/lib/wiki-link-resolver";
+import type {
+  ExplorerPage,
+  WikiLinkAmbiguityData,
+  WikiPageData,
+} from "@/lib/wiki-shared";
 
-import { fetchJson, isSetupRequiredResponse } from "../api";
+import {
+  fetchJson,
+  fetchWikiPage,
+  isSetupRequiredResponse,
+  type WikiPageLoadResult,
+} from "../api";
 import {
   EMPTY_EXPLORER_WORKSPACE,
   EXPLORER_STORAGE_KEY,
@@ -42,6 +53,7 @@ import {
   flattenVisibleTree,
   openExplorerTab,
   parseExplorerWorkspace,
+  replaceExplorerTabWithCandidate,
   serializeExplorerWorkspace,
   type ExplorerTab,
   type ExplorerWorkspace,
@@ -52,6 +64,7 @@ type ReaderState =
   | { slug: null; status: "idle" }
   | { slug: string; status: "loading" }
   | { slug: string; status: "ready"; page: WikiPageData }
+  | { slug: string; status: "ambiguous"; ambiguity: WikiLinkAmbiguityData }
   | { slug: string; status: "missing" }
   | { slug: string; status: "error" };
 
@@ -193,8 +206,11 @@ function explorerPanelId(slug: string) {
   return `explorer-panel-${encodeURIComponent(slug)}`;
 }
 
-export async function loadPage(slug: string, signal?: AbortSignal) {
-  return fetchJson<WikiPageData>(`/api/wiki/${encodeExplorerApiSlug(slug)}`, { signal });
+export async function loadPage(
+  slug: string,
+  signal?: AbortSignal,
+): Promise<WikiPageLoadResult> {
+  return fetchWikiPage(`/api/wiki/${encodeExplorerApiSlug(slug)}`, { signal });
 }
 
 export function applyExplorerRefreshResult(
@@ -754,6 +770,7 @@ export function ExplorerReader({
   onWikiLink,
   onRefreshPage,
   onBrowseNotes,
+  onResolveAmbiguity,
   workspaceScrollRef,
 }: {
   state: ReaderState;
@@ -761,10 +778,26 @@ export function ExplorerReader({
   onWikiLink: (slug: string) => void;
   onRefreshPage: () => Promise<void>;
   onBrowseNotes: () => void;
+  onResolveAmbiguity: (
+    unresolvedSlug: string,
+    candidate: WikiLinkCandidate,
+  ) => void;
   workspaceScrollRef: RefObject<HTMLElement | null>;
 }) {
   if (state.status === "idle") return <ExplorerEmptyState hasTabs={hasTabs} />;
   if (state.status === "loading") return <p className="p-8 text-sm text-[var(--explorer-muted-foreground)]">Loading note…</p>;
+  if (state.status === "ambiguous") {
+    return (
+      <div className="p-4 sm:p-8">
+        <WikilinkAmbiguityView
+          target={state.ambiguity.target}
+          candidates={state.ambiguity.candidates}
+          onSelect={(candidate) => onResolveAmbiguity(state.slug, candidate)}
+          onBrowseNotes={onBrowseNotes}
+        />
+      </div>
+    );
+  }
   if (state.status === "missing" || state.status === "error") {
     return (
       <ExplorerRecoveryState
@@ -888,6 +921,20 @@ export function Component() {
     navigate(explorerPath(workspace.activeSlug), { replace: true });
   }, [navigate, urlSlug, workspace.activeSlug]);
 
+  const resolveAmbiguity = useCallback(
+    (unresolvedSlug: string, candidate: WikiLinkCandidate) => {
+      const next = replaceExplorerTabWithCandidate(
+        workspaceStateRef.current,
+        unresolvedSlug,
+        candidate,
+      );
+      workspaceStateRef.current = next;
+      setWorkspace(next);
+      navigate(explorerPath(next.activeSlug), { replace: true });
+    },
+    [navigate],
+  );
+
   useEffect(() => {
     const slug = workspace.activeSlug;
     if (!slug) {
@@ -898,11 +945,36 @@ export function Component() {
     const controller = new AbortController();
     setReaderState({ slug, status: "loading" });
     loadPage(slug, controller.signal)
-      .then((page) => {
+      .then((result) => {
+        if (workspaceStateRef.current.activeSlug !== slug) return;
+        if (result.status === "ambiguous") {
+          setReaderState({
+            slug,
+            status: "ambiguous",
+            ambiguity: result.ambiguity,
+          });
+          return;
+        }
+
+        const canonicalSlug = canonicalExplorerSlugFromFile(result.page.fileName);
+        if (canonicalSlug !== slug) {
+          resolveAmbiguity(slug, {
+            file: result.page.fileName,
+            slug: result.page.slug,
+            title: result.page.title,
+          });
+          setReaderState({
+            slug: canonicalSlug,
+            status: "ready",
+            page: result.page,
+          });
+          return;
+        }
+
         const nextState = applyExplorerRefreshResult(
           workspaceStateRef.current.activeSlug,
           slug,
-          page,
+          result.page,
         );
         if (nextState) setReaderState(nextState);
       })
@@ -920,7 +992,7 @@ export function Component() {
         );
       });
     return () => controller.abort();
-  }, [navigate, workspace.activeSlug]);
+  }, [navigate, resolveAmbiguity, workspace.activeSlug]);
 
   useEffect(() => {
     workspaceScrollRef.current?.scrollTo({ top: 0, behavior: "auto" });
@@ -931,11 +1003,45 @@ export function Component() {
     if (!slug) return;
 
     try {
-      const page = await loadPage(slug);
+      const result = await loadPage(slug);
+      if (result.status === "ambiguous") {
+        if (workspaceStateRef.current.activeSlug === slug) {
+          setReaderState({
+            slug,
+            status: "ambiguous",
+            ambiguity: result.ambiguity,
+          });
+        }
+        return;
+      }
+
+      const canonicalSlug = canonicalExplorerSlugFromFile(result.page.fileName);
+      if (canonicalSlug !== slug) {
+        const candidate = {
+          file: result.page.fileName,
+          slug: result.page.slug,
+          title: result.page.title,
+        };
+        const next = replaceExplorerTabWithCandidate(
+          workspaceStateRef.current,
+          slug,
+          candidate,
+        );
+        workspaceStateRef.current = next;
+        setWorkspace(next);
+        navigate(explorerPath(next.activeSlug), { replace: true });
+        setReaderState({
+          slug: canonicalSlug,
+          status: "ready",
+          page: result.page,
+        });
+        return;
+      }
+
       const nextState = applyExplorerRefreshResult(
         workspaceStateRef.current.activeSlug,
         slug,
-        page,
+        result.page,
       );
       if (nextState) setReaderState(nextState);
     } catch (error) {
@@ -1060,6 +1166,7 @@ export function Component() {
                     onWikiLink={selectSlug}
                     onRefreshPage={refreshActivePage}
                     onBrowseNotes={showNoteTree}
+                    onResolveAmbiguity={resolveAmbiguity}
                     workspaceScrollRef={workspaceScrollRef}
                   />
                 ) : null}
@@ -1077,6 +1184,7 @@ export function Component() {
                 onWikiLink={selectSlug}
                 onRefreshPage={refreshActivePage}
                 onBrowseNotes={showNoteTree}
+                onResolveAmbiguity={resolveAmbiguity}
                 workspaceScrollRef={workspaceScrollRef}
               />
             </div>

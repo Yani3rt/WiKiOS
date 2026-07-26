@@ -1,4 +1,5 @@
 import type { ExplorerPage } from "../lib/wiki-shared";
+import type { WikiLinkCandidate } from "../lib/wiki-link-resolver";
 
 export interface ExplorerTab {
   readonly slug: string;
@@ -50,6 +51,38 @@ export function activateExplorerTab(
     return workspace;
   }
   return { tabs: [...workspace.tabs], activeSlug: slug };
+}
+
+export function replaceExplorerTabWithCandidate(
+  workspace: ExplorerWorkspace,
+  unresolvedSlug: string,
+  candidate: WikiLinkCandidate,
+): ExplorerWorkspace {
+  const canonicalTab: ExplorerTab = {
+    slug: candidate.file.replace(/\.md$/iu, ""),
+    file: candidate.file,
+    title: candidate.title,
+  };
+  const existingCanonical = workspace.tabs.find(
+    (tab) => tab.slug === canonicalTab.slug && tab.slug !== unresolvedSlug,
+  );
+
+  if (existingCanonical) {
+    return {
+      tabs: workspace.tabs.filter((tab) => tab.slug !== unresolvedSlug),
+      activeSlug: existingCanonical.slug,
+    };
+  }
+
+  return {
+    tabs: workspace.tabs.map((tab) =>
+      tab.slug === unresolvedSlug ? canonicalTab : tab,
+    ),
+    activeSlug:
+      workspace.activeSlug === unresolvedSlug
+        ? canonicalTab.slug
+        : workspace.activeSlug,
+  };
 }
 
 export function closeExplorerTab(

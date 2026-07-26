@@ -18,6 +18,7 @@ import {
   flattenVisibleTree,
   openExplorerTab,
   parseExplorerWorkspace,
+  replaceExplorerTabWithCandidate,
   serializeExplorerWorkspace,
 } from "../src/client/explorer-model";
 import type {
@@ -186,6 +187,51 @@ describe("explorer route registration", () => {
     expect(routeSource).toContain("onBrowseNotes={showNoteTree}");
     expect(routeSource).toContain("setDesktopSidebarVisible(true)");
     expect(routeSource).toContain("setSidebarOpen(true)");
+  });
+
+  it("renders the ambiguity chooser instead of recovery for ambiguous notes", async () => {
+    const routeModule = (await import("../src/client/routes/explorer-route")) as unknown as {
+      ExplorerReader?: unknown;
+    };
+    const markup = renderToStaticMarkup(
+      createElement(routeModule.ExplorerReader as never, {
+        state: {
+          slug: "Note",
+          status: "ambiguous",
+          ambiguity: {
+            code: "AMBIGUOUS_WIKILINK",
+            target: "Note",
+            candidates: [
+              { file: "Archive/Note.md", slug: "Archive/Note", title: "Note" },
+              { file: "Projects/Note.md", slug: "Projects/Note", title: "Note" },
+            ],
+          },
+        },
+        hasTabs: true,
+        onWikiLink: () => {},
+        onRefreshPage: async () => {},
+        onBrowseNotes: () => {},
+        onResolveAmbiguity: () => {},
+        workspaceScrollRef: { current: null },
+      }),
+    );
+
+    expect(markup).toContain("Which note did you mean?");
+    expect(markup).toContain("Archive/Note.md");
+    expect(markup).toContain("Projects/Note.md");
+    expect(markup).not.toContain('role="alert"');
+  });
+
+  it("uses the structured page loader and replaces ambiguous routes in browser history", () => {
+    const routeSource = readFileSync(
+      fileURLToPath(new URL("../src/client/routes/explorer-route.tsx", import.meta.url)),
+      "utf8",
+    );
+
+    expect(routeSource).toContain("fetchWikiPage");
+    expect(routeSource).toContain('result.status === "ambiguous"');
+    expect(routeSource).toContain("replaceExplorerTabWithCandidate");
+    expect(routeSource).toContain("navigate(explorerPath(next.activeSlug), { replace: true })");
   });
 
   it("starts with a compact tree and keeps only the active branch open", async () => {
@@ -699,6 +745,59 @@ describe("explorer workspace", () => {
     expect(openedAlpha).toEqual(workspace([alpha], alpha.slug));
     expect(reopenedAlpha).toEqual(workspace([alpha, beta], alpha.slug));
     expect(openedBeta).toEqual(workspace([beta, alpha], beta.slug));
+  });
+
+  it("replaces an unresolved tab with the selected canonical candidate", () => {
+    expect(
+      replaceExplorerTabWithCandidate(
+        {
+          tabs: [
+            { slug: "Home", file: "Home.md", title: "Home" },
+            { slug: "Note", file: "Note.md", title: "Note" },
+          ],
+          activeSlug: "Note",
+        },
+        "Note",
+        {
+          file: "Projects/Note.md",
+          slug: "Projects/Note",
+          title: "Note",
+        },
+      ),
+    ).toEqual({
+      tabs: [
+        { slug: "Home", file: "Home.md", title: "Home" },
+        { slug: "Projects/Note", file: "Projects/Note.md", title: "Note" },
+      ],
+      activeSlug: "Projects/Note",
+    });
+  });
+
+  it("deduplicates an unresolved tab when its canonical candidate is already open", () => {
+    expect(
+      replaceExplorerTabWithCandidate(
+        {
+          tabs: [
+            { slug: "Projects/Note", file: "Projects/Note.md", title: "Note" },
+            { slug: "Note", file: "Note.md", title: "Note" },
+            { slug: "Home", file: "Home.md", title: "Home" },
+          ],
+          activeSlug: "Note",
+        },
+        "Note",
+        {
+          file: "Projects/Note.md",
+          slug: "Projects/Note",
+          title: "Note",
+        },
+      ),
+    ).toEqual({
+      tabs: [
+        { slug: "Projects/Note", file: "Projects/Note.md", title: "Note" },
+        { slug: "Home", file: "Home.md", title: "Home" },
+      ],
+      activeSlug: "Projects/Note",
+    });
   });
 
   it("accepts a complete ExplorerPage and preserves an already-active workspace", () => {
