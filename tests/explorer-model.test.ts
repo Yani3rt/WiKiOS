@@ -5,7 +5,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
-import type { ExplorerPage } from "../src/lib/wiki-shared";
+import type { ExplorerPage, WikiPageData } from "../src/lib/wiki-shared";
 import {
   EMPTY_EXPLORER_WORKSPACE,
   EXPLORER_STORAGE_KEY,
@@ -232,6 +232,75 @@ describe("explorer route registration", () => {
     expect(routeSource).toContain('result.status === "ambiguous"');
     expect(routeSource).toContain("replaceExplorerTabWithCandidate");
     expect(routeSource).toContain("navigate(explorerPath(next.activeSlug), { replace: true })");
+  });
+
+  it("ignores a stale canonical refresh after the active tab changes", async () => {
+    const routeModule = (await import("../src/client/routes/explorer-route")) as unknown as {
+      resolveExplorerCanonicalRefresh?: (
+        activeSlug: string | null,
+        requestSlug: string,
+        workspace: ExplorerWorkspace,
+        page: WikiPageData,
+      ) => {
+        workspace: ExplorerWorkspace;
+        readerState: { slug: string; status: "ready"; page: WikiPageData };
+      } | null;
+    };
+    const unresolvedWorkspace: ExplorerWorkspace = {
+      tabs: [
+        { slug: "Home", file: "Home.md", title: "Home" },
+        { slug: "Ideas", file: "Ideas.md", title: "Ideas" },
+      ],
+      activeSlug: "Home",
+    };
+    const canonicalPage: WikiPageData = {
+      slug: "00%20Ideas/Ideas",
+      title: "Ideas",
+      fileName: "00 Ideas/Ideas.md",
+      contentMarkdown: "",
+      hasCodeBlocks: false,
+      headings: [],
+      modifiedAt: 1,
+      categories: [],
+      neighbors: [],
+      isPerson: false,
+      personOverride: null,
+    };
+
+    expect(routeModule.resolveExplorerCanonicalRefresh).toBeTypeOf("function");
+    expect(
+      routeModule.resolveExplorerCanonicalRefresh!(
+        "Home",
+        "Ideas",
+        unresolvedWorkspace,
+        canonicalPage,
+      ),
+    ).toBeNull();
+    expect(
+      routeModule.resolveExplorerCanonicalRefresh!(
+        "Ideas",
+        "Ideas",
+        { ...unresolvedWorkspace, activeSlug: "Ideas" },
+        canonicalPage,
+      ),
+    ).toEqual({
+      workspace: {
+        tabs: [
+          { slug: "Home", file: "Home.md", title: "Home" },
+          {
+            slug: "00 Ideas/Ideas",
+            file: "00 Ideas/Ideas.md",
+            title: "Ideas",
+          },
+        ],
+        activeSlug: "00 Ideas/Ideas",
+      },
+      readerState: {
+        slug: "00 Ideas/Ideas",
+        status: "ready",
+        page: canonicalPage,
+      },
+    });
   });
 
   it("starts with a compact tree and keeps only the active branch open", async () => {

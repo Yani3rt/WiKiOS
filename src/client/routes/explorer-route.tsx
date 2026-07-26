@@ -222,6 +222,29 @@ export function applyExplorerRefreshResult(
   return { slug: requestSlug, status: "ready", page };
 }
 
+export function resolveExplorerCanonicalRefresh(
+  activeSlug: string | null,
+  requestSlug: string,
+  workspace: ExplorerWorkspace,
+  page: WikiPageData,
+) {
+  if (activeSlug !== requestSlug) return null;
+
+  const canonicalSlug = canonicalExplorerSlugFromFile(page.fileName);
+  return {
+    workspace: replaceExplorerTabWithCandidate(workspace, requestSlug, {
+      file: page.fileName,
+      slug: page.slug,
+      title: page.title,
+    }),
+    readerState: {
+      slug: canonicalSlug,
+      status: "ready" as const,
+      page,
+    },
+  };
+}
+
 function folderAncestorsForSlug(slug: string | null) {
   if (!slug) return [];
 
@@ -1017,24 +1040,20 @@ export function Component() {
 
       const canonicalSlug = canonicalExplorerSlugFromFile(result.page.fileName);
       if (canonicalSlug !== slug) {
-        const candidate = {
-          file: result.page.fileName,
-          slug: result.page.slug,
-          title: result.page.title,
-        };
-        const next = replaceExplorerTabWithCandidate(
-          workspaceStateRef.current,
+        const canonicalRefresh = resolveExplorerCanonicalRefresh(
+          workspaceStateRef.current.activeSlug,
           slug,
-          candidate,
+          workspaceStateRef.current,
+          result.page,
         );
-        workspaceStateRef.current = next;
-        setWorkspace(next);
-        navigate(explorerPath(next.activeSlug), { replace: true });
-        setReaderState({
-          slug: canonicalSlug,
-          status: "ready",
-          page: result.page,
+        if (!canonicalRefresh) return;
+
+        workspaceStateRef.current = canonicalRefresh.workspace;
+        setWorkspace(canonicalRefresh.workspace);
+        navigate(explorerPath(canonicalRefresh.workspace.activeSlug), {
+          replace: true,
         });
+        setReaderState(canonicalRefresh.readerState);
         return;
       }
 
