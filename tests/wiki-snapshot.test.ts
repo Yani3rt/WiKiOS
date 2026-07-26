@@ -277,6 +277,42 @@ describe("wiki snapshot", () => {
     }
   });
 
+  it("keeps explicit sources paths consistent across hrefs, neighbors, counts, and graph edges", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "wiki-ui-"));
+
+    try {
+      await mkdir(path.join(root, "sources"), { recursive: true });
+      await writeFile(path.join(root, "Home.md"), "# Home\n\n[[sources/Note]]\n");
+      await writeFile(path.join(root, "Note.md"), "# Root Note\n");
+      await writeFile(path.join(root, "sources", "Note.md"), "# Source Note\n");
+
+      const wiki = await loadWikiModule(root);
+      await wiki.reindexWikiSnapshot();
+
+      const home = await wiki.getWikiPage(["Home"]);
+      const graph = await wiki.getGraphData();
+      const rootNote = graph.nodes.find((node) => node.slug === "Note");
+      const sourceNote = graph.nodes.find((node) => node.slug === "sources/Note");
+
+      expect(home.contentMarkdown).toContain(
+        "[sources/Note](/wiki/sources/Note)",
+      );
+      expect(home.neighbors).toEqual([
+        expect.objectContaining({ slug: "sources/Note" }),
+      ]);
+      expect(graph.edges).toContainEqual(
+        expect.objectContaining({ source: "Home", target: "sources/Note" }),
+      );
+      expect(graph.edges).not.toContainEqual(
+        expect.objectContaining({ source: "Home", target: "Note" }),
+      );
+      expect(rootNote).toEqual(expect.objectContaining({ backlinkCount: 0 }));
+      expect(sourceNote).toEqual(expect.objectContaining({ backlinkCount: 1 }));
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("index: ambiguous backlink omitted from graph", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "wiki-ui-"));
 
@@ -305,6 +341,33 @@ describe("wiki snapshot", () => {
           expect.objectContaining({ slug: "Projects/Note", backlinkCount: 0 }),
         ]),
       );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("excludes ambiguous and missing targets from top backlink statistics", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "wiki-ui-"));
+
+    try {
+      await mkdir(path.join(root, "Archive"), { recursive: true });
+      await mkdir(path.join(root, "Projects"), { recursive: true });
+      await writeFile(
+        path.join(root, "Home.md"),
+        "# Home\n\n[[Resolved]] [[Resolved]] [[Note]] [[Note]] [[Note]] [[Missing]] [[Missing]] [[Missing]] [[Missing]]\n",
+      );
+      await writeFile(path.join(root, "Resolved.md"), "# Resolved\n");
+      await writeFile(path.join(root, "Archive", "Note.md"), "# Archive Note\n");
+      await writeFile(path.join(root, "Projects", "Note.md"), "# Projects Note\n");
+
+      const wiki = await loadWikiModule(root);
+      await wiki.reindexWikiSnapshot();
+
+      const stats = await wiki.getWikiStats();
+
+      expect(stats.top_backlinks).toEqual([
+        { page: "Resolved", count: 2 },
+      ]);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

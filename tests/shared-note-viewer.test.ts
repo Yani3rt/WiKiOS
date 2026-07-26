@@ -448,6 +448,34 @@ describe("shared note viewer rendering and route boundaries", () => {
     }
   });
 
+  it("loads a canonical literal-percent Wiki URL through both API decode layers", async () => {
+    const literalPercentPage = {
+      ...samplePage,
+      slug: "Literal%2520Name",
+      title: "Literal%20Name",
+      fileName: "Literal%20Name.md",
+    };
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(literalPercentPage), {
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchImpl);
+    try {
+      await expect(
+        wikiLoader({ params: { "*": "Literal%20Name" } } as never),
+      ).resolves.toEqual({
+        status: "ready",
+        page: literalPercentPage,
+      });
+      expect(fetchImpl).toHaveBeenCalledWith("/api/wiki/Literal%252520Name", {
+        headers: { accept: "application/json" },
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("wiki route: accessible ambiguity chooser", () => {
     const markup = renderToStaticMarkup(
       createElement(WikilinkAmbiguityView, {

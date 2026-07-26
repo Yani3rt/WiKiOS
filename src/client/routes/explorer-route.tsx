@@ -59,6 +59,7 @@ import {
   type ExplorerWorkspace,
 } from "../explorer-model";
 import { RouteErrorBoundary } from "../route-error-boundary";
+import { encodeWikiSlugSegments } from "../wiki-slug-encoding";
 
 type ReaderState =
   | { slug: null; status: "idle" }
@@ -83,26 +84,12 @@ export function normalizeExplorerSlug(rawSplat: string | undefined) {
     .join("/");
 }
 
-function encodeExplorerSlug(slug: string, rounds: number) {
-  return slug
-    .split("/")
-    .filter(Boolean)
-    .map((part) => {
-      let encoded = part;
-      for (let index = 0; index < rounds; index += 1) {
-        encoded = encodeURIComponent(encoded);
-      }
-      return encoded;
-    })
-    .join("/");
-}
-
 export function encodeExplorerRouteSlug(slug: string) {
-  return encodeExplorerSlug(slug, 1);
+  return encodeWikiSlugSegments(slug);
 }
 
 export function encodeExplorerApiSlug(slug: string) {
-  return encodeExplorerSlug(slug, 2);
+  return encodeWikiSlugSegments(slug, 2);
 }
 
 function canonicalExplorerSlugFromFile(file: string) {

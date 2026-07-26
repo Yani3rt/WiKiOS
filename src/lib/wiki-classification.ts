@@ -476,7 +476,7 @@ export function extractBacklinkReferences(markdown: string): BacklinkReference[]
   let match: RegExpExecArray | null;
 
   while ((match = linkRegex.exec(markdown)) !== null) {
-    const rawTarget = match[1].trim().replace(/^sources\//, "");
+    const rawTarget = match[1].trim();
     if (!rawTarget) {
       continue;
     }

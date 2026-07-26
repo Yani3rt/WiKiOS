@@ -67,4 +67,64 @@ describe("wiki link resolver", () => {
       target: "../Ideas",
     });
   });
+
+  it("matches uppercase I and Unicode-normalized paths without locale APIs", () => {
+    const originalToLocaleLowerCase = String.prototype.toLocaleLowerCase;
+    const originalLocaleCompare = String.prototype.localeCompare;
+    let resolution: ReturnType<typeof resolveWikiLinkTarget>;
+    let canonicallyEquivalentOrder: string[];
+
+    try {
+      String.prototype.toLocaleLowerCase = () => {
+        throw new Error("host-locale lowercasing must not be used");
+      };
+      String.prototype.localeCompare = () => {
+        throw new Error("host-locale ordering must not be used");
+      };
+
+      const uppercaseIndex = buildWikiLinkIndex([
+        { file: "Notes/IDEA.md", slug: "Notes/IDEA", title: "IDEA" },
+      ]);
+      resolution = resolveWikiLinkTarget("idea", "Home.md", uppercaseIndex);
+
+      const decomposed = {
+        file: "Cafe\u0301/IDEA.md",
+        slug: "Cafe%CC%81/IDEA",
+        title: "IDEA",
+      };
+      const composed = {
+        file: "Café/Idea.md",
+        slug: "Caf%C3%A9/Idea",
+        title: "Idea",
+      };
+      const equivalentIndex = buildWikiLinkIndex([composed, decomposed]);
+      const equivalentResolution = resolveWikiLinkTarget(
+        "IDEA",
+        "Home.md",
+        equivalentIndex,
+      );
+      canonicallyEquivalentOrder =
+        equivalentResolution.status === "ambiguous"
+          ? equivalentResolution.candidates.map((candidate) => candidate.file)
+          : [];
+    } finally {
+      String.prototype.toLocaleLowerCase = originalToLocaleLowerCase;
+      String.prototype.localeCompare = originalLocaleCompare;
+    }
+
+    expect(resolution).toEqual({
+      status: "resolved",
+      reason: "unique",
+      target: "idea",
+      candidate: {
+        file: "Notes/IDEA.md",
+        slug: "Notes/IDEA",
+        title: "IDEA",
+      },
+    });
+    expect(canonicallyEquivalentOrder).toEqual([
+      "Cafe\u0301/IDEA.md",
+      "Café/Idea.md",
+    ]);
+  });
 });

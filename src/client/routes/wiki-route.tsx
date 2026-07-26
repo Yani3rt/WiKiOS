@@ -8,6 +8,7 @@ import { WikilinkAmbiguityView } from "@/components/wikilink-ambiguity-view";
 import { useWikiConfig } from "../wiki-config";
 import { fetchWikiPage, isSetupRequiredResponse, type WikiPageLoadResult } from "../api";
 import { RouteErrorBoundary } from "../route-error-boundary";
+import { encodeWikiSlugSegments } from "../wiki-slug-encoding";
 
 function normalizeSplatParam(rawSplat: string | undefined) {
   const trimmed = rawSplat?.trim();
@@ -16,11 +17,7 @@ function normalizeSplatParam(rawSplat: string | undefined) {
     throw new Response("Wiki page not found", { status: 404 });
   }
 
-  return trimmed
-    .split("/")
-    .filter(Boolean)
-    .map((part) => encodeURIComponent(part))
-    .join("/");
+  return encodeWikiSlugSegments(trimmed);
 }
 
 type RevalidationState = ReturnType<typeof useRevalidator>["state"];
@@ -65,7 +62,9 @@ export function createRevalidationRefreshController() {
 export async function loader({ params }: LoaderFunctionArgs) {
   const slug = normalizeSplatParam(params["*"]);
   try {
-    const result = await fetchWikiPage(`/api/wiki/${slug}`);
+    const result = await fetchWikiPage(
+      `/api/wiki/${encodeWikiSlugSegments(slug)}`,
+    );
     if (result.status === "ready" && result.page.slug !== slug) {
       throw redirect(`/wiki/${result.page.slug}`);
     }

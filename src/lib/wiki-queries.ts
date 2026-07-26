@@ -263,11 +263,12 @@ export async function getDerivedData(deps: WikiQueryDependencies): Promise<Deriv
   const topBacklinks = db
     .prepare(`
       SELECT
-        COALESCE(p.title, MIN(b.target_raw)) AS page,
+        p.title AS page,
         CAST(SUM(b.occurrence_count) AS INTEGER) AS count
       FROM backlinks b
-      LEFT JOIN pages p ON p.slug = b.target_slug
-      GROUP BY b.target_slug
+      JOIN pages p ON p.slug = b.target_slug
+      WHERE b.resolution_state = 'resolved'
+      GROUP BY p.slug, p.title
       ORDER BY count DESC, page ASC
       LIMIT 15
     `)

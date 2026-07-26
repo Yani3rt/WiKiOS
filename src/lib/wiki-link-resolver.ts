@@ -58,14 +58,34 @@ function dirname(value: string) {
 }
 
 function lookupKey(value: string) {
-  return value.normalize("NFC").toLocaleLowerCase();
+  return value.normalize("NFC").toLowerCase();
+}
+
+function compareCodePoints(left: string, right: string) {
+  const leftCodePoints = Array.from(left);
+  const rightCodePoints = Array.from(right);
+  const sharedLength = Math.min(leftCodePoints.length, rightCodePoints.length);
+
+  for (let index = 0; index < sharedLength; index += 1) {
+    const leftValue = leftCodePoints[index].codePointAt(0) ?? 0;
+    const rightValue = rightCodePoints[index].codePointAt(0) ?? 0;
+    if (leftValue !== rightValue) {
+      return leftValue < rightValue ? -1 : 1;
+    }
+  }
+
+  return leftCodePoints.length - rightCodePoints.length;
+}
+
+function orderingPath(value: string) {
+  return normalizedPath(value).normalize("NFC").toLowerCase();
 }
 
 function sortedCandidates(values: readonly WikiLinkCandidate[]) {
   return [...values].sort(
     (left, right) =>
-      left.file.localeCompare(right.file, undefined, { sensitivity: "base" }) ||
-      left.file.localeCompare(right.file),
+      compareCodePoints(orderingPath(left.file), orderingPath(right.file)) ||
+      compareCodePoints(left.file, right.file),
   );
 }
 

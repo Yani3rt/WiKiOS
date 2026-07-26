@@ -165,8 +165,8 @@ export function createWikiWatcherController(
       return state.watcherFlushPromise;
     }
 
-    const pendingPaths = [...state.pendingPaths];
     const needsFullReconcile = state.pendingFullReconcile;
+    const pendingPaths = needsFullReconcile ? [] : [...state.pendingPaths];
     state.pendingPaths.clear();
     state.pendingFullReconcile = false;
 
