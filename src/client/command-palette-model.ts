@@ -1,7 +1,7 @@
 import type { ExplorerPage } from "../lib/wiki-shared";
 
 export const COMMAND_PALETTE_RECENTS_KEY = "wiki-os:command-palette-recents";
-export const COMMAND_PALETTE_RECENTS_LIMIT = 3;
+export const COMMAND_PALETTE_RECENTS_LIMIT = 4;
 
 interface ShortcutLike {
   readonly key: string;

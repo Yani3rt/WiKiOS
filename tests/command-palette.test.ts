@@ -17,6 +17,11 @@ import {
   resolveCommandPalettePages,
   serializeRecentNoteSlugs,
 } from "../src/client/command-palette-model";
+import {
+  persistRecentNoteSlugs,
+  readRecentNoteSlugs,
+  type RecentNoteStorage,
+} from "../src/client/recent-note-storage";
 import { CommandPalette } from "../src/components/command-palette";
 import type { ExplorerPage } from "../src/lib/wiki-shared";
 
@@ -37,14 +42,16 @@ const pages: ExplorerPage[] = [
 ];
 
 describe("command palette model", () => {
-  it("keeps three unique recent note slugs in newest-first order", () => {
-    expect(promoteRecentNote(["beta", "alpha", "gamma"], "alpha")).toEqual([
+  it("keeps four unique recent note slugs in newest-first order", () => {
+    expect(promoteRecentNote(["beta", "alpha", "gamma", "omega"], "alpha")).toEqual([
       "alpha",
       "beta",
       "gamma",
+      "omega",
     ]);
-    expect(promoteRecentNote(["gamma", "beta", "alpha"], "delta")).toEqual([
+    expect(promoteRecentNote(["omega", "gamma", "beta", "alpha"], "delta")).toEqual([
       "delta",
+      "omega",
       "gamma",
       "beta",
     ]);
@@ -54,11 +61,9 @@ describe("command palette model", () => {
     const serialized = serializeRecentNoteSlugs(["alpha", "beta"]);
 
     expect(parseRecentNoteSlugs(serialized)).toEqual(["alpha", "beta"]);
-    expect(parseRecentNoteSlugs('["alpha", "alpha", "beta", "gamma", "delta"]')).toEqual([
-      "alpha",
-      "beta",
-      "gamma",
-    ]);
+    expect(
+      parseRecentNoteSlugs('["alpha", "alpha", "beta", "gamma", "delta", "omega"]'),
+    ).toEqual(["alpha", "beta", "gamma", "delta"]);
     expect(parseRecentNoteSlugs('{"bad":true}')).toEqual([]);
     expect(parseRecentNoteSlugs("not-json")).toEqual([]);
   });
@@ -121,6 +126,35 @@ describe("command palette model", () => {
     expect(commandPaletteExplorerPath("literal%20name")).toBe(
       "/explorer/literal%2520name",
     );
+  });
+});
+
+describe("recent note storage", () => {
+  it("reads and writes the shared recent-note key", () => {
+    const values = new Map<string, string>();
+    const storage: RecentNoteStorage = {
+      getItem: (key) => values.get(key) ?? null,
+      setItem: (key, value) => values.set(key, value),
+    };
+
+    persistRecentNoteSlugs(["alpha", "beta", "gamma", "delta", "omega"], storage);
+
+    expect(readRecentNoteSlugs(storage)).toEqual(["alpha", "beta", "gamma", "delta"]);
+  });
+
+  it("survives unavailable and failing browser storage", () => {
+    const failingStorage: RecentNoteStorage = {
+      getItem: () => {
+        throw new Error("blocked");
+      },
+      setItem: () => {
+        throw new Error("quota");
+      },
+    };
+
+    expect(readRecentNoteSlugs(null)).toEqual([]);
+    expect(readRecentNoteSlugs(failingStorage)).toEqual([]);
+    expect(() => persistRecentNoteSlugs(["alpha"], failingStorage)).not.toThrow();
   });
 });
 
