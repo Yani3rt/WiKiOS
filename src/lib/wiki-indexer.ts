@@ -5,7 +5,6 @@ import type { WikiHeading } from "./wiki-shared";
 
 export interface BacklinkReference {
   targetRaw: string;
-  targetSlug: string;
 }
 
 export interface IndexedWikiPage {
@@ -85,6 +84,7 @@ export interface WikiIndexerDbDependencies<TDb> extends WikiIndexerRuntimeDepend
   requireDb: () => TDb;
   upsertPageRecord: (db: TDb, page: IndexedWikiPage) => void;
   deletePageByFile: (db: TDb, file: string) => boolean;
+  reconcileBacklinkTargets?: (db: TDb) => void;
   selectPageModifiedAt: (db: TDb, file: string) => number | undefined;
   listIndexedPages: (db: TDb) => Array<{ file: string; modifiedAt: number }>;
 }
@@ -285,14 +285,18 @@ export async function syncSinglePath<TDb, TConfig>(
   }
 
   if (!deps.shouldIndexRelativeFile(normalizedPath)) {
-    return deps.deletePageByFile(db, normalizedPath);
+    const deleted = deps.deletePageByFile(db, normalizedPath);
+    if (deleted) deps.reconcileBacklinkTargets?.(db);
+    return deleted;
   }
 
   const absolutePath = path.join(wikiRoot, normalizedPath);
   try {
     const stat = await fs.stat(absolutePath);
     if (!stat.isFile()) {
-      return deps.deletePageByFile(db, normalizedPath);
+      const deleted = deps.deletePageByFile(db, normalizedPath);
+      if (deleted) deps.reconcileBacklinkTargets?.(db);
+      return deleted;
     }
 
     const existingModifiedAt = deps.selectPageModifiedAt(db, normalizedPath);
@@ -306,10 +310,13 @@ export async function syncSinglePath<TDb, TConfig>(
     }
 
     deps.upsertPageRecord(db, page);
+    deps.reconcileBacklinkTargets?.(db);
     return true;
   } catch (error) {
     if (isMissingPathError(error)) {
-      return deps.deletePageByFile(db, normalizedPath);
+      const deleted = deps.deletePageByFile(db, normalizedPath);
+      if (deleted) deps.reconcileBacklinkTargets?.(db);
+      return deleted;
     }
 
     throw error;
@@ -367,6 +374,7 @@ export async function reconcileIndexWithDisk<TDb, TConfig>(
     }
 
     if (upserted > 0 || deleted > 0) {
+      deps.reconcileBacklinkTargets?.(db);
       deps.markRevisionChanged?.();
     }
 

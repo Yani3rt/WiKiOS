@@ -1,15 +1,19 @@
 import Database from "better-sqlite3";
 
 import type { WikiHeading } from "./wiki-shared";
+import {
+  buildWikiLinkIndex,
+  resolveWikiLinkTarget,
+  type WikiLinkCandidate,
+} from "./wiki-link-resolver";
 
-export const DEFAULT_WIKI_INDEX_CACHE_VERSION = 5;
+export const DEFAULT_WIKI_INDEX_CACHE_VERSION = 6;
 export const REQUIRED_INDEX_TABLES = ["pages", "backlinks", "categories", "pages_fts"] as const;
 
 export type SqliteDb = Database.Database;
 
 export interface BacklinkReferenceRecord {
   targetRaw: string;
-  targetSlug: string;
 }
 
 export interface IndexedWikiPageRecord {
@@ -73,11 +77,11 @@ function aggregateBacklinkReferences(
   const targets = new Map<string, { targetRaw: string; count: number }>();
 
   for (const reference of references) {
-    const existing = targets.get(reference.targetSlug);
+    const existing = targets.get(reference.targetRaw);
     if (existing) {
       existing.count += 1;
     } else {
-      targets.set(reference.targetSlug, { targetRaw: reference.targetRaw, count: 1 });
+      targets.set(reference.targetRaw, { targetRaw: reference.targetRaw, count: 1 });
     }
   }
 
@@ -134,9 +138,11 @@ export function runDbMigrations(db: SqliteDb, options: WikiDbMigrationOptions = 
     CREATE TABLE IF NOT EXISTS backlinks (
       source_file TEXT NOT NULL REFERENCES pages(file) ON DELETE CASCADE,
       target_raw TEXT NOT NULL,
-      target_slug TEXT NOT NULL,
+      target_slug TEXT,
+      resolution_state TEXT NOT NULL
+        CHECK (resolution_state IN ('resolved', 'ambiguous', 'missing')),
       occurrence_count INTEGER NOT NULL,
-      PRIMARY KEY (source_file, target_slug)
+      PRIMARY KEY (source_file, target_raw)
     );
 
     CREATE INDEX IF NOT EXISTS idx_pages_kind ON pages(kind);
@@ -244,41 +250,7 @@ export function runStartupIntegrityCheck(
   }
 }
 
-export function getSourceTargets(db: SqliteDb, sourceFile: string) {
-  const rows = db
-    .prepare("SELECT target_slug AS targetSlug FROM backlinks WHERE source_file = ?")
-    .all(sourceFile) as Array<{ targetSlug: string }>;
-  return rows.map((row) => row.targetSlug);
-}
-
-export function recomputeBacklinkCountsForSlugs(db: SqliteDb, slugs: Iterable<string>) {
-  const uniqueSlugs = [...new Set([...slugs].filter(Boolean))];
-  if (uniqueSlugs.length === 0) {
-    return;
-  }
-
-  const countInbound = db.prepare(`
-    SELECT COALESCE(SUM(occurrence_count), 0) AS count
-    FROM backlinks
-    WHERE target_slug = ?
-  `);
-  const updateBacklinkCount = db.prepare("UPDATE pages SET backlink_count = ? WHERE slug = ?");
-
-  const run = db.transaction((targetSlugs: string[]) => {
-    for (const slug of targetSlugs) {
-      const row = countInbound.get(slug) as { count: number } | undefined;
-      updateBacklinkCount.run(row?.count ?? 0, slug);
-    }
-  });
-
-  run(uniqueSlugs);
-}
-
 export function upsertPageRecord(db: SqliteDb, page: IndexedWikiPageRecord) {
-  const previousPage = db
-    .prepare("SELECT slug FROM pages WHERE file = ?")
-    .get(page.file) as { slug: string } | undefined;
-  const previousTargets = getSourceTargets(db, page.file);
   const backlinkTargets = aggregateBacklinkReferences(page.backlinkReferences);
 
   const upsert = db.transaction(() => {
@@ -334,11 +306,17 @@ export function upsertPageRecord(db: SqliteDb, page: IndexedWikiPageRecord) {
 
     db.prepare("DELETE FROM backlinks WHERE source_file = ?").run(page.file);
     const insertBacklink = db.prepare(`
-      INSERT INTO backlinks (source_file, target_raw, target_slug, occurrence_count)
-      VALUES (?, ?, ?, ?)
+      INSERT INTO backlinks (
+        source_file,
+        target_raw,
+        target_slug,
+        resolution_state,
+        occurrence_count
+      )
+      VALUES (?, ?, NULL, 'missing', ?)
     `);
-    for (const [targetSlug, target] of backlinkTargets) {
-      insertBacklink.run(page.file, target.targetRaw, targetSlug, target.count);
+    for (const target of backlinkTargets.values()) {
+      insertBacklink.run(page.file, target.targetRaw, target.count);
     }
 
     db.prepare("DELETE FROM pages_fts WHERE file = ?").run(page.file);
@@ -349,24 +327,15 @@ export function upsertPageRecord(db: SqliteDb, page: IndexedWikiPageRecord) {
   });
 
   upsert();
-
-  const affectedSlugs = new Set<string>([page.slug, ...previousTargets, ...backlinkTargets.keys()]);
-  if (previousPage?.slug) {
-    affectedSlugs.add(previousPage.slug);
-  }
-
-  recomputeBacklinkCountsForSlugs(db, affectedSlugs);
 }
 
 export function deletePageByFile(db: SqliteDb, file: string) {
   const existingPage = db
-    .prepare("SELECT slug FROM pages WHERE file = ?")
-    .get(file) as { slug: string } | undefined;
+    .prepare("SELECT 1 FROM pages WHERE file = ?")
+    .get(file);
   if (!existingPage) {
     return false;
   }
-
-  const previousTargets = getSourceTargets(db, file);
 
   const remove = db.transaction(() => {
     db.prepare("DELETE FROM pages_fts WHERE file = ?").run(file);
@@ -374,6 +343,52 @@ export function deletePageByFile(db: SqliteDb, file: string) {
   });
   remove();
 
-  recomputeBacklinkCountsForSlugs(db, [existingPage.slug, ...previousTargets]);
   return true;
+}
+
+export function reconcileBacklinkTargets(db: SqliteDb) {
+  const candidates = db
+    .prepare("SELECT file, slug, title FROM pages")
+    .all() as WikiLinkCandidate[];
+  const references = db
+    .prepare(`
+      SELECT source_file AS sourceFile, target_raw AS targetRaw
+      FROM backlinks
+    `)
+    .all() as Array<{ sourceFile: string; targetRaw: string }>;
+  const index = buildWikiLinkIndex(candidates);
+  const update = db.prepare(`
+    UPDATE backlinks
+    SET target_slug = ?, resolution_state = ?
+    WHERE source_file = ? AND target_raw = ?
+  `);
+
+  const reconcile = db.transaction(() => {
+    for (const reference of references) {
+      const resolution = resolveWikiLinkTarget(
+        reference.targetRaw,
+        reference.sourceFile,
+        index,
+      );
+      update.run(
+        resolution.status === "resolved" ? resolution.candidate.slug : null,
+        resolution.status,
+        reference.sourceFile,
+        reference.targetRaw,
+      );
+    }
+
+    db.prepare("UPDATE pages SET backlink_count = 0").run();
+    db.prepare(`
+      UPDATE pages
+      SET backlink_count = (
+        SELECT COALESCE(SUM(backlinks.occurrence_count), 0)
+        FROM backlinks
+        WHERE backlinks.target_slug = pages.slug
+          AND backlinks.resolution_state = 'resolved'
+      )
+    `).run();
+  });
+
+  reconcile();
 }

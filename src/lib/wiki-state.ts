@@ -9,7 +9,7 @@ import type {
   WikiStats,
 } from "./wiki-shared";
 
-export const CACHE_VERSION = 5;
+export const CACHE_VERSION = 6;
 
 type SqliteDb = Database.Database;
 

@@ -1,8 +1,12 @@
 import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+
+import Database from "better-sqlite3";
 import os from "node:os";
 import path from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { runDbMigrations } from "../src/lib/wiki-db";
 
 const cacheKey = "__wikiUiCache";
 
@@ -52,6 +56,43 @@ describe("wiki startup self-heal", () => {
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (globalThis as any)[cacheKey]?.db?.close();
+      const rebuiltDb = new Database(indexDbPath, { readonly: true });
+      const userVersion = rebuiltDb.pragma("user_version", { simple: true });
+      rebuiltDb.close();
+
+      expect(userVersion).toBe(6);
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("quarantines a version-5 cache and rebuilds a version-6 index", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "wiki-ui-self-heal-"));
+    const wikiRoot = path.join(tempDir, "vault");
+    const indexDbPath = path.join(tempDir, "index.sqlite");
+
+    try {
+      await mkdir(wikiRoot, { recursive: true });
+      await writeFile(path.join(wikiRoot, "Alpha.md"), "# Alpha\n");
+      const staleDb = new Database(indexDbPath);
+      runDbMigrations(staleDb, { cacheVersion: 5 });
+      staleDb.close();
+
+      const wiki = await loadWikiModule(wikiRoot, indexDbPath);
+      const homepage = await wiki.getHomepageData();
+      const tempFiles = await readdir(tempDir);
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (globalThis as any)[cacheKey]?.db?.close();
+      const rebuiltDb = new Database(indexDbPath, { readonly: true });
+      const userVersion = rebuiltDb.pragma("user_version", { simple: true });
+      rebuiltDb.close();
+
+      expect(homepage.totalPages).toBe(1);
+      expect(userVersion).toBe(6);
+      expect(
+        tempFiles.some((fileName) => fileName.startsWith("index.sqlite.corrupt-")),
+      ).toBe(true);
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }

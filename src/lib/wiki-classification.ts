@@ -6,14 +6,12 @@ import {
 } from "./wiki-config";
 import { normalizeRelativePath } from "./wiki-file-utils";
 import {
-  slugFromFileName,
   type PersonOverrideValue,
   type SearchMatch,
 } from "./wiki-shared";
 
 export interface BacklinkReference {
   targetRaw: string;
-  targetSlug: string;
 }
 
 export interface AggregatedBacklinkReference {
@@ -483,11 +481,7 @@ export function extractBacklinkReferences(markdown: string): BacklinkReference[]
       continue;
     }
 
-    const targetFile = rawTarget.endsWith(".md") ? rawTarget : `${rawTarget}.md`;
-    references.push({
-      targetRaw: rawTarget,
-      targetSlug: slugFromFileName(targetFile),
-    });
+    references.push({ targetRaw: rawTarget });
   }
 
   return references;
@@ -499,11 +493,11 @@ export function aggregateBacklinkReferences(
   const targets = new Map<string, AggregatedBacklinkReference>();
 
   for (const reference of references) {
-    const existing = targets.get(reference.targetSlug);
+    const existing = targets.get(reference.targetRaw);
     if (existing) {
       existing.count += 1;
     } else {
-      targets.set(reference.targetSlug, { targetRaw: reference.targetRaw, count: 1 });
+      targets.set(reference.targetRaw, { targetRaw: reference.targetRaw, count: 1 });
     }
   }
 
