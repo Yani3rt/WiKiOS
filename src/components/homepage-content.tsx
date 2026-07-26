@@ -4,7 +4,12 @@ import { Link } from "react-router-dom";
 import { useWikiConfig } from "@/client/wiki-config";
 import { usePersonImage } from "@/client/use-person-image";
 import { type HomepageSectionKey } from "@/lib/wiki-config";
-import { type HomepageData, type PageSummary } from "@/lib/wiki-shared";
+import {
+  slugFromFileName,
+  type ExplorerPage,
+  type HomepageData,
+  type PageSummary,
+} from "@/lib/wiki-shared";
 
 export const HOME_SECTION_PREVIEW_LIMIT = 4;
 
@@ -26,6 +31,26 @@ function PageRow({ page, showSummary = false }: { page: PageSummary; showSummary
       </span>
       <span className="shrink-0 pt-0.5 text-xs tabular-nums text-[var(--home-muted)]">
         {page.backlinkCount.toLocaleString()} {page.backlinkCount === 1 ? "backlink" : "backlinks"}
+      </span>
+    </Link>
+  );
+}
+
+function RecentlyVisitedRow({ page }: { page: ExplorerPage }) {
+  const path = page.file.replace(/\.md$/iu, "");
+
+  return (
+    <Link
+      to={`/wiki/${slugFromFileName(page.file)}`}
+      className="home-note-link group flex min-h-14 min-w-0 items-start py-3 text-left"
+    >
+      <span className="min-w-0">
+        <span className="block truncate text-[0.95rem] font-medium text-[var(--home-ink)] group-hover:text-[var(--home-accent)]">
+          {page.title}
+        </span>
+        <span className="mt-1 block truncate text-sm leading-5 text-[var(--home-muted)]">
+          {path}
+        </span>
       </span>
     </Link>
   );
@@ -122,7 +147,13 @@ export function getVisibleHomePages<T>(pages: readonly T[], expanded: boolean) {
   return expanded ? pages : pages.slice(0, HOME_SECTION_PREVIEW_LIMIT);
 }
 
-export function HomepageContent({ homepage }: { homepage: HomepageData }) {
+export function HomepageContent({
+  homepage,
+  recentlyVisitedPages,
+}: {
+  homepage: HomepageData;
+  recentlyVisitedPages: readonly ExplorerPage[];
+}) {
   const config = useWikiConfig();
   const labels = config.homepage.labels;
   const [expandedSections, setExpandedSections] = useState<Set<HomepageSectionKey>>(new Set());
@@ -143,22 +174,28 @@ export function HomepageContent({ homepage }: { homepage: HomepageData }) {
   };
 
   const sectionViews: Record<HomepageSectionKey, ReactNode> = {
-    featured: homepage.featured.length > 0 ? (
+    featured: (
       <HomeSection
         sectionKey="featured"
         title={labels.featured}
-        description="Connected notes worth another look."
-        itemCount={homepage.featured.length}
+        description="Notes you opened most recently on this device."
+        itemCount={recentlyVisitedPages.length}
         expanded={isExpanded("featured")}
         onToggle={() => toggleSection("featured")}
       >
-        {getVisibleHomePages(homepage.featured, isExpanded("featured")).map((page) => (
-          <li key={page.file}>
-            <PageRow page={page} showSummary />
+        {recentlyVisitedPages.length > 0 ? (
+          getVisibleHomePages(recentlyVisitedPages, isExpanded("featured")).map((page) => (
+            <li key={page.file}>
+              <RecentlyVisitedRow page={page} />
+            </li>
+          ))
+        ) : (
+          <li className="py-4 text-sm leading-6 text-[var(--home-muted)]">
+            Open a note to start your recent history.
           </li>
-        ))}
+        )}
       </HomeSection>
-    ) : null,
+    ),
     topConnected: (
       <HomeSection
         sectionKey="topConnected"
