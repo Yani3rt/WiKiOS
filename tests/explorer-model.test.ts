@@ -1,11 +1,12 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import { createElement } from "react";
+import { createElement, type ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
 import type { ExplorerPage, WikiPageData } from "../src/lib/wiki-shared";
+import type { WikiLinkCandidate } from "../src/lib/wiki-link-resolver";
 import {
   EMPTY_EXPLORER_WORKSPACE,
   EXPLORER_STORAGE_KEY,
@@ -220,6 +221,67 @@ describe("explorer route registration", () => {
     expect(markup).toContain("Archive/Note.md");
     expect(markup).toContain("Projects/Note.md");
     expect(markup).not.toContain('role="alert"');
+  });
+
+  it("explorer: ambiguity chooser selection", async () => {
+    const routeModule = (await import("../src/client/routes/explorer-route")) as unknown as {
+      ExplorerReader?: (props: {
+        state: {
+          slug: string;
+          status: "ambiguous";
+          ambiguity: {
+            code: "AMBIGUOUS_WIKILINK";
+            target: string;
+            candidates: WikiLinkCandidate[];
+          };
+        };
+        hasTabs: boolean;
+        onWikiLink: (slug: string) => void;
+        onRefreshPage: () => Promise<void>;
+        onBrowseNotes: () => void;
+        onResolveAmbiguity: (
+          unresolvedSlug: string,
+          candidate: WikiLinkCandidate,
+        ) => void;
+        workspaceScrollRef: { current: null };
+      }) => ReactElement<{ children: ReactElement<{
+        onSelect: (candidate: WikiLinkCandidate) => void;
+      }> }>;
+    };
+    const candidate: WikiLinkCandidate = {
+      file: "Projects/Note.md",
+      slug: "Projects/Note",
+      title: "Note",
+    };
+    const selections: Array<{
+      unresolvedSlug: string;
+      candidate: WikiLinkCandidate;
+    }> = [];
+
+    expect(routeModule.ExplorerReader).toBeTypeOf("function");
+    const reader = routeModule.ExplorerReader!({
+      state: {
+        slug: "Note",
+        status: "ambiguous",
+        ambiguity: {
+          code: "AMBIGUOUS_WIKILINK",
+          target: "Note",
+          candidates: [candidate],
+        },
+      },
+      hasTabs: true,
+      onWikiLink: () => {},
+      onRefreshPage: async () => {},
+      onBrowseNotes: () => {},
+      onResolveAmbiguity: (unresolvedSlug, selectedCandidate) => {
+        selections.push({ unresolvedSlug, candidate: selectedCandidate });
+      },
+      workspaceScrollRef: { current: null },
+    });
+
+    reader.props.children.props.onSelect(candidate);
+
+    expect(selections).toEqual([{ unresolvedSlug: "Note", candidate }]);
   });
 
   it("uses the structured page loader and replaces ambiguous routes in browser history", () => {
@@ -816,7 +878,7 @@ describe("explorer workspace", () => {
     expect(openedBeta).toEqual(workspace([beta, alpha], beta.slug));
   });
 
-  it("replaces an unresolved tab with the selected canonical candidate", () => {
+  it("explorer: canonical tab replacement", () => {
     expect(
       replaceExplorerTabWithCandidate(
         {

@@ -5,6 +5,11 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { resolveWikiOsConfig, type WikiOsConfigInput } from "../src/lib/wiki-config";
+import {
+  buildWikiLinkIndex,
+  resolveWikiLinkTarget,
+  type WikiLinkCandidate,
+} from "../src/lib/wiki-link-resolver";
 
 const cacheKey = "__wikiUiCache";
 
@@ -50,6 +55,58 @@ afterEach(() => {
   vi.doUnmock("../src/server/wiki-config");
   vi.resetModules();
   delete (globalThis as typeof globalThis & { __wikiUiCache?: unknown })[cacheKey];
+});
+
+describe("wikilink resolver regression matrix", () => {
+  const candidates: WikiLinkCandidate[] = [
+    { file: "00 Ideas/Ideas.md", slug: "00%20Ideas/Ideas", title: "Ideas" },
+    { file: "Archive/Note.md", slug: "Archive/Note", title: "Note" },
+    { file: "Projects/Note.md", slug: "Projects/Note", title: "Note" },
+    { file: "Projects/Plan.md", slug: "Projects/Plan", title: "Plan" },
+  ];
+  const index = buildWikiLinkIndex(candidates);
+
+  it("resolver: unique nested basename", () => {
+    expect(resolveWikiLinkTarget("Ideas", "Home.md", index)).toEqual({
+      status: "resolved",
+      reason: "unique",
+      target: "Ideas",
+      candidate: candidates[0],
+    });
+  });
+
+  it("resolver: explicit full path", () => {
+    expect(resolveWikiLinkTarget("Archive/Note", "Projects/Plan.md", index)).toEqual({
+      status: "resolved",
+      reason: "explicit",
+      target: "Archive/Note",
+      candidate: candidates[1],
+    });
+  });
+
+  it("resolver: same-folder duplicate", () => {
+    expect(resolveWikiLinkTarget("Note", "Projects/Plan.md", index)).toEqual({
+      status: "resolved",
+      reason: "same-folder",
+      target: "Note",
+      candidate: candidates[2],
+    });
+  });
+
+  it("resolver: ambiguous duplicate", () => {
+    expect(resolveWikiLinkTarget("Note", "Home.md", index)).toEqual({
+      status: "ambiguous",
+      target: "Note",
+      candidates: [candidates[1], candidates[2]],
+    });
+  });
+
+  it("resolver: missing target", () => {
+    expect(resolveWikiLinkTarget("Missing", "Home.md", index)).toEqual({
+      status: "missing",
+      target: "Missing",
+    });
+  });
 });
 
 describe("wiki snapshot", () => {
@@ -193,7 +250,67 @@ describe("wiki snapshot", () => {
     }
   });
 
-  it("re-resolves wikilinks when a duplicate target changes the vault topology", async () => {
+  it("index: unique nested backlink and count", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "wiki-ui-"));
+
+    try {
+      await mkdir(path.join(root, "00 Ideas"), { recursive: true });
+      await writeFile(path.join(root, "Home.md"), "# Home\n\n[[Ideas]]\n");
+      await writeFile(path.join(root, "00 Ideas", "Ideas.md"), "# Ideas\n");
+
+      const wiki = await loadWikiModule(root);
+      await wiki.reindexWikiSnapshot();
+
+      const home = await wiki.getWikiPage(["Home"]);
+      const graph = await wiki.getGraphData();
+      const ideas = graph.nodes.find((node) => node.slug === "00%20Ideas/Ideas");
+
+      expect(home.neighbors).toEqual(
+        expect.arrayContaining([expect.objectContaining({ slug: "00%20Ideas/Ideas" })]),
+      );
+      expect(graph.edges).toContainEqual(
+        expect.objectContaining({ source: "Home", target: "00%20Ideas/Ideas" }),
+      );
+      expect(ideas).toEqual(expect.objectContaining({ backlinkCount: 1 }));
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("index: ambiguous backlink omitted from graph", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "wiki-ui-"));
+
+    try {
+      await mkdir(path.join(root, "Archive"), { recursive: true });
+      await mkdir(path.join(root, "Projects"), { recursive: true });
+      await writeFile(path.join(root, "Home.md"), "# Home\n\n[[Note]]\n");
+      await writeFile(path.join(root, "Archive", "Note.md"), "# Archive Note\n");
+      await writeFile(path.join(root, "Projects", "Note.md"), "# Projects Note\n");
+
+      const wiki = await loadWikiModule(root);
+      await wiki.reindexWikiSnapshot();
+
+      const home = await wiki.getWikiPage(["Home"]);
+      const graph = await wiki.getGraphData();
+      const duplicateNotes = graph.nodes.filter((node) => node.slug.endsWith("/Note"));
+
+      expect(home.neighbors).toEqual([]);
+      expect(graph.edges).not.toContainEqual(
+        expect.objectContaining({ source: "Home" }),
+      );
+      expect(duplicateNotes).toHaveLength(2);
+      expect(duplicateNotes).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ slug: "Archive/Note", backlinkCount: 0 }),
+          expect.objectContaining({ slug: "Projects/Note", backlinkCount: 0 }),
+        ]),
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("index: duplicate add/remove re-resolution", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "wiki-ui-"));
 
     try {
@@ -246,6 +363,27 @@ describe("wiki snapshot", () => {
         expect.objectContaining({ source: "Home", target: "Projects/Note" }),
       );
       expect(restoredProjectsNote).toEqual(expect.objectContaining({ backlinkCount: 1 }));
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("markdown: resolved href is canonical", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "wiki-ui-"));
+
+    try {
+      await mkdir(path.join(root, "00 Ideas"), { recursive: true });
+      await writeFile(path.join(root, "Home.md"), "# Home\n\nRead [[Ideas]].\n");
+      await writeFile(path.join(root, "00 Ideas", "Ideas.md"), "# Ideas\n");
+
+      const wiki = await loadWikiModule(root);
+      await wiki.reindexWikiSnapshot();
+
+      const home = await wiki.getWikiPage(["Home"]);
+
+      expect(home.contentMarkdown).toContain(
+        "[Ideas](/wiki/00%20Ideas/Ideas)",
+      );
     } finally {
       await rm(root, { recursive: true, force: true });
     }

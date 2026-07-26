@@ -66,7 +66,7 @@ describe("wiki startup self-heal", () => {
     }
   });
 
-  it("quarantines a version-5 cache and rebuilds a version-6 index", async () => {
+  it("cache: version-5 index rebuilds as version 6", async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "wiki-ui-self-heal-"));
     const wikiRoot = path.join(tempDir, "vault");
     const indexDbPath = path.join(tempDir, "index.sqlite");

@@ -44,7 +44,7 @@ afterEach(() => {
 });
 
 describe("server app", () => {
-  it("resolves unique nested wiki routes and reports ambiguous basename routes", async () => {
+  it("api: unique basename returns canonical page", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "wiki-ui-wikilink-routes-"));
 
     try {
@@ -90,7 +90,7 @@ describe("server app", () => {
     }
   });
 
-  it("reports basename ambiguity when one candidate is a root-level note", async () => {
+  it("api: duplicate basename returns HTTP 300 candidates", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "wiki-ui-root-wikilink-"));
 
     try {
@@ -114,6 +114,27 @@ describe("server app", () => {
           { file: "Note.md", slug: "Note", title: "Note" },
         ],
       });
+
+      await app.close();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("api: missing basename returns 404", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "wiki-ui-missing-wikilink-"));
+
+    try {
+      await writeFile(path.join(root, "Home.md"), "# Home\n");
+
+      const server = await loadServerModule({ root });
+      await server.warmWikiSnapshot();
+      const app = await server.buildServer({ logger: false, serveClient: false });
+      await app.ready();
+
+      const missing = await app.inject({ method: "GET", url: "/api/wiki/Missing" });
+
+      expect(missing.statusCode).toBe(404);
 
       await app.close();
     } finally {

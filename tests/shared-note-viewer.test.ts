@@ -1,13 +1,23 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import { createElement, type RefObject } from "react";
+import {
+  createElement,
+  isValidElement,
+  type ReactElement,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 
 import { WikiConfigProvider } from "../src/client/wiki-config";
-import { fetchWikiPage } from "../src/client/api";
+import {
+  fetchJson,
+  fetchWikiPage,
+  isSetupRequiredResponse,
+} from "../src/client/api";
 import {
   NoteViewer,
   copyCodeBlockText,
@@ -329,6 +339,52 @@ describe("shared note viewer behavioral helpers", () => {
 });
 
 describe("shared note viewer rendering and route boundaries", () => {
+  it("keeps fetchJson compatibility by rejecting HTTP 300", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify(ambiguousWikiLink), {
+          status: 300,
+          headers: { "content-type": "application/json" },
+        }),
+      ),
+    );
+    try {
+      const error = await fetchJson("/api/wiki/Note").catch(
+        (caught: unknown) => caught,
+      );
+
+      expect(error).toBeInstanceOf(Response);
+      expect((error as Response).status).toBe(300);
+      expect(isSetupRequiredResponse(error)).toBe(false);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps fetchJson compatibility by exposing HTTP 409 as setup-required", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ error: "Setup required" }), {
+          status: 409,
+          headers: { "content-type": "application/json" },
+        }),
+      ),
+    );
+    try {
+      const error = await fetchJson("/api/home").catch(
+        (caught: unknown) => caught,
+      );
+
+      expect(error).toBeInstanceOf(Response);
+      expect((error as Response).status).toBe(409);
+      expect(isSetupRequiredResponse(error)).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("parses an HTTP 300 WikiLink ambiguity as a normal page-load result", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(
       new Response(JSON.stringify(ambiguousWikiLink), {
@@ -350,7 +406,7 @@ describe("shared note viewer rendering and route boundaries", () => {
     }
   });
 
-  it("redirects a unique short Wiki URL to its canonical full slug", async () => {
+  it("wiki route: canonical redirect", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ ...samplePage, slug: "Archive/Note" }), {
         headers: { "content-type": "application/json" },
@@ -369,7 +425,30 @@ describe("shared note viewer rendering and route boundaries", () => {
     }
   });
 
-  it("renders an accessible chooser for ambiguous wikilinks", () => {
+  it("does not redirect an already-canonical Wiki URL", async () => {
+    const canonicalPage = { ...samplePage, slug: "Archive/Note" };
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(canonicalPage), {
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchImpl);
+    try {
+      await expect(
+        wikiLoader({ params: { "*": "Archive/Note" } } as never),
+      ).resolves.toEqual({
+        status: "ready",
+        page: canonicalPage,
+      });
+      expect(fetchImpl).toHaveBeenCalledWith("/api/wiki/Archive/Note", {
+        headers: { accept: "application/json" },
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("wiki route: accessible ambiguity chooser", () => {
     const markup = renderToStaticMarkup(
       createElement(WikilinkAmbiguityView, {
         target: ambiguousWikiLink.target,
@@ -386,13 +465,47 @@ describe("shared note viewer rendering and route boundaries", () => {
     expect(markup.match(/<button\b/gu)).toHaveLength(3);
   });
 
-  it("wires every ambiguity candidate button to its selection callback", () => {
-    const chooserSource = readFileSync(
-      fileURLToPath(new URL("../src/components/wikilink-ambiguity-view.tsx", import.meta.url)),
+  it("forwards candidate and browse button clicks to chooser callbacks without a DOM", () => {
+    const selected: string[] = [];
+    let browsed = false;
+    const chooser = WikilinkAmbiguityView({
+      target: ambiguousWikiLink.target,
+      candidates: ambiguousWikiLink.candidates,
+      onSelect: (candidate) => selected.push(candidate.slug),
+      onBrowseNotes: () => {
+        browsed = true;
+      },
+    });
+    const buttons: ReactElement<{ onClick?: () => void }>[] = [];
+    const collectButtons = (node: ReactNode) => {
+      if (Array.isArray(node)) {
+        node.forEach(collectButtons);
+        return;
+      }
+      if (!isValidElement(node)) return;
+      if (node.type === "button") {
+        buttons.push(node as ReactElement<{ onClick?: () => void }>);
+      }
+      collectButtons((node.props as { children?: ReactNode }).children);
+    };
+
+    collectButtons(chooser);
+    buttons.forEach((button) => button.props.onClick?.());
+
+    expect(selected).toEqual(["Archive/Note", "Projects/Note"]);
+    expect(browsed).toBe(true);
+    expect(buttons).toHaveLength(3);
+  });
+
+  it("statically wires the Wiki route chooser selection to canonical replacement navigation", () => {
+    const wikiRouteSource = readFileSync(
+      fileURLToPath(new URL("../src/client/routes/wiki-route.tsx", import.meta.url)),
       "utf8",
     );
 
-    expect(chooserSource).toContain("onClick={() => onSelect(candidate)}");
+    expect(wikiRouteSource).toContain(
+      'onSelect={(candidate) => navigate(`/wiki/${candidate.slug}`, { replace: true })}',
+    );
   });
 
   it("renders article content, metadata, toc, related concepts, and graph markers without added category chips", () => {

@@ -199,6 +199,13 @@ WikiOS now has two complementary reading flows:
 
 Both routes share the same note viewer, so note presentation stays consistent across the app.
 
+### Wikilink resolution
+
+WikiOS resolves `[[Note]]` across the complete vault when the filename is unique.
+`[[Folder/Note]]` always resolves from the vault root. If duplicate filenames exist,
+a note in the source note's folder is preferred; otherwise WikiOS asks which complete
+path to open instead of guessing.
+
 ## License
 
 MIT
