@@ -27,6 +27,7 @@ import {
   getWikiPage,
   getWikiStats,
   isWikiConfigured,
+  isWikiLinkAmbiguityError,
   isWikiSetupRequiredError,
   primeWikiSnapshot,
   reindexWikiSnapshot,
@@ -416,6 +417,10 @@ export async function buildServer({
       const slugParts = request.params["*"]?.split("/").filter(Boolean) ?? [];
       return await getWikiPage(slugParts);
     } catch (error) {
+      if (isWikiLinkAmbiguityError(error)) {
+        return reply.code(300).send(error.data);
+      }
+
       return replyForWikiError(error, reply, "Wiki page not found", 404);
     }
   });

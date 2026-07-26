@@ -4,11 +4,16 @@ export function wikilinkHref(target: string) {
   return `/wiki/${slugFromFileName(`${target}.md`)}`;
 }
 
-export function transformObsidianLinks(markdown: string) {
+export type WikiLinkHrefResolver = (target: string) => string;
+
+export function transformObsidianLinks(
+  markdown: string,
+  resolveHref: WikiLinkHrefResolver = wikilinkHref,
+) {
   return markdown.replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_, rawTarget: string, rawLabel?: string) => {
     const target = rawTarget.trim();
     const label = (rawLabel ?? rawTarget).trim();
-    return `[${label}](${wikilinkHref(target)})`;
+    return `[${label}](${resolveHref(target)})`;
   });
 }
 
@@ -182,9 +187,14 @@ export function extractMarkdownHeadings(markdown: string): WikiHeading[] {
   return headings;
 }
 
-export function prepareWikiMarkdown(markdown: string): PreparedWikiMarkdown {
+export function prepareWikiMarkdown(
+  markdown: string,
+  resolveHref?: WikiLinkHrefResolver,
+): PreparedWikiMarkdown {
   const { body } = parseWikiFrontmatter(markdown);
-  const contentMarkdown = stripLeadingMarkdownTitle(transformObsidianLinks(body));
+  const contentMarkdown = stripLeadingMarkdownTitle(
+    transformObsidianLinks(body, resolveHref),
+  );
 
   return {
     contentMarkdown,

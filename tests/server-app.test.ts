@@ -44,6 +44,83 @@ afterEach(() => {
 });
 
 describe("server app", () => {
+  it("resolves unique nested wiki routes and reports ambiguous basename routes", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "wiki-ui-wikilink-routes-"));
+
+    try {
+      await mkdir(path.join(root, "00 Ideas"), { recursive: true });
+      await mkdir(path.join(root, "Projects"), { recursive: true });
+      await mkdir(path.join(root, "Archive"), { recursive: true });
+      await writeFile(path.join(root, "Home.md"), "# Home\n\n[[Ideas]] and [[Note]].\n");
+      await writeFile(path.join(root, "00 Ideas", "Ideas.md"), "# Ideas\n\nNested ideas.\n");
+      await writeFile(path.join(root, "Projects", "Note.md"), "# Note\n\nProject note.\n");
+      await writeFile(path.join(root, "Archive", "Note.md"), "# Note\n\nArchived note.\n");
+
+      const server = await loadServerModule({ root });
+      await server.warmWikiSnapshot();
+      const app = await server.buildServer({ logger: false, serveClient: false });
+      await app.ready();
+
+      const uniqueNested = await app.inject({ method: "GET", url: "/api/wiki/Ideas" });
+      const home = await app.inject({ method: "GET", url: "/api/wiki/Home" });
+      const ambiguous = await app.inject({ method: "GET", url: "/api/wiki/Note" });
+      const missing = await app.inject({ method: "GET", url: "/api/wiki/Missing" });
+
+      expect(uniqueNested.statusCode).toBe(200);
+      expect(uniqueNested.json().slug).toBe("00%20Ideas/Ideas");
+      expect(home.json().contentMarkdown).toContain(
+        "[Ideas](/wiki/00%20Ideas/Ideas)",
+      );
+
+      expect(ambiguous.statusCode).toBe(300);
+      expect(ambiguous.json()).toEqual({
+        code: "AMBIGUOUS_WIKILINK",
+        target: "Note",
+        candidates: [
+          { file: "Archive/Note.md", slug: "Archive/Note", title: "Note" },
+          { file: "Projects/Note.md", slug: "Projects/Note", title: "Note" },
+        ],
+      });
+
+      expect(missing.statusCode).toBe(404);
+
+      await app.close();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("reports basename ambiguity when one candidate is a root-level note", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "wiki-ui-root-wikilink-"));
+
+    try {
+      await mkdir(path.join(root, "Archive"), { recursive: true });
+      await writeFile(path.join(root, "Note.md"), "# Note\n\nRoot note.\n");
+      await writeFile(path.join(root, "Archive", "Note.md"), "# Note\n\nArchived note.\n");
+
+      const server = await loadServerModule({ root });
+      await server.warmWikiSnapshot();
+      const app = await server.buildServer({ logger: false, serveClient: false });
+      await app.ready();
+
+      const ambiguous = await app.inject({ method: "GET", url: "/api/wiki/Note" });
+
+      expect(ambiguous.statusCode).toBe(300);
+      expect(ambiguous.json()).toEqual({
+        code: "AMBIGUOUS_WIKILINK",
+        target: "Note",
+        candidates: [
+          { file: "Archive/Note.md", slug: "Archive/Note", title: "Note" },
+          { file: "Note.md", slug: "Note", title: "Note" },
+        ],
+      });
+
+      await app.close();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("serves the migrated JSON contracts from the in-memory wiki snapshot", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "wiki-ui-server-"));
 

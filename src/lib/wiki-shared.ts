@@ -1,3 +1,5 @@
+import type { WikiLinkCandidate } from "./wiki-link-resolver";
+
 export interface SearchMatch {
   heading: string;
   snippet: string;
@@ -54,6 +56,12 @@ export interface WikiPageData {
   neighbors: WikiNeighbor[];
   isPerson: boolean;
   personOverride: PersonOverrideValue | null;
+}
+
+export interface WikiLinkAmbiguityData {
+  code: "AMBIGUOUS_WIKILINK";
+  target: string;
+  candidates: WikiLinkCandidate[];
 }
 
 export interface PageSummary {

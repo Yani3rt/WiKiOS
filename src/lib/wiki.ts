@@ -32,7 +32,7 @@ import {
 } from "./wiki-file-utils";
 import { createWikiIndexer } from "./wiki-indexer";
 import { parseWikiFrontmatter, prepareWikiMarkdown } from "./markdown";
-import { createWikiQueries } from "./wiki-queries";
+import { createWikiQueries, WikiLinkAmbiguityError } from "./wiki-queries";
 import {
   CACHE_VERSION,
   WikiSetupRequiredError,
@@ -55,6 +55,7 @@ export type {
   BacklinkStat,
   WikiStats,
   WikiPageData,
+  WikiLinkAmbiguityData,
   WikiHeading,
   PageSummary,
   CategoryInfo,
@@ -271,6 +272,12 @@ export async function isWikiConfigured() {
 
 export function isWikiSetupRequiredError(error: unknown): error is WikiSetupRequiredError {
   return error instanceof WikiSetupRequiredError;
+}
+
+export function isWikiLinkAmbiguityError(
+  error: unknown,
+): error is WikiLinkAmbiguityError {
+  return error instanceof WikiLinkAmbiguityError;
 }
 
 export async function reloadWikiRuntime() {

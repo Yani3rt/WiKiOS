@@ -26,6 +26,12 @@ describe("wiki helpers", () => {
     );
   });
 
+  it("uses an injected href resolver for obsidian wikilinks", () => {
+    expect(
+      transformObsidianLinks("See [[Ideas]].", () => "/wiki/00%20Ideas/Ideas"),
+    ).toBe("See [Ideas](/wiki/00%20Ideas/Ideas).");
+  });
+
   it("decodes nested slug parts safely", () => {
     expect(decodeSlugParts(["slides", "The%20Algorithm%20-%20Slides"])).toEqual([
       "slides",

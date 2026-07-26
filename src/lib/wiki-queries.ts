@@ -7,6 +7,13 @@ import {
 } from "./wiki-classification";
 import { getTopicEmoji, getTopicLabel, isTopicHidden, type WikiOsConfig } from "./wiki-config";
 import {
+  buildWikiLinkIndex,
+  resolveWikiLinkTarget,
+  type WikiLinkCandidate,
+  type WikiLinkIndex,
+} from "./wiki-link-resolver";
+import { prepareWikiMarkdown, wikilinkHref } from "./markdown";
+import {
   type CategoryInfo,
   type ExplorerPage,
   type GraphData,
@@ -14,7 +21,7 @@ import {
   type PageSummary,
   type PersonOverrideValue,
   type SearchResult,
-  type WikiHeading,
+  type WikiLinkAmbiguityData,
   type WikiPageData,
   type WikiStats,
   decodeSlugParts,
@@ -159,12 +166,24 @@ interface WikiPageRow {
   file: string;
   slug: string;
   title: string;
-  contentMarkdown: string;
-  hasCodeBlocks: number;
-  headingsJson: string;
+  markdown: string;
   modifiedAt: number;
   categoryNamesJson: string;
   isPerson: number;
+}
+
+export class WikiLinkAmbiguityError extends Error {
+  readonly data: WikiLinkAmbiguityData;
+
+  constructor(target: string, candidates: WikiLinkCandidate[]) {
+    super(`Multiple notes match "${target}"`);
+    this.name = "WikiLinkAmbiguityError";
+    this.data = {
+      code: "AMBIGUOUS_WIKILINK",
+      target,
+      candidates,
+    };
+  }
 }
 
 function toIsoString(value: number | null) {
@@ -543,27 +562,61 @@ export async function getWikiPage(
   await prepareRead(deps);
 
   const canonicalSlug = await canonicalSlugFromRouteParts(slugParts);
+  const target = decodeSlugParts(slugParts).join("/");
   const db = deps.getDb();
-  const row = db
+  const selectPage = db
     .prepare(`
       SELECT
         file,
         slug,
         title,
-        content_markdown AS contentMarkdown,
-        has_code_blocks AS hasCodeBlocks,
-        headings_json AS headingsJson,
+        markdown,
         modified_at AS modifiedAt,
         category_names_json AS categoryNamesJson,
         is_person AS isPerson
       FROM pages
       WHERE slug = ?
-    `)
-    .get(canonicalSlug) as WikiPageRow | undefined;
+    `);
+
+  let row: WikiPageRow | undefined;
+  let linkIndex: WikiLinkIndex;
+
+  if (target.includes("/")) {
+    row = selectPage.get(canonicalSlug) as WikiPageRow | undefined;
+    if (!row) {
+      throw new Error("Wiki page not found");
+    }
+
+    linkIndex = buildWikiLinkIndex(
+      db.prepare("SELECT file, slug, title FROM pages").all() as WikiLinkCandidate[],
+    );
+  } else {
+    linkIndex = buildWikiLinkIndex(
+      db.prepare("SELECT file, slug, title FROM pages").all() as WikiLinkCandidate[],
+    );
+    const resolution = resolveWikiLinkTarget(target, null, linkIndex);
+
+    if (resolution.status === "ambiguous") {
+      throw new WikiLinkAmbiguityError(target, resolution.candidates);
+    }
+
+    if (resolution.status === "missing") {
+      throw new Error("Wiki page not found");
+    }
+
+    row = selectPage.get(resolution.candidate.slug) as WikiPageRow | undefined;
+  }
 
   if (!row) {
     throw new Error("Wiki page not found");
   }
+
+  const prepared = prepareWikiMarkdown(row.markdown, (linkTarget) => {
+    const resolution = resolveWikiLinkTarget(linkTarget, row.file, linkIndex);
+    return resolution.status === "resolved"
+      ? `/wiki/${resolution.candidate.slug}`
+      : wikilinkHref(linkTarget);
+  });
 
   const outbound = db
     .prepare(`
@@ -605,9 +658,9 @@ export async function getWikiPage(
     slug: row.slug,
     title: row.title,
     fileName: row.file,
-    contentMarkdown: row.contentMarkdown,
-    hasCodeBlocks: row.hasCodeBlocks === 1,
-    headings: parseJsonArray<WikiHeading>(row.headingsJson),
+    contentMarkdown: prepared.contentMarkdown,
+    hasCodeBlocks: prepared.hasCodeBlocks,
+    headings: prepared.headings,
     modifiedAt: row.modifiedAt,
     categories: parseJsonArray<string>(row.categoryNamesJson),
     neighbors,
