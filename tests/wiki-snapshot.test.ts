@@ -193,6 +193,64 @@ describe("wiki snapshot", () => {
     }
   });
 
+  it("re-resolves wikilinks when a duplicate target changes the vault topology", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "wiki-ui-"));
+
+    try {
+      await mkdir(path.join(root, "Projects"), { recursive: true });
+      await writeFile(path.join(root, "Home.md"), "# Home\n\n[[Note]]\n");
+      await writeFile(path.join(root, "Projects", "Note.md"), "# Projects Note\n");
+
+      const wiki = await loadWikiModule(root);
+      await wiki.reindexWikiSnapshot();
+
+      const initialHome = await wiki.getWikiPage(["Home"]);
+      const initialGraph = await wiki.getGraphData();
+      const initialProjectsNote = initialGraph.nodes.find((node) => node.slug === "Projects/Note");
+
+      expect(initialHome.neighbors).toEqual(
+        expect.arrayContaining([expect.objectContaining({ slug: "Projects/Note" })]),
+      );
+      expect(initialGraph.edges).toContainEqual(
+        expect.objectContaining({ source: "Home", target: "Projects/Note" }),
+      );
+      expect(initialProjectsNote).toEqual(expect.objectContaining({ backlinkCount: 1 }));
+
+      await mkdir(path.join(root, "Archive"), { recursive: true });
+      await writeFile(path.join(root, "Archive", "Note.md"), "# Archive Note\n");
+      await wiki.reindexWikiSnapshot();
+
+      const home = await wiki.getWikiPage(["Home"]);
+      const graph = await wiki.getGraphData();
+      const projectsNote = graph.nodes.find((node) => node.slug === "Projects/Note");
+
+      expect(home.neighbors).toEqual([]);
+      expect(graph.edges).not.toContainEqual(
+        expect.objectContaining({ source: "Home", target: "Projects/Note" }),
+      );
+      expect(projectsNote).toEqual(expect.objectContaining({ backlinkCount: 0 }));
+
+      await rm(path.join(root, "Archive", "Note.md"));
+      await wiki.reindexWikiSnapshot();
+
+      const restoredHome = await wiki.getWikiPage(["Home"]);
+      const restoredGraph = await wiki.getGraphData();
+      const restoredProjectsNote = restoredGraph.nodes.find(
+        (node) => node.slug === "Projects/Note",
+      );
+
+      expect(restoredHome.neighbors).toEqual(
+        expect.arrayContaining([expect.objectContaining({ slug: "Projects/Note" })]),
+      );
+      expect(restoredGraph.edges).toContainEqual(
+        expect.objectContaining({ source: "Home", target: "Projects/Note" }),
+      );
+      expect(restoredProjectsNote).toEqual(expect.objectContaining({ backlinkCount: 1 }));
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("derives generic topics and only includes explicit people by default", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "wiki-ui-"));
 

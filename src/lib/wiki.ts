@@ -17,6 +17,7 @@ import {
 import {
   deletePageByFile,
   openIndexDb,
+  reconcileBacklinkTargets as reconcileDbBacklinkTargets,
   runDbMigrations,
   runStartupIntegrityCheck,
   seedCategoryRules,
@@ -139,6 +140,7 @@ function getWatcherController() {
       reconcileIndexWithDisk: (options) =>
         indexer.reconcileIndexWithDisk(options as { source?: SyncSource | null }),
       syncSinglePath: (relativePath) => indexer.syncSinglePath(relativePath),
+      reconcileBacklinkTargets: () => reconcileDbBacklinkTargets(requireDb()),
       recordSyncSuccess,
       recordSyncError,
       markRevisionChanged,
@@ -235,6 +237,7 @@ const indexer = createWikiIndexer<SqliteDb, WikiOsConfig>({
   requireDb,
   upsertPageRecord,
   deletePageByFile,
+  reconcileBacklinkTargets: (db) => reconcileDbBacklinkTargets(db),
   selectPageModifiedAt: (db, file) =>
     (db.prepare("SELECT modified_at AS modifiedAt FROM pages WHERE file = ?").get(file) as
       | { modifiedAt: number }

@@ -84,6 +84,7 @@ export interface WikiIndexerDbDependencies<TDb> extends WikiIndexerRuntimeDepend
   requireDb: () => TDb;
   upsertPageRecord: (db: TDb, page: IndexedWikiPage) => void;
   deletePageByFile: (db: TDb, file: string) => boolean;
+  reconcileBacklinkTargets: (db: TDb) => void;
   selectPageModifiedAt: (db: TDb, file: string) => number | undefined;
   listIndexedPages: (db: TDb) => Array<{ file: string; modifiedAt: number }>;
 }
@@ -364,6 +365,8 @@ export async function reconcileIndexWithDisk<TDb, TConfig>(
         deleted += 1;
       }
     }
+
+    deps.reconcileBacklinkTargets(db);
 
     if (upserted > 0 || deleted > 0) {
       deps.markRevisionChanged?.();

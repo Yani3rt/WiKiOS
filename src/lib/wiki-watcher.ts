@@ -57,6 +57,7 @@ export interface WikiWatcherDependencies {
   ensureIndexReady: () => Promise<void>;
   reconcileIndexWithDisk: (options?: { source?: string }) => Promise<WatcherReconcileStats>;
   syncSinglePath: (relativePath: string) => Promise<boolean>;
+  reconcileBacklinkTargets: () => void;
   recordSyncSuccess: (source: WikiWatcherSyncSource) => void;
   recordSyncError: (source: WikiWatcherSyncSource, error: unknown) => void;
   markRevisionChanged: () => void;
@@ -186,6 +187,10 @@ export function createWikiWatcherController(
         if (didChange) {
           changed = true;
         }
+      }
+
+      if (changed && !needsFullReconcile) {
+        dependencies.reconcileBacklinkTargets();
       }
 
       if (changed) {
