@@ -22,6 +22,8 @@ import {
   NoteViewer,
   copyCodeBlockText,
   getActiveHeadingId,
+  isExternalHref,
+  isInternalAppHref,
   navigateGraphNode,
   renderedCodeBlockText,
   routeWikiLinkClick,
@@ -196,10 +198,64 @@ describe("shared note viewer behavioral helpers", () => {
     expect(navigated).toEqual([]);
   });
 
+  it("does not intercept external links after adding the indicator", () => {
+    const event = {
+      defaultPrevented: false,
+      button: 0,
+      metaKey: false,
+      ctrlKey: false,
+      shiftKey: false,
+      altKey: false,
+      preventDefault() {},
+    };
+
+    expect(
+      shouldInterceptWikiLinkClick({
+        href: "https://example.com/docs",
+        origin: "https://wiki.local",
+        target: undefined,
+        download: undefined,
+        event,
+      }),
+    ).toBe(false);
+  });
+
+  it("continues to intercept internal wiki links after adding the indicator", () => {
+    const event = {
+      defaultPrevented: false,
+      button: 0,
+      metaKey: false,
+      ctrlKey: false,
+      shiftKey: false,
+      altKey: false,
+      preventDefault() {},
+    };
+
+    expect(
+      shouldInterceptWikiLinkClick({
+        href: "/wiki/history/Analytical%20Engine",
+        origin: "https://wiki.local",
+        target: undefined,
+        download: undefined,
+        event,
+      }),
+    ).toBe(true);
+  });
+
   it("delegates graph-node navigation through canonical wiki slugs", () => {
     const navigated: string[] = [];
     navigateGraphNode("people/Ada Lovelace", (slug) => navigated.push(slug));
     expect(navigated).toEqual(["people/Ada%20Lovelace"]);
+  });
+
+  it("treats wiki and app routes as internal hrefs", () => {
+    expect(isInternalAppHref("/wiki/history/Analytical%20Engine", "https://wiki.local")).toBe(true);
+    expect(isInternalAppHref("/explorer/history/Analytical%20Engine", "https://wiki.local")).toBe(true);
+    expect(isInternalAppHref("/graph", "https://wiki.local")).toBe(true);
+    expect(isInternalAppHref("/stats", "https://wiki.local")).toBe(true);
+    expect(isInternalAppHref("#deep-dive", "https://wiki.local")).toBe(true);
+    expect(isExternalHref("https://example.com/docs", "https://wiki.local")).toBe(true);
+    expect(isExternalHref("http://example.com/docs", "https://wiki.local")).toBe(true);
   });
 
   it("resolves heading targets within a custom scroll root before falling back to the document", () => {
@@ -567,6 +623,31 @@ describe("shared note viewer rendering and route boundaries", () => {
     expect(markup).toContain('aria-label="Open connected note Charles Babbage"');
     expect(markup).not.toContain('aria-label="Categories"');
     expect(markup).not.toContain("hidden source note");
+  });
+
+  it("renders an external link indicator only for off-site links", () => {
+    const page = {
+      ...samplePage,
+      contentMarkdown: "Internal [Ada](/wiki/Ada) and external [Docs](https://example.com/docs)",
+    };
+
+    const markup = renderToStaticMarkup(
+      createElement(
+        WikiConfigProvider as never,
+        { config: DEFAULT_WIKI_OS_CONFIG },
+        createElement(
+          MemoryRouter,
+          undefined,
+          createElement(NoteViewer, { page, onNavigateNote: () => {} }),
+        ),
+      ),
+    );
+
+    expect(markup).toContain('href="https://example.com/docs"');
+    expect(markup).toContain('aria-label="Docs (opens external site)"');
+    expect(markup).toContain('class="note-link-external-indicator"');
+    expect(markup).toContain("↗");
+    expect(markup).not.toContain('href="/wiki/Ada" aria-label="Ada (opens external site)"');
   });
 
   it("places mobile connections after the article behind a collapsed disclosure", () => {

@@ -76,7 +76,7 @@ export const GRAPH_LAYOUT_SETTINGS = {
 
 export const GRAPH_MOVEMENT_RENDERING_SETTINGS = {
   hideEdgesOnMove: false,
-  hideLabelsOnMove: true,
+  hideLabelsOnMove: false,
 } as const;
 
 export const GRAPH_INDEX_LIMIT = 200;

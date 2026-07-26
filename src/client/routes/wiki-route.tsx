@@ -113,13 +113,13 @@ export function Component() {
         <div className="flex items-center gap-1.5 sm:gap-2.5">
           <Link
             to="/graph"
-            className="app-route-header-control rounded-full px-3.5 py-2 text-sm font-medium active:scale-[0.96] sm:px-4"
+            className="app-route-header-control rounded-md px-3.5 py-2 text-sm font-medium active:scale-[0.96] sm:px-4"
           >
             {config.navigation.graphLabel}
           </Link>
           <Link
             to="/stats"
-            className="app-route-header-control rounded-full px-3.5 py-2 text-sm font-medium active:scale-[0.96] sm:px-4"
+            className="app-route-header-control rounded-md px-3.5 py-2 text-sm font-medium active:scale-[0.96] sm:px-4"
           >
             {config.navigation.statsLabel}
           </Link>

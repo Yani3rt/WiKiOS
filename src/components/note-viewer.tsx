@@ -309,7 +309,7 @@ export function wikiSlugFromHref(href: string | undefined, origin: string) {
 
   try {
     const url = new URL(href, origin);
-    if (url.origin !== origin || !url.pathname.startsWith("/wiki/")) {
+    if (url.origin !== new URL(origin).origin || !url.pathname.startsWith("/wiki/")) {
       return null;
     }
 
@@ -317,6 +317,34 @@ export function wikiSlugFromHref(href: string | undefined, origin: string) {
   } catch {
     return null;
   }
+}
+
+export function isInternalAppHref(href: string | undefined, origin: string) {
+  if (!href) return false;
+  if (href.startsWith("#")) return true;
+
+  try {
+    const url = new URL(href, origin);
+    if (url.origin !== new URL(origin).origin) return false;
+
+    return (
+      url.pathname === "/graph" ||
+      url.pathname === "/stats" ||
+      url.pathname.startsWith("/wiki/") ||
+      url.pathname.startsWith("/explorer/")
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function isExternalHref(href: string | undefined, origin: string) {
+  return Boolean(href) && !isInternalAppHref(href, origin);
+}
+
+function getExternalLinkAriaLabel(children: ReactNode) {
+  const labelText = markdownNodeText(children).trim();
+  return labelText ? `${labelText} (opens external site)` : "Opens external site";
 }
 
 interface LinkNavigationEvent {
@@ -844,6 +872,7 @@ export function NoteViewer({
   scrollContainerRef,
 }: NoteViewerProps) {
   const config = useWikiConfig();
+  const renderOrigin = typeof window === "undefined" ? "https://wiki.local" : window.location.origin;
   const portraitUrl = usePersonImage(page.isPerson ? page.title : null);
   const [personOverrideError, setPersonOverrideError] = useState<string | null>(null);
   const [isUpdatingPerson, setIsUpdatingPerson] = useState(false);
@@ -960,8 +989,10 @@ export function NoteViewer({
         );
       },
       pre: CodeBlockPre,
-      a: ({ href, onClick, ...props }) => {
+      a: ({ node, href, onClick, children, ...props }) => {
+        void node;
         const { target, download } = props;
+        const external = isExternalHref(href, renderOrigin);
         const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
           onClick?.(event);
           if (typeof window === "undefined") return;
@@ -975,7 +1006,21 @@ export function NoteViewer({
           });
         };
 
-        return <a href={href} onClick={handleClick} {...props} />;
+        return (
+          <a
+            href={href}
+            onClick={handleClick}
+            aria-label={external ? getExternalLinkAriaLabel(children) : props["aria-label"]}
+            {...props}
+          >
+            {children}
+            {external ? (
+              <span aria-hidden="true" className="note-link-external-indicator">
+                ↗
+              </span>
+            ) : null}
+          </a>
+        );
       },
     }),
     [],

@@ -335,10 +335,10 @@ describe("graph overview model", () => {
     });
   });
 
-  it("keeps connection lines visible while the graph camera moves", () => {
+  it("keeps connection lines and labels visible while the graph camera moves", () => {
     expect(GRAPH_MOVEMENT_RENDERING_SETTINGS).toEqual({
       hideEdgesOnMove: false,
-      hideLabelsOnMove: true,
+      hideLabelsOnMove: false,
     });
   });
 

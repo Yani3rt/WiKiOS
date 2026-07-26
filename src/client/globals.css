@@ -270,6 +270,12 @@ html {
   text-decoration-color: var(--teal);
 }
 
+.note-link-external-indicator {
+  margin-left: 0.2em;
+  font-size: 0.8em;
+  color: var(--muted-foreground);
+}
+
 .prose-wiki h1,
 .prose-wiki h2,
 .prose-wiki h3,

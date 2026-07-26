@@ -30,6 +30,7 @@ WikiOS will open in your browser and guide you through choosing a vault. You can
 - Homepage with featured notes, recent notes, topic sections, and people highlights
 - Global command palette (`⌘K` / `Ctrl+K`) with recent notes and instant note search
 - Fast local search on the homepage
+- Wikilinks with vault-wide basename resolution and duplicate-note selection
 - Full note viewer with:
   - table of contents
   - connected / related notes
