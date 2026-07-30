@@ -1,8 +1,8 @@
 export const HOMEPAGE_SECTION_KEYS = [
-  "featured",
-  "topConnected",
-  "people",
   "recentPages",
+  "featured",
+  "people",
+  "topConnected",
 ] as const;
 
 export type HomepageSectionKey = (typeof HOMEPAGE_SECTION_KEYS)[number];

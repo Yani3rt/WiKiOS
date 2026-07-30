@@ -103,6 +103,21 @@ describe("Home progressive disclosure", () => {
     );
     expect(markup).not.toContain(">Note 5<");
     expect(markup).not.toContain("font-display");
+    const recentlyUpdatedIndex = markup.indexOf(
+      'aria-labelledby="home-recentPages-heading"',
+    );
+    const recentlyVisitedIndex = markup.indexOf(
+      'aria-labelledby="home-featured-heading"',
+    );
+    const peopleIndex = markup.indexOf('aria-labelledby="home-people-heading"');
+    const highlyConnectedIndex = markup.indexOf(
+      'aria-labelledby="home-topConnected-heading"',
+    );
+
+    expect(recentlyUpdatedIndex).toBeGreaterThanOrEqual(0);
+    expect(recentlyVisitedIndex).toBeGreaterThan(recentlyUpdatedIndex);
+    expect(peopleIndex).toBeGreaterThan(recentlyVisitedIndex);
+    expect(highlyConnectedIndex).toBeGreaterThan(peopleIndex);
     expect(markup).toContain("Recently visited");
     expect(markup).toContain("Notes you opened most recently on this device.");
     expect(markup).toContain("Terminal Reference");
@@ -143,6 +158,20 @@ describe("Home progressive disclosure", () => {
 
     expect(markup).toContain("Recently visited");
     expect(markup).toContain("Open a note to start your recent history.");
+    const recentlyUpdatedIndex = markup.indexOf(
+      'aria-labelledby="home-recentPages-heading"',
+    );
+    const recentlyVisitedIndex = markup.indexOf(
+      'aria-labelledby="home-featured-heading"',
+    );
+    const highlyConnectedIndex = markup.indexOf(
+      'aria-labelledby="home-topConnected-heading"',
+    );
+
+    expect(markup).not.toContain('aria-labelledby="home-people-heading"');
+    expect(recentlyUpdatedIndex).toBeGreaterThanOrEqual(0);
+    expect(recentlyVisitedIndex).toBeGreaterThan(recentlyUpdatedIndex);
+    expect(highlyConnectedIndex).toBeGreaterThan(recentlyVisitedIndex);
   });
 });
 
