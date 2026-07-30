@@ -295,6 +295,27 @@ export function isExplorerModalActive(sidebarOpen: boolean, isDesktop: boolean) 
   return sidebarOpen && !isDesktop;
 }
 
+export function focusExplorerSidebar(
+  isDesktop: boolean,
+  sidebar: Pick<HTMLElement, "focus"> | null,
+  filterInput: Pick<HTMLInputElement, "focus"> | null,
+) {
+  if (isDesktop) {
+    filterInput?.focus();
+    return;
+  }
+
+  sidebar?.focus({ preventScroll: true });
+}
+
+export function shouldAutoOpenExplorerSidebar(
+  tabCount: number,
+  routeSlug: string | null,
+  isDesktop: boolean,
+) {
+  return tabCount === 0 && routeSlug === null && !isDesktop;
+}
+
 interface ExplorerStorageReader {
   getItem(key: string): string | null;
 }
@@ -870,6 +891,22 @@ export function Component() {
   }, [workspace]);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const isDesktop = window.matchMedia("(min-width: 768px)").matches;
+    if (
+      shouldAutoOpenExplorerSidebar(
+        workspace.tabs.length,
+        urlSlug || null,
+        isDesktop,
+      )
+    ) {
+      sidebarCloseFocusTargetRef.current = "toggle";
+      setSidebarOpen(true);
+    }
+  }, [isDesktopSidebar, urlSlug, workspace.tabs.length]);
+
+  useEffect(() => {
     if (!sidebarOpen) return;
 
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
@@ -897,7 +934,7 @@ export function Component() {
   useEffect(() => {
     if (sidebarModalActive) {
       workspaceRef.current?.setAttribute("inert", "");
-      filterInputRef.current?.focus();
+      focusExplorerSidebar(false, sidebarRef.current, filterInputRef.current);
       return;
     }
 
@@ -1086,10 +1123,12 @@ export function Component() {
     sidebarCloseFocusTargetRef.current = "toggle";
     if (isDesktopSidebar) {
       setDesktopSidebarVisible(true);
+      window.requestAnimationFrame(() =>
+        focusExplorerSidebar(true, sidebarRef.current, filterInputRef.current),
+      );
     } else {
       setSidebarOpen(true);
     }
-    window.requestAnimationFrame(() => filterInputRef.current?.focus());
   }, [isDesktopSidebar]);
   const visibleReaderState = selectExplorerReaderState(
     workspace.activeSlug,
@@ -1122,6 +1161,7 @@ export function Component() {
         <aside
           ref={sidebarRef}
           id="explorer-sidebar"
+          tabIndex={-1}
           aria-hidden={!sidebarInteractive}
           aria-modal={sidebarModalActive}
           role="dialog"

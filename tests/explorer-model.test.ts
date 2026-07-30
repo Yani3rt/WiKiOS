@@ -535,23 +535,35 @@ describe("explorer route registration", () => {
     expect(routeSource).toContain("sidebarRef.current?.contains(document.activeElement)");
   });
 
-  it("treats the open mobile drawer as modal without causing md overflow", async () => {
+  it("keeps mobile drawer focus off the search input", async () => {
     const routeSource = readFileSync(
       fileURLToPath(new URL("../src/client/routes/explorer-route.tsx", import.meta.url)),
       "utf8",
     );
     const routeModule = (await import("../src/client/routes/explorer-route")) as unknown as {
       isExplorerModalActive?: (sidebarOpen: boolean, isDesktop: boolean) => boolean;
+      focusExplorerSidebar?: (
+        isDesktop: boolean,
+        sidebar: { focus: (options?: { preventScroll?: boolean }) => void } | null,
+        filterInput: { focus: () => void } | null,
+      ) => void;
     };
+    const sidebar = { focus: vi.fn() };
+    const filterInput = { focus: vi.fn() };
 
     expect(routeModule.isExplorerModalActive).toBeTypeOf("function");
     expect(routeModule.isExplorerModalActive!(true, false)).toBe(true);
     expect(routeModule.isExplorerModalActive!(false, false)).toBe(false);
     expect(routeModule.isExplorerModalActive!(true, true)).toBe(false);
+    expect(routeModule.focusExplorerSidebar).toBeTypeOf("function");
+    routeModule.focusExplorerSidebar!(false, sidebar, filterInput);
+    expect(sidebar.focus).toHaveBeenCalledWith({ preventScroll: true });
+    expect(filterInput.focus).not.toHaveBeenCalled();
+    routeModule.focusExplorerSidebar!(true, sidebar, filterInput);
+    expect(filterInput.focus).toHaveBeenCalledOnce();
     expect(routeSource).toContain('workspaceRef.current?.setAttribute("inert", "")');
     expect(routeSource).toContain('workspaceRef.current?.removeAttribute("inert")');
     expect(routeSource).toContain('aria-hidden={sidebarModalActive}');
-    expect(routeSource).toContain('filterInputRef.current?.focus()');
     expect(routeSource).toContain('role="dialog"');
     expect(routeSource).toContain('aria-modal={sidebarModalActive}');
     expect(routeSource).not.toContain("<button\n          type=\"button\"\n          aria-hidden={!sidebarOpen}");
@@ -559,6 +571,36 @@ describe("explorer route registration", () => {
     expect(routeSource).toContain('aria-hidden="true"');
     expect(routeSource).toContain("sidebarCloseFocusTargetRef.current = \"toggle\"");
     expect(routeSource).toContain('className="flex min-w-0 flex-1 flex-col md:min-w-0"');
+  });
+
+  it("opens the note drawer for an empty mobile root workspace", async () => {
+    const routeModule = (await import("../src/client/routes/explorer-route")) as unknown as {
+      shouldAutoOpenExplorerSidebar?: (
+        tabCount: number,
+        routeSlug: string | null,
+        isDesktop: boolean,
+      ) => boolean;
+    };
+    const lastTabClosed = closeExplorerTab(
+      {
+        tabs: [{ slug: "alpha", title: "Alpha", file: "Alpha.md" }],
+        activeSlug: "alpha",
+      },
+      "alpha",
+    );
+
+    expect(routeModule.shouldAutoOpenExplorerSidebar).toBeTypeOf("function");
+    expect(routeModule.shouldAutoOpenExplorerSidebar!(0, null, false)).toBe(true);
+    expect(
+      routeModule.shouldAutoOpenExplorerSidebar!(
+        lastTabClosed.tabs.length,
+        lastTabClosed.activeSlug,
+        false,
+      ),
+    ).toBe(true);
+    expect(routeModule.shouldAutoOpenExplorerSidebar!(1, "alpha", false)).toBe(false);
+    expect(routeModule.shouldAutoOpenExplorerSidebar!(0, "alpha", false)).toBe(false);
+    expect(routeModule.shouldAutoOpenExplorerSidebar!(0, null, true)).toBe(false);
   });
 
   it("canonicalizes encoded metadata and restored tabs without corrupting literal percent data", async () => {
