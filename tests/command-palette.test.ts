@@ -194,14 +194,30 @@ describe("global command palette integration", () => {
       fileURLToPath(new URL("../src/client/app-shell.tsx", import.meta.url)),
       "utf8",
     );
+    const homeRouteSource = readFileSync(
+      fileURLToPath(new URL("../src/client/routes/home-route.tsx", import.meta.url)),
+      "utf8",
+    );
+    const searchBoxSource = readFileSync(
+      fileURLToPath(new URL("../src/components/search-box.tsx", import.meta.url)),
+      "utf8",
+    );
 
     expect(routerSource).toContain('import { AppShell } from "./app-shell"');
     expect(routerSource).toContain("Component: AppShell");
     expect(routerSource).toContain("children: [");
-    expect(shellSource).toContain("<Outlet />");
+    expect(shellSource).toContain("<Outlet context={{ openCommandPalette }} />");
     expect(shellSource).toContain("<CommandPalette");
     expect(shellSource).toContain('window.addEventListener("keydown"');
     expect(shellSource).toContain("noteSlugFromPathname(location.pathname)");
+    expect(homeRouteSource).toContain(
+      "useOutletContext<AppShellOutletContext>()",
+    );
+    expect(homeRouteSource).toContain(
+      "onQuickSearch={openCommandPalette}",
+    );
+    expect(searchBoxSource).toContain('aria-label="Open quick search"');
+    expect(searchBoxSource).toContain("onClick={onQuickSearch}");
   });
 
   it("provides responsive, motion-safe palette styling", () => {

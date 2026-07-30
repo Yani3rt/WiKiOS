@@ -107,9 +107,11 @@ export function getHomeSearchScrollBehavior(reducedMotion: boolean): ScrollBehav
 
 export function SearchBox({
   totalPages,
+  onQuickSearch,
   children,
 }: {
   totalPages: number;
+  onQuickSearch: () => void;
   children: ReactNode;
 }) {
   const config = useWikiConfig();
@@ -288,12 +290,17 @@ export function SearchBox({
                 />
                 {refreshStatus === "error" ? "Retry refresh" : "Refresh index"}
               </button>
-              <span className="hidden items-center gap-2 sm:flex">
+              <button
+                type="button"
+                aria-label="Open quick search"
+                onClick={onQuickSearch}
+                className="hidden min-h-11 items-center gap-2 rounded-md px-2 font-medium hover:bg-[var(--home-hero-hover)] sm:flex"
+              >
                 <kbd className="rounded border border-[var(--home-hero-control-border)] bg-[var(--home-hero-chip)] px-1.5 py-0.5 font-sans text-xs font-medium text-[var(--home-hero-ink)]">
                   ⌘K
                 </kbd>
                 Quick search
-              </span>
+              </button>
             </div>
 
             {refreshMessage ? (

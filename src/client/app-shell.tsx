@@ -17,6 +17,10 @@ import {
   readRecentNoteSlugs,
 } from "./recent-note-storage";
 
+export interface AppShellOutletContext {
+  readonly openCommandPalette: () => void;
+}
+
 export function AppShell() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -25,6 +29,7 @@ export function AppShell() {
   const [status, setStatus] = useState<CommandPaletteStatus>("idle");
   const [recentSlugs, setRecentSlugs] = useState<string[]>(readRecentNoteSlugs);
   const requestRef = useRef<AbortController | null>(null);
+  const openCommandPalette = useCallback(() => setPaletteOpen(true), []);
 
   const loadPages = useCallback(async () => {
     requestRef.current?.abort();
@@ -66,12 +71,12 @@ export function AppShell() {
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
       if (!isCommandPaletteShortcut(event)) return;
       event.preventDefault();
-      setPaletteOpen(true);
+      openCommandPalette();
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  }, [openCommandPalette]);
 
   useEffect(() => {
     if (!paletteOpen || status !== "idle") return;
@@ -85,7 +90,7 @@ export function AppShell() {
 
   return (
     <>
-      <Outlet />
+      <Outlet context={{ openCommandPalette }} />
       <CommandPalette
         open={paletteOpen}
         pages={pages}

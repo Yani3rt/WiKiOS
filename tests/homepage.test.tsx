@@ -118,7 +118,7 @@ describe("Home progressive disclosure", () => {
       '<section aria-labelledby="home-recentPages-heading" class="border-t-2',
     );
     expect(markup).toContain('data-home-section-header="true"');
-    expect(markup).toContain("border-b-2 border-[var(--home-accent)] pb-4");
+    expect(markup).not.toContain("border-b-2 border-[var(--home-accent)]");
     expect(markup.match(/data-home-section-header="true"/gu)?.length).toBe(4);
     expect(markup).toContain('data-home-section-icon-tile="true"');
     expect(markup.match(/data-home-section-icon-tile="true"/gu)?.length).toBe(4);
@@ -126,7 +126,7 @@ describe("Home progressive disclosure", () => {
       "h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[var(--home-accent-soft)]",
     );
     expect(markup).toContain(
-      "mb-3 flex items-center justify-between gap-4 border-b-2",
+      "mb-3 flex items-center justify-between gap-4 pb-4",
     );
     expect(
       markup.match(/h-5 w-5 shrink-0 text-\[var\(--home-accent\)\]/gu)?.length,
@@ -134,6 +134,13 @@ describe("Home progressive disclosure", () => {
     expect(markup).toContain("home-note-link group");
     expect(markup).toContain(
       "pb-[calc(env(safe-area-inset-bottom)+9rem)] pt-12 sm:pt-18",
+    );
+    expect(markup).toContain(
+      "grid grid-cols-1 gap-y-10 lg:grid-cols-2 lg:gap-x-0",
+    );
+    expect(markup).toContain("space-y-10 lg:pr-6");
+    expect(markup).toContain(
+      "space-y-10 lg:border-l lg:border-[var(--home-border)] lg:pl-6",
     );
     expect(markup).not.toContain(">Note 5<");
     expect(markup).not.toContain("font-display");
@@ -169,8 +176,10 @@ describe("Home progressive disclosure", () => {
     expect(markup).toContain('data-home-connected-row="true"');
     expect(markup).toContain('data-home-backlink-progress="true"');
     expect(markup).toContain("rounded-full bg-[var(--home-accent-soft)]");
-    expect(markup).toContain(">1 backlink<");
-    expect(markup).toContain(">4 backlinks<");
+    expect(markup).toContain(">1 link<");
+    expect(markup).toContain(">4 links<");
+    expect(markup).not.toContain(">1 backlink<");
+    expect(markup).not.toContain(">4 backlinks<");
     expect(markup).toContain("lucide-chevron-right");
     expect(markup).toContain('data-home-summary-preview="true"');
     expect(markup).toContain(

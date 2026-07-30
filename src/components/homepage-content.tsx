@@ -44,7 +44,7 @@ function PageRow({ page, showSummary = false }: { page: PageSummary; showSummary
         ) : null}
       </span>
       <span className="shrink-0 pt-0.5 text-xs tabular-nums text-[var(--home-muted)]">
-        {page.backlinkCount.toLocaleString()} {page.backlinkCount === 1 ? "backlink" : "backlinks"}
+        {page.backlinkCount.toLocaleString()} {page.backlinkCount === 1 ? "link" : "links"}
       </span>
     </Link>
   );
@@ -82,7 +82,7 @@ function ConnectedPageRow({
         </span>
         <span className="shrink-0 rounded-full bg-[var(--home-accent-soft)] px-2 py-1 text-xs font-medium tabular-nums text-[var(--home-accent)]">
           {page.backlinkCount.toLocaleString()}{" "}
-          {page.backlinkCount === 1 ? "backlink" : "backlinks"}
+          {page.backlinkCount === 1 ? "link" : "links"}
         </span>
       </span>
       <span
@@ -152,7 +152,7 @@ function PersonRow({ person }: { person: PageSummary }) {
           data-home-person-backlink-pill="true"
           className="shrink-0 rounded-full bg-[var(--home-accent-soft)] px-2 py-1 text-xs font-medium tabular-nums text-[var(--home-accent)]"
         >
-          {person.backlinkCount.toLocaleString()} {person.backlinkCount === 1 ? "backlink" : "backlinks"}
+          {person.backlinkCount.toLocaleString()} {person.backlinkCount === 1 ? "link" : "links"}
         </span>
         <ChevronRight
           aria-hidden="true"
@@ -192,7 +192,7 @@ function HomeSection({
     <section aria-labelledby={headingId}>
       <div
         data-home-section-header="true"
-        className="mb-3 flex items-center justify-between gap-4 border-b-2 border-[var(--home-accent)] pb-4"
+        className="mb-3 flex items-center justify-between gap-4 pb-4"
       >
         <div className="flex min-w-0 items-center gap-3">
           <span
@@ -357,9 +357,16 @@ export function HomepageContent({
 
   return (
     <div className="w-full pb-[calc(env(safe-area-inset-bottom)+9rem)] pt-12 sm:pt-18">
-      <div className="grid grid-cols-1 gap-x-12 gap-y-10 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-y-10 lg:grid-cols-2 lg:gap-x-0">
         {columns.map((column, index) => (
-          <div key={index} className="space-y-10">
+          <div
+            key={index}
+            className={
+              index === 0
+                ? "space-y-10 lg:pr-6"
+                : "space-y-10 lg:border-l lg:border-[var(--home-border)] lg:pl-6"
+            }
+          >
             {column.map((section) => (
               <div key={section}>{sectionViews[section]}</div>
             ))}

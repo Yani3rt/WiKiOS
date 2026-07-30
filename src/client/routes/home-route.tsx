@@ -1,5 +1,6 @@
-import { redirect, useLoaderData } from "react-router-dom";
+import { redirect, useLoaderData, useOutletContext } from "react-router-dom";
 
+import type { AppShellOutletContext } from "@/client/app-shell";
 import {
   normalizeCommandPalettePages,
   resolveCommandPalettePages,
@@ -50,9 +51,13 @@ export async function loader(): Promise<HomeRouteData> {
 
 export function Component() {
   const { homepage, recentlyVisitedPages } = useLoaderData() as HomeRouteData;
+  const { openCommandPalette } = useOutletContext<AppShellOutletContext>();
 
   return (
-    <SearchBox totalPages={homepage.totalPages}>
+    <SearchBox
+      totalPages={homepage.totalPages}
+      onQuickSearch={openCommandPalette}
+    >
       <HomepageContent
         homepage={homepage}
         recentlyVisitedPages={recentlyVisitedPages}
