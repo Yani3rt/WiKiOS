@@ -193,6 +193,14 @@ export function shouldCollapseGraphDetailPanelOnSearchInteraction(
   return hasFocusedNode && viewportWidth < 640;
 }
 
+export function shouldCloseGraphNodeIndexOnDetailExpand(
+  viewportWidth: number,
+  wasCollapsed: boolean,
+  isCollapsed: boolean,
+) {
+  return viewportWidth < 640 && wasCollapsed && !isCollapsed;
+}
+
 export function shouldResetGraphCameraAfterDetailClose(viewportWidth: number) {
   return viewportWidth < 640;
 }

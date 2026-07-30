@@ -42,6 +42,7 @@ import {
   GRAPH_INDEX_LOAD_MORE_COUNT,
   GRAPH_MOVEMENT_RENDERING_SETTINGS,
   shouldCloseGraphNodeIndexAfterSelection,
+  shouldCloseGraphNodeIndexOnDetailExpand,
   shouldCollapseGraphDetailPanelOnSearchInteraction,
   shouldResetGraphCameraAfterDetailClose,
   mixGraphColors,
@@ -444,12 +445,14 @@ function GraphSearch({
   nodes,
   onSelect,
   onCompactSearchInteraction,
+  detailPanelCollapsed,
   selectedSlug,
   browseButtonRef,
 }: {
   nodes: GraphNode[];
   onSelect: (slug: string) => void;
   onCompactSearchInteraction: () => void;
+  detailPanelCollapsed: boolean;
   selectedSlug: string | null;
   browseButtonRef: React.RefObject<HTMLButtonElement | null>;
 }) {
@@ -462,6 +465,7 @@ function GraphSearch({
   );
   const itemRefs = useRef(new Map<string, HTMLButtonElement>());
   const closeTimerRef = useRef<number | null>(null);
+  const previousDetailPanelCollapsedRef = useRef(detailPanelCollapsed);
   const results = useMemo(() => getGraphIndexNodes(nodes, query), [nodes, query]);
   const visibleResults = useMemo(
     () => results.slice(0, visibleResultCount),
@@ -498,15 +502,15 @@ function GraphSearch({
     focusResult(nextIndex);
   };
 
-  const cancelPendingClose = () => {
+  const cancelPendingClose = useCallback(() => {
     if (closeTimerRef.current !== null) {
       window.clearTimeout(closeTimerRef.current);
       closeTimerRef.current = null;
     }
     setIndexClosing(false);
-  };
+  }, []);
 
-  const closeIndex = (returnFocus: boolean) => {
+  const closeIndex = useCallback((returnFocus: boolean) => {
     cancelPendingClose();
     setQuery("");
     setVisibleResultCount(GRAPH_INDEX_INITIAL_VISIBLE_COUNT);
@@ -525,7 +529,23 @@ function GraphSearch({
       setIndexClosing(false);
       if (returnFocus) requestAnimationFrame(() => browseButtonRef.current?.focus());
     }, 160);
-  };
+  }, [browseButtonRef, cancelPendingClose]);
+
+  useEffect(() => {
+    const wasCollapsed = previousDetailPanelCollapsedRef.current;
+    previousDetailPanelCollapsedRef.current = detailPanelCollapsed;
+
+    if (
+      panelOpen &&
+      shouldCloseGraphNodeIndexOnDetailExpand(
+        window.innerWidth,
+        wasCollapsed,
+        detailPanelCollapsed,
+      )
+    ) {
+      closeIndex(false);
+    }
+  }, [closeIndex, detailPanelCollapsed, panelOpen]);
 
   const handleSelect = (slug: string, returnFocusAfterClose = false) => {
     onSelect(slug);
@@ -1605,6 +1625,7 @@ export function Component() {
             nodes={data.nodes}
             onSelect={handleSearchSelect}
             onCompactSearchInteraction={handleCompactSearchInteraction}
+            detailPanelCollapsed={detailPanelCollapsed}
             selectedSlug={focusedSlug}
             browseButtonRef={browseButtonRef}
           />

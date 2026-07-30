@@ -31,6 +31,7 @@ import {
   getNextGraphIndex,
   getPersistentLabelSlugs,
   shouldCloseGraphNodeIndexAfterSelection,
+  shouldCloseGraphNodeIndexOnDetailExpand,
   shouldCollapseGraphDetailPanelOnSearchInteraction,
   shouldResetGraphCameraAfterDetailClose,
   mixGraphColors,
@@ -410,6 +411,14 @@ describe("graph overview model", () => {
     expect(shouldCollapseGraphDetailPanelOnSearchInteraction(639, true)).toBe(true);
     expect(shouldCollapseGraphDetailPanelOnSearchInteraction(640, true)).toBe(false);
     expect(shouldCollapseGraphDetailPanelOnSearchInteraction(390, false)).toBe(false);
+  });
+
+  it("closes the mobile node index when folded details expand", () => {
+    expect(shouldCloseGraphNodeIndexOnDetailExpand(390, true, false)).toBe(true);
+    expect(shouldCloseGraphNodeIndexOnDetailExpand(639, true, false)).toBe(true);
+    expect(shouldCloseGraphNodeIndexOnDetailExpand(640, true, false)).toBe(false);
+    expect(shouldCloseGraphNodeIndexOnDetailExpand(390, false, false)).toBe(false);
+    expect(shouldCloseGraphNodeIndexOnDetailExpand(390, true, true)).toBe(false);
   });
 
   it("recenters the graph after closing mobile details only", () => {
