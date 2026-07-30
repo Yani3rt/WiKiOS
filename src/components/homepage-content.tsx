@@ -180,8 +180,11 @@ function HomeSection({
   const hasMore = itemCount > HOME_SECTION_PREVIEW_LIMIT;
 
   return (
-    <section aria-labelledby={headingId} className="border-t-2 border-[var(--home-accent)] pt-5">
-      <div className="mb-3 flex items-start justify-between gap-4">
+    <section aria-labelledby={headingId}>
+      <div
+        data-home-section-header="true"
+        className="mb-3 flex items-start justify-between gap-4 border-b-2 border-[var(--home-accent)] pb-4"
+      >
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             {icon}

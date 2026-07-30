@@ -114,7 +114,12 @@ describe("Home progressive disclosure", () => {
     expect(markup).toContain('aria-controls="home-topConnected-list"');
     expect(markup).toContain("Show all 6");
     expect(markup).toContain("text-lg font-semibold");
-    expect(markup).toContain("border-t-2 border-[var(--home-accent)]");
+    expect(markup).not.toContain(
+      '<section aria-labelledby="home-recentPages-heading" class="border-t-2',
+    );
+    expect(markup).toContain('data-home-section-header="true"');
+    expect(markup).toContain("border-b-2 border-[var(--home-accent)] pb-4");
+    expect(markup.match(/data-home-section-header="true"/gu)?.length).toBe(4);
     expect(markup).toContain("home-note-link group");
     expect(markup).toContain(
       "pb-[calc(env(safe-area-inset-bottom)+9rem)] pt-12 sm:pt-18",
