@@ -120,6 +120,17 @@ describe("Home progressive disclosure", () => {
     expect(markup).toContain('data-home-section-header="true"');
     expect(markup).toContain("border-b-2 border-[var(--home-accent)] pb-4");
     expect(markup.match(/data-home-section-header="true"/gu)?.length).toBe(4);
+    expect(markup).toContain('data-home-section-icon-tile="true"');
+    expect(markup.match(/data-home-section-icon-tile="true"/gu)?.length).toBe(4);
+    expect(markup).toContain(
+      "h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[var(--home-accent-soft)]",
+    );
+    expect(markup).toContain(
+      "mb-3 flex items-center justify-between gap-4 border-b-2",
+    );
+    expect(
+      markup.match(/h-5 w-5 shrink-0 text-\[var\(--home-accent\)\]/gu)?.length,
+    ).toBe(4);
     expect(markup).toContain("home-note-link group");
     expect(markup).toContain(
       "pb-[calc(env(safe-area-inset-bottom)+9rem)] pt-12 sm:pt-18",
