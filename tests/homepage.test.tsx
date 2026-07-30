@@ -8,6 +8,7 @@ import {
   HOME_SECTION_PREVIEW_LIMIT,
   HomepageContent,
   getBacklinkProgressPercentage,
+  getHomeSummaryPreview,
   getVisibleHomePages,
 } from "../src/components/homepage-content";
 import { HomeFooter } from "../src/components/home-footer";
@@ -57,10 +58,22 @@ describe("Home progressive disclosure", () => {
     expect(getBacklinkProgressPercentage(5, 6)).toBeCloseTo(83.333, 3);
     expect(getBacklinkProgressPercentage(0, 0)).toBe(0);
     expect(getBacklinkProgressPercentage(10, 5)).toBe(100);
+    expect(getHomeSummaryPreview("Short summary")).toBe("Short summary");
+    expect(getHomeSummaryPreview("123456789012345678901234567890")).toBe(
+      "123456789012345678901234567890",
+    );
+    expect(getHomeSummaryPreview("1234567890123456789012345678901")).toBe(
+      "123456789012345678901234567890...",
+    );
+    expect(getHomeSummaryPreview("")).toBe("");
   });
 
   it("renders named browse landmarks and caps each initial list", () => {
     const pages = Array.from({ length: 6 }, (_, index) => page(index + 1));
+    pages[0] = {
+      ...pages[0],
+      summary: "systemctl --user restart hermes-dashboard.service",
+    };
     const recentlyVisitedPages: ExplorerPage[] = [
       {
         file: "Development/Git & Terminal/Terminal Reference.md",
@@ -133,6 +146,15 @@ describe("Home progressive disclosure", () => {
     expect(markup).toContain("rounded-full bg-[var(--home-accent-soft)]");
     expect(markup).toContain(">1 backlink<");
     expect(markup).toContain(">4 backlinks<");
+    expect(markup).toContain("lucide-chevron-right");
+    expect(markup).toContain('data-home-summary-preview="true"');
+    expect(markup).toContain(
+      'title="systemctl --user restart hermes-dashboard.service"',
+    );
+    expect(markup).toContain("systemctl --user restart herme...");
+    expect(markup).not.toContain(
+      ">systemctl --user restart hermes-dashboard.service<",
+    );
     const connectedListTag =
       markup.match(/<ul id="home-topConnected-list"[^>]*>/u)?.[0] ?? "";
     const recentListTag =

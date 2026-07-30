@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { Eye, FileClock, Users, Waypoints } from "lucide-react";
+import { ChevronRight, Eye, FileClock, Users, Waypoints } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import { useWikiConfig } from "@/client/wiki-config";
@@ -14,6 +14,11 @@ import {
 
 export const HOME_SECTION_PREVIEW_LIMIT = 4;
 
+export function getHomeSummaryPreview(summary: string, maximumLength = 30) {
+  if (summary.length <= maximumLength) return summary;
+  return `${summary.slice(0, maximumLength)}...`;
+}
+
 function PageRow({ page, showSummary = false }: { page: PageSummary; showSummary?: boolean }) {
   return (
     <Link
@@ -25,8 +30,16 @@ function PageRow({ page, showSummary = false }: { page: PageSummary; showSummary
           {page.title}
         </span>
         {showSummary && page.summary ? (
-          <span className="mt-1 line-clamp-2 block text-sm leading-5 text-[var(--home-muted)]">
-            {page.summary}
+          <span
+            title={page.summary}
+            data-home-summary-preview="true"
+            className="mt-1 flex min-w-0 items-center gap-1 text-sm leading-5 text-[var(--home-muted)]"
+          >
+            <ChevronRight
+              aria-hidden="true"
+              className="h-3.5 w-3.5 shrink-0 text-[var(--home-accent)]"
+            />
+            <span className="min-w-0 truncate">{getHomeSummaryPreview(page.summary)}</span>
           </span>
         ) : null}
       </span>
