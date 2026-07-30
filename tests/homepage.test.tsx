@@ -118,6 +118,11 @@ describe("Home progressive disclosure", () => {
     expect(recentlyVisitedIndex).toBeGreaterThan(recentlyUpdatedIndex);
     expect(peopleIndex).toBeGreaterThan(recentlyVisitedIndex);
     expect(highlyConnectedIndex).toBeGreaterThan(peopleIndex);
+    expect(markup).toContain("lucide-file-clock");
+    expect(markup).toContain("lucide-eye");
+    expect(markup).toContain("lucide-users");
+    expect(markup).toContain("lucide-network");
+    expect(markup.match(/aria-hidden="true"/gu)?.length ?? 0).toBeGreaterThanOrEqual(4);
     expect(markup).toContain("Recently visited");
     expect(markup).toContain("Notes you opened most recently on this device.");
     expect(markup).toContain("Terminal Reference");
@@ -169,6 +174,7 @@ describe("Home progressive disclosure", () => {
     );
 
     expect(markup).not.toContain('aria-labelledby="home-people-heading"');
+    expect(markup).not.toContain("lucide-users");
     expect(recentlyUpdatedIndex).toBeGreaterThanOrEqual(0);
     expect(recentlyVisitedIndex).toBeGreaterThan(recentlyUpdatedIndex);
     expect(highlyConnectedIndex).toBeGreaterThan(recentlyVisitedIndex);

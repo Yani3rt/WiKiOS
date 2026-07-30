@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from "react";
+import { Eye, FileClock, Network, Users } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import { useWikiConfig } from "@/client/wiki-config";
@@ -94,6 +95,7 @@ function PersonRow({ person }: { person: PageSummary }) {
 
 function HomeSection({
   sectionKey,
+  icon,
   title,
   description,
   itemCount,
@@ -102,6 +104,7 @@ function HomeSection({
   children,
 }: {
   sectionKey: HomepageSectionKey;
+  icon: ReactNode;
   title: string;
   description: string;
   itemCount: number;
@@ -116,12 +119,15 @@ function HomeSection({
     <section aria-labelledby={headingId} className="border-t-2 border-[var(--home-accent)] pt-5">
       <div className="mb-3 flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <h2
-            id={headingId}
-            className="text-lg font-semibold leading-6 tracking-[-0.01em] text-[var(--home-accent)]"
-          >
-            {title}
-          </h2>
+          <div className="flex items-center gap-2">
+            {icon}
+            <h2
+              id={headingId}
+              className="text-lg font-semibold leading-6 tracking-[-0.01em] text-[var(--home-accent)]"
+            >
+              {title}
+            </h2>
+          </div>
           <p className="mt-1 text-sm leading-5 text-[var(--home-muted)]">{description}</p>
         </div>
         {hasMore ? (
@@ -177,6 +183,9 @@ export function HomepageContent({
     featured: (
       <HomeSection
         sectionKey="featured"
+        icon={
+          <Eye aria-hidden="true" className="h-4 w-4 shrink-0 text-[var(--home-accent)]" />
+        }
         title={labels.featured}
         description="Notes you opened most recently on this device."
         itemCount={recentlyVisitedPages.length}
@@ -199,6 +208,9 @@ export function HomepageContent({
     topConnected: (
       <HomeSection
         sectionKey="topConnected"
+        icon={
+          <Network aria-hidden="true" className="h-4 w-4 shrink-0 text-[var(--home-accent)]" />
+        }
         title={labels.topConnected}
         description="Notes referenced most often across your vault."
         itemCount={homepage.topConnected.length}
@@ -215,6 +227,9 @@ export function HomepageContent({
     people: homepage.people.length > 0 ? (
       <HomeSection
         sectionKey="people"
+        icon={
+          <Users aria-hidden="true" className="h-4 w-4 shrink-0 text-[var(--home-accent)]" />
+        }
         title={labels.people}
         description="People with dedicated notes in your vault."
         itemCount={homepage.people.length}
@@ -231,6 +246,9 @@ export function HomepageContent({
     recentPages: (
       <HomeSection
         sectionKey="recentPages"
+        icon={
+          <FileClock aria-hidden="true" className="h-4 w-4 shrink-0 text-[var(--home-accent)]" />
+        }
         title={labels.recentPages}
         description="Notes changed most recently."
         itemCount={homepage.recentPages.length}
