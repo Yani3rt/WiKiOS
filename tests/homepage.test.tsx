@@ -182,6 +182,10 @@ describe("Home progressive disclosure", () => {
     expect(markup).not.toContain(">4 backlinks<");
     expect(markup).toContain("lucide-chevron-right");
     expect(markup).toContain('data-home-summary-preview="true"');
+    expect(markup.match(/data-home-summary-toggle="true"/gu)?.length).toBe(4);
+    expect(markup).toContain('aria-label="Expand summary for Note 1"');
+    expect(markup).toContain('aria-expanded="false"');
+    expect(markup).toContain('data-home-summary-content="true"');
     expect(markup).toContain(
       'title="systemctl --user restart hermes-dashboard.service"',
     );

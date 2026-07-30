@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 import { ChevronRight, Eye, FileClock, Users, Waypoints } from "lucide-react";
 import { Link } from "react-router-dom";
 
@@ -20,33 +20,55 @@ export function getHomeSummaryPreview(summary: string, maximumLength = 30) {
 }
 
 function PageRow({ page, showSummary = false }: { page: PageSummary; showSummary?: boolean }) {
+  const [summaryExpanded, setSummaryExpanded] = useState(false);
+  const summaryId = useId();
+  const destination = `/wiki/${page.slug}`;
+
   return (
-    <Link
-      to={`/wiki/${page.slug}`}
-      className="home-note-link group flex min-h-14 min-w-0 items-start justify-between gap-4 py-3 text-left"
-    >
-      <span className="min-w-0">
-        <span className="block truncate text-[0.95rem] font-medium text-[var(--home-ink)] group-hover:text-[var(--home-accent)]">
-          {page.title}
+    <div className="home-note-link group min-h-14 min-w-0 py-3 text-left">
+      <div className="flex min-w-0 items-start justify-between gap-4">
+        <Link to={destination} className="min-w-0 flex-1">
+          <span className="block truncate text-[0.95rem] font-medium text-[var(--home-ink)] group-hover:text-[var(--home-accent)]">
+            {page.title}
+          </span>
+        </Link>
+        <span className="shrink-0 pt-0.5 text-xs tabular-nums text-[var(--home-muted)]">
+          {page.backlinkCount.toLocaleString()} {page.backlinkCount === 1 ? "link" : "links"}
         </span>
-        {showSummary && page.summary ? (
-          <span
-            title={page.summary}
-            data-home-summary-preview="true"
-            className="mt-1 flex min-w-0 items-center gap-1 text-sm leading-5 text-[var(--home-muted)]"
+      </div>
+      {showSummary && page.summary ? (
+        <div className="mt-1 flex min-w-0 items-start gap-1 text-sm leading-5 text-[var(--home-muted)]">
+          <button
+            type="button"
+            aria-label={`${summaryExpanded ? "Collapse" : "Expand"} summary for ${page.title}`}
+            aria-expanded={summaryExpanded}
+            aria-controls={summaryId}
+            data-home-summary-toggle="true"
+            onClick={() => setSummaryExpanded((current) => !current)}
+            className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--home-accent)] hover:bg-[var(--home-accent-soft)]"
           >
             <ChevronRight
               aria-hidden="true"
-              className="h-3.5 w-3.5 shrink-0 text-[var(--home-accent)]"
+              className={`h-3.5 w-3.5 transition-transform duration-150 motion-reduce:transition-none ${
+                summaryExpanded ? "rotate-90" : ""
+              }`}
             />
-            <span className="min-w-0 truncate">{getHomeSummaryPreview(page.summary)}</span>
-          </span>
-        ) : null}
-      </span>
-      <span className="shrink-0 pt-0.5 text-xs tabular-nums text-[var(--home-muted)]">
-        {page.backlinkCount.toLocaleString()} {page.backlinkCount === 1 ? "link" : "links"}
-      </span>
-    </Link>
+          </button>
+          <Link
+            id={summaryId}
+            to={destination}
+            title={page.summary}
+            data-home-summary-preview="true"
+            data-home-summary-content="true"
+            className={`min-w-0 flex-1 ${
+              summaryExpanded ? "whitespace-normal break-words" : "truncate"
+            }`}
+          >
+            {summaryExpanded ? page.summary : getHomeSummaryPreview(page.summary)}
+          </Link>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
