@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { Eye, FileClock, Network, Users } from "lucide-react";
+import { Eye, FileClock, Users, Waypoints } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import { useWikiConfig } from "@/client/wiki-config";
@@ -209,7 +209,7 @@ export function HomepageContent({
       <HomeSection
         sectionKey="topConnected"
         icon={
-          <Network aria-hidden="true" className="h-4 w-4 shrink-0 text-[var(--home-accent)]" />
+          <Waypoints aria-hidden="true" className="h-4 w-4 shrink-0 text-[var(--home-accent)]" />
         }
         title={labels.topConnected}
         description="Notes referenced most often across your vault."
