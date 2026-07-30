@@ -126,6 +126,7 @@ function PersonRow({ person }: { person: PageSummary }) {
   return (
     <Link
       to={`/wiki/${person.slug}`}
+      data-home-person-row="true"
       className="home-note-link group flex min-h-14 min-w-0 items-center gap-3 py-2.5 text-left"
     >
       <span className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[var(--home-accent-soft)] text-sm font-semibold text-[var(--home-accent)]">
@@ -143,13 +144,21 @@ function PersonRow({ person }: { person: PageSummary }) {
           />
         ) : null}
       </span>
-      <span className="min-w-0">
-        <span className="block truncate text-[0.95rem] font-medium text-[var(--home-ink)] group-hover:text-[var(--home-accent)]">
-          {person.title}
-        </span>
-        <span className="block text-xs text-[var(--home-muted)]">
+      <span className="min-w-0 flex-1 truncate text-[0.95rem] font-medium text-[var(--home-ink)] group-hover:text-[var(--home-accent)]">
+        {person.title}
+      </span>
+      <span className="flex shrink-0 items-center gap-1.5">
+        <span
+          data-home-person-backlink-pill="true"
+          className="shrink-0 rounded-full bg-[var(--home-accent-soft)] px-2 py-1 text-xs font-medium tabular-nums text-[var(--home-accent)]"
+        >
           {person.backlinkCount.toLocaleString()} {person.backlinkCount === 1 ? "backlink" : "backlinks"}
         </span>
+        <ChevronRight
+          aria-hidden="true"
+          data-home-person-chevron="true"
+          className="h-4 w-4 shrink-0 text-[var(--home-accent)]"
+        />
       </span>
     </Link>
   );

@@ -157,6 +157,15 @@ describe("Home progressive disclosure", () => {
     expect(markup).toContain("lucide-users");
     expect(markup).toContain("lucide-waypoints");
     expect(markup.match(/aria-hidden="true"/gu)?.length ?? 0).toBeGreaterThanOrEqual(4);
+    expect(markup).toContain('data-home-person-row="true"');
+    expect(markup).toContain('data-home-person-backlink-pill="true"');
+    expect(markup).toContain('data-home-person-chevron="true"');
+    expect(markup.match(/data-home-person-row="true"/gu)?.length).toBe(4);
+    expect(markup.match(/data-home-person-backlink-pill="true"/gu)?.length).toBe(4);
+    expect(markup.match(/data-home-person-chevron="true"/gu)?.length).toBe(4);
+    expect(markup).toContain(
+      "min-w-0 flex-1 truncate text-[0.95rem] font-medium",
+    );
     expect(markup).toContain('data-home-connected-row="true"');
     expect(markup).toContain('data-home-backlink-progress="true"');
     expect(markup).toContain("rounded-full bg-[var(--home-accent-soft)]");
