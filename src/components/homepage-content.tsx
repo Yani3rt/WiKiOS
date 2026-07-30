@@ -37,6 +37,55 @@ function PageRow({ page, showSummary = false }: { page: PageSummary; showSummary
   );
 }
 
+export function getBacklinkProgressPercentage(
+  backlinkCount: number,
+  maximumBacklinkCount: number,
+) {
+  if (maximumBacklinkCount <= 0) return 0;
+  return Math.min(100, Math.max(0, (backlinkCount / maximumBacklinkCount) * 100));
+}
+
+function ConnectedPageRow({
+  page,
+  maximumBacklinkCount,
+}: {
+  page: PageSummary;
+  maximumBacklinkCount: number;
+}) {
+  const percentage = getBacklinkProgressPercentage(
+    page.backlinkCount,
+    maximumBacklinkCount,
+  );
+
+  return (
+    <Link
+      to={`/wiki/${page.slug}`}
+      data-home-connected-row="true"
+      className="home-note-link group flex min-h-14 min-w-0 flex-col justify-center gap-2 py-3 text-left"
+    >
+      <span className="flex min-w-0 items-center justify-between gap-3">
+        <span className="min-w-0 truncate text-[0.95rem] font-medium text-[var(--home-ink)] group-hover:text-[var(--home-accent)]">
+          {page.title}
+        </span>
+        <span className="shrink-0 rounded-full bg-[var(--home-accent-soft)] px-2 py-1 text-xs font-medium tabular-nums text-[var(--home-accent)]">
+          {page.backlinkCount.toLocaleString()}{" "}
+          {page.backlinkCount === 1 ? "backlink" : "backlinks"}
+        </span>
+      </span>
+      <span
+        aria-hidden="true"
+        data-home-backlink-progress="true"
+        className="h-1 w-full overflow-hidden rounded-full bg-[var(--home-border)]"
+      >
+        <span
+          className="block h-full rounded-full bg-[var(--home-accent)]"
+          style={{ width: `${percentage}%` }}
+        />
+      </span>
+    </Link>
+  );
+}
+
 function RecentlyVisitedRow({ page }: { page: ExplorerPage }) {
   const path = page.file.replace(/\.md$/iu, "");
 
@@ -101,6 +150,7 @@ function HomeSection({
   itemCount,
   expanded,
   onToggle,
+  showDividers = true,
   children,
 }: {
   sectionKey: HomepageSectionKey;
@@ -110,6 +160,7 @@ function HomeSection({
   itemCount: number;
   expanded: boolean;
   onToggle: () => void;
+  showDividers?: boolean;
   children: ReactNode;
 }) {
   const headingId = `home-${sectionKey}-heading`;
@@ -142,7 +193,10 @@ function HomeSection({
           </button>
         ) : null}
       </div>
-      <ul id={`home-${sectionKey}-list`} className="divide-y divide-[var(--home-border)]">
+      <ul
+        id={`home-${sectionKey}-list`}
+        className={showDividers ? "divide-y divide-[var(--home-border)]" : ""}
+      >
         {children}
       </ul>
     </section>
@@ -168,6 +222,10 @@ export function HomepageContent({
   });
   const midpoint = Math.ceil(orderedSections.length / 2);
   const columns = [orderedSections.slice(0, midpoint), orderedSections.slice(midpoint)];
+  const maximumBacklinkCount = Math.max(
+    0,
+    ...homepage.topConnected.map((page) => page.backlinkCount),
+  );
 
   const isExpanded = (section: HomepageSectionKey) => expandedSections.has(section);
   const toggleSection = (section: HomepageSectionKey) => {
@@ -216,10 +274,11 @@ export function HomepageContent({
         itemCount={homepage.topConnected.length}
         expanded={isExpanded("topConnected")}
         onToggle={() => toggleSection("topConnected")}
+        showDividers={false}
       >
         {getVisibleHomePages(homepage.topConnected, isExpanded("topConnected")).map((page) => (
           <li key={page.file}>
-            <PageRow page={page} />
+            <ConnectedPageRow page={page} maximumBacklinkCount={maximumBacklinkCount} />
           </li>
         ))}
       </HomeSection>

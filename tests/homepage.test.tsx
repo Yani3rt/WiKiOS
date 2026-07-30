@@ -7,6 +7,7 @@ import { WikiConfigProvider } from "../src/client/wiki-config";
 import {
   HOME_SECTION_PREVIEW_LIMIT,
   HomepageContent,
+  getBacklinkProgressPercentage,
   getVisibleHomePages,
 } from "../src/components/homepage-content";
 import { HomeFooter } from "../src/components/home-footer";
@@ -52,6 +53,10 @@ describe("Home progressive disclosure", () => {
     expect(getVisibleHomePages(pages, true)).toHaveLength(6);
     expect(getVisibleSearchResults(results, false)).toHaveLength(4);
     expect(getVisibleSearchResults(results, true)).toHaveLength(6);
+    expect(getBacklinkProgressPercentage(6, 6)).toBe(100);
+    expect(getBacklinkProgressPercentage(5, 6)).toBeCloseTo(83.333, 3);
+    expect(getBacklinkProgressPercentage(0, 0)).toBe(0);
+    expect(getBacklinkProgressPercentage(10, 5)).toBe(100);
   });
 
   it("renders named browse landmarks and caps each initial list", () => {
@@ -123,6 +128,17 @@ describe("Home progressive disclosure", () => {
     expect(markup).toContain("lucide-users");
     expect(markup).toContain("lucide-waypoints");
     expect(markup.match(/aria-hidden="true"/gu)?.length ?? 0).toBeGreaterThanOrEqual(4);
+    expect(markup).toContain('data-home-connected-row="true"');
+    expect(markup).toContain('data-home-backlink-progress="true"');
+    expect(markup).toContain("rounded-full bg-[var(--home-accent-soft)]");
+    expect(markup).toContain(">1 backlink<");
+    expect(markup).toContain(">4 backlinks<");
+    const connectedListTag =
+      markup.match(/<ul id="home-topConnected-list"[^>]*>/u)?.[0] ?? "";
+    const recentListTag =
+      markup.match(/<ul id="home-recentPages-list"[^>]*>/u)?.[0] ?? "";
+    expect(connectedListTag).not.toContain("divide-y");
+    expect(recentListTag).toContain("divide-y");
     expect(markup).toContain("Recently visited");
     expect(markup).toContain("Notes you opened most recently on this device.");
     expect(markup).toContain("Terminal Reference");
