@@ -157,9 +157,12 @@ describe("Home progressive disclosure", () => {
     );
     const connectedListTag =
       markup.match(/<ul id="home-topConnected-list"[^>]*>/u)?.[0] ?? "";
+    const peopleListTag =
+      markup.match(/<ul id="home-people-list"[^>]*>/u)?.[0] ?? "";
     const recentListTag =
       markup.match(/<ul id="home-recentPages-list"[^>]*>/u)?.[0] ?? "";
     expect(connectedListTag).not.toContain("divide-y");
+    expect(peopleListTag).not.toContain("divide-y");
     expect(recentListTag).toContain("divide-y");
     expect(markup).toContain("Recently visited");
     expect(markup).toContain("Notes you opened most recently on this device.");

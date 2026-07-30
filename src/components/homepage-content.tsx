@@ -307,6 +307,7 @@ export function HomepageContent({
         itemCount={homepage.people.length}
         expanded={isExpanded("people")}
         onToggle={() => toggleSection("people")}
+        showDividers={false}
       >
         {getVisibleHomePages(homepage.people, isExpanded("people")).map((person) => (
           <li key={person.file}>
