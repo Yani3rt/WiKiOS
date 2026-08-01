@@ -19,6 +19,27 @@ export interface GraphConnectionGroups {
   incoming: GraphConnectionItem[];
 }
 
+export type GraphNeuralActivationMode = "hover" | "selection";
+export type GraphNeuralDirection = "incoming" | "outgoing";
+
+export interface GraphNeuralEdgeActivation {
+  edgeKey: string;
+  source: string;
+  target: string;
+  direction: GraphNeuralDirection;
+  receivingNode: string;
+  delayMs: number;
+}
+
+export interface GraphNeuralSignalFrame {
+  phase: "charging" | "transmitting" | "selected";
+  primaryProgress: number | null;
+  echoProgress: number | null;
+  edgeIntensity: number;
+  arrivalScale: number;
+  complete: boolean;
+}
+
 export interface GraphLayoutNodeInput {
   key: string;
   x: number;
@@ -82,6 +103,136 @@ export const GRAPH_MOVEMENT_RENDERING_SETTINGS = {
 export const GRAPH_INDEX_LIMIT = 200;
 export const GRAPH_INDEX_INITIAL_VISIBLE_COUNT = 10;
 export const GRAPH_INDEX_LOAD_MORE_COUNT = 5;
+
+export const GRAPH_NEURAL_TIMING = {
+  hoverIntentMs: 70,
+  chargeMs: 100,
+  ignitionMs: 120,
+  hoverTravelMs: 520,
+  selectionTravelMs: 620,
+  echoDelayMs: 180,
+  arrivalMs: 140,
+  releaseMs: 180,
+  maximumStaggerMs: 100,
+} as const;
+
+function getStableGraphStringHash(value: string) {
+  let hash = 0;
+  for (const character of value) {
+    hash = (Math.imul(hash, 31) + character.charCodeAt(0)) >>> 0;
+  }
+  return hash;
+}
+
+function clampGraphNeuralProgress(value: number) {
+  return Math.max(0, Math.min(1, value));
+}
+
+export function getGraphNeuralDirectEdges(
+  activeSlug: string,
+  edges: GraphEdge[],
+): GraphNeuralEdgeActivation[] {
+  return edges
+    .filter((edge) => edge.source === activeSlug || edge.target === activeSlug)
+    .map((edge) => {
+      const edgeKey = `${edge.source}->${edge.target}`;
+      const direction: GraphNeuralDirection =
+        edge.source === activeSlug ? "outgoing" : "incoming";
+
+      return {
+        edgeKey,
+        source: edge.source,
+        target: edge.target,
+        direction,
+        receivingNode: edge.target,
+        delayMs:
+          getStableGraphStringHash(edgeKey) % (GRAPH_NEURAL_TIMING.maximumStaggerMs + 1),
+      };
+    })
+    .sort((left, right) => left.edgeKey.localeCompare(right.edgeKey));
+}
+
+export function getGraphNeuralSignalFrame(
+  elapsedMs: number,
+  delayMs: number,
+  mode: GraphNeuralActivationMode,
+  reducedMotion: boolean,
+): GraphNeuralSignalFrame {
+  if (reducedMotion) {
+    return {
+      phase: "selected",
+      primaryProgress: null,
+      echoProgress: null,
+      edgeIntensity: 1,
+      arrivalScale: 1,
+      complete: true,
+    };
+  }
+
+  const elapsed = Math.max(0, elapsedMs);
+  const delay = Math.max(0, delayMs);
+  const travelMs =
+    mode === "selection"
+      ? GRAPH_NEURAL_TIMING.selectionTravelMs
+      : GRAPH_NEURAL_TIMING.hoverTravelMs;
+  const travelStart = GRAPH_NEURAL_TIMING.chargeMs + GRAPH_NEURAL_TIMING.ignitionMs + delay;
+  const primaryProgress = clampGraphNeuralProgress((elapsed - travelStart) / travelMs);
+  const primaryStarted = elapsed >= travelStart;
+  const echoStart = travelStart + GRAPH_NEURAL_TIMING.echoDelayMs;
+  const echoProgress =
+    mode === "selection" && elapsed >= echoStart
+      ? clampGraphNeuralProgress((elapsed - echoStart) / travelMs)
+      : null;
+  const terminalTravelEnd =
+    mode === "selection" ? echoStart + travelMs : travelStart + travelMs;
+  const complete = elapsed >= terminalTravelEnd + GRAPH_NEURAL_TIMING.releaseMs;
+
+  if (complete && mode === "selection") {
+    return {
+      phase: "selected",
+      primaryProgress: 1,
+      echoProgress: 1,
+      edgeIntensity: 1,
+      arrivalScale: 1,
+      complete: true,
+    };
+  }
+
+  if (complete) {
+    return {
+      phase: "transmitting",
+      primaryProgress: 1,
+      echoProgress: null,
+      edgeIntensity: 0.45,
+      arrivalScale: 1,
+      complete: true,
+    };
+  }
+
+  const arrivalProgress = primaryStarted
+    ? clampGraphNeuralProgress(
+        (primaryProgress - (1 - GRAPH_NEURAL_TIMING.arrivalMs / travelMs)) /
+          (GRAPH_NEURAL_TIMING.arrivalMs / travelMs),
+      )
+    : 0;
+  const arrivalScale = 1 + Math.sin(arrivalProgress * Math.PI) * 0.12;
+  const releaseProgress = clampGraphNeuralProgress(
+    (elapsed - terminalTravelEnd) / GRAPH_NEURAL_TIMING.releaseMs,
+  );
+  const edgeIntensity =
+    mode === "selection"
+      ? 1 - releaseProgress * 0.15
+      : 0.7 - releaseProgress * 0.25;
+
+  return {
+    phase: primaryStarted ? "transmitting" : "charging",
+    primaryProgress: primaryStarted ? primaryProgress : null,
+    echoProgress,
+    edgeIntensity,
+    arrivalScale,
+    complete: false,
+  };
+}
 
 export function truncateGraphLabel(value: string, maxCharacters = 42) {
   const characters = Array.from(value.trim());

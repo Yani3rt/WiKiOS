@@ -9,6 +9,8 @@ import {
   updateGraphThemeInPlace,
 } from "../src/client/routes/graph-route";
 import {
+  getGraphNeuralDirectEdges,
+  getGraphNeuralSignalFrame,
   GRAPH_INDEX_LIMIT,
   GRAPH_MOVEMENT_RENDERING_SETTINGS,
   getCollisionAwareGraphLabelPlacements,
@@ -52,6 +54,54 @@ function node(overrides: Partial<GraphNode> & Pick<GraphNode, "slug">): GraphNod
 }
 
 describe("graph overview model", () => {
+  it("models deterministic direct neural activations and their signal phases", () => {
+    const edges = [
+      { source: "active", target: "out", weight: 1 },
+      { source: "in", target: "active", weight: 2 },
+      { source: "elsewhere", target: "other", weight: 1 },
+    ];
+
+    expect(getGraphNeuralDirectEdges("active", edges)).toEqual([
+      expect.objectContaining({
+        edgeKey: "active->out",
+        direction: "outgoing",
+        receivingNode: "out",
+      }),
+      expect.objectContaining({
+        edgeKey: "in->active",
+        direction: "incoming",
+        receivingNode: "active",
+      }),
+    ]);
+
+    const first = getGraphNeuralDirectEdges("active", edges);
+    const second = getGraphNeuralDirectEdges("active", [...edges].reverse());
+    expect(first.map(({ edgeKey, delayMs }) => [edgeKey, delayMs]).sort()).toEqual(
+      second.map(({ edgeKey, delayMs }) => [edgeKey, delayMs]).sort(),
+    );
+    expect(first.every(({ delayMs }) => delayMs >= 0 && delayMs <= 100)).toBe(true);
+
+    const beforeTravel = getGraphNeuralSignalFrame(180, 20, "hover", false);
+    expect(beforeTravel.primaryProgress).toBeNull();
+    expect(beforeTravel.phase).toBe("charging");
+
+    const transmitting = getGraphNeuralSignalFrame(500, 20, "hover", false);
+    expect(transmitting.primaryProgress).toBeGreaterThan(0);
+    expect(transmitting.primaryProgress).toBeLessThan(1);
+    expect(transmitting.echoProgress).toBeNull();
+
+    const selection = getGraphNeuralSignalFrame(850, 0, "selection", false);
+    expect(selection.echoProgress).not.toBeNull();
+
+    expect(getGraphNeuralSignalFrame(0, 0, "selection", true)).toMatchObject({
+      phase: "selected",
+      primaryProgress: null,
+      echoProgress: null,
+      edgeIntensity: 1,
+      complete: true,
+    });
+  });
+
   it("recolors neutral graph data while preserving category encodings", () => {
     const graph = new Graph();
     graph.addNode("neutral", { categories: [], color: "#000000", originalColor: "#000000" });
