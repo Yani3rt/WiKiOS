@@ -392,6 +392,7 @@ export function getGraphNodeClickSelection(
   return {
     focusedSlug: clickedSlug,
     shouldCenter: currentFocusedSlug !== clickedSlug,
+    shouldReplayNeural: true,
   };
 }
 

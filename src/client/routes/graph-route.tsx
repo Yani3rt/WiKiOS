@@ -1732,9 +1732,11 @@ export function Component() {
 
     sigma.on("clickNode", ({ node }) => {
       const selection = getGraphNodeClickSelection(focusedRef.current, node);
+      if (selection.shouldReplayNeural) {
+        neuralSelectionCallbackRef.current?.(selection.focusedSlug);
+      }
       if (!selection.shouldCenter) return;
 
-      neuralSelectionCallbackRef.current?.(selection.focusedSlug);
       focusedRef.current = selection.focusedSlug;
       focusIsolationCallbackRef.current?.(selection.focusedSlug);
       setFocusedSlug(selection.focusedSlug);

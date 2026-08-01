@@ -704,10 +704,12 @@ describe("graph overview model", () => {
     expect(getGraphNodeClickSelection("building-ai-agents", "building-ai-agents")).toEqual({
       focusedSlug: "building-ai-agents",
       shouldCenter: false,
+      shouldReplayNeural: true,
     });
     expect(getGraphNodeClickSelection("building-ai-agents", "hermes")).toEqual({
       focusedSlug: "hermes",
       shouldCenter: true,
+      shouldReplayNeural: true,
     });
   });
 
