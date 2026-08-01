@@ -14,9 +14,18 @@ import {
   X,
 } from "lucide-react";
 import SigmaLib from "sigma";
-import type { NodeLabelDrawingFunction } from "sigma/rendering";
+import type { EdgeProgramType, NodeLabelDrawingFunction } from "sigma/rendering";
 
 import { useColorTheme } from "@/client/color-theme-provider";
+import {
+  createGraphNeuralAnimationController,
+  type GraphNeuralAnimationController,
+  type GraphNeuralAnimationSnapshot,
+} from "@/client/graph-neural-animation";
+import {
+  NeuralEdgeProgram,
+  type NeuralEdgeDisplayData,
+} from "@/client/graph-neural-edge-program";
 import { useWikiConfig } from "@/client/wiki-config";
 import {
   getCollisionAwareGraphLabelPlacements,
@@ -31,6 +40,7 @@ import {
   getGraphIsolationFrameRefreshOptions,
   getGraphLayoutIterations,
   getGraphLinkedNodePulseScale,
+  getGraphNeuralDirectEdges,
   getGraphNodeClickSelection,
   getGraphNodeFocusViewportPoint,
   getGraphNodeSize,
@@ -51,6 +61,7 @@ import {
   type GraphConnectionGroups,
   type GraphLayoutRequest,
   type GraphLayoutResult,
+  type GraphNeuralSignalFrame,
 } from "@/client/graph-overview-model";
 import { getTopicColor, type TopicAliasConfig } from "@/lib/wiki-config";
 import type { GraphData, GraphNode } from "@/lib/wiki-shared";
@@ -191,6 +202,52 @@ function createGraphLabelDrawer(colors: GraphThemeColors): NodeLabelDrawingFunct
 interface GraphThemeRenderer {
   setSettings(settings: Parameters<SigmaLib["setSettings"]>[0]): unknown;
   refresh(): unknown;
+}
+
+export function getGraphEdgeProgramClasses(
+  neuralEnabled: boolean,
+): Record<string, EdgeProgramType> {
+  return neuralEnabled ? { neural: NeuralEdgeProgram } : {};
+}
+
+export function getGraphNeuralEdgeDisplayAttributes(
+  frame: GraphNeuralSignalFrame,
+  color: string,
+): Pick<
+  NeuralEdgeDisplayData,
+  | "type"
+  | "color"
+  | "neuralPrimaryProgress"
+  | "neuralEchoProgress"
+  | "neuralIntensity"
+> {
+  const settledSelection = frame.complete && frame.phase === "selected";
+  return {
+    type: "neural",
+    color,
+    neuralPrimaryProgress: settledSelection ? -1 : (frame.primaryProgress ?? -1),
+    neuralEchoProgress: settledSelection ? -1 : (frame.echoProgress ?? -1),
+    neuralIntensity: frame.edgeIntensity,
+  };
+}
+
+export function getGraphNeuralRefreshPartialGraph(
+  previous: GraphNeuralAnimationSnapshot,
+  next: GraphNeuralAnimationSnapshot,
+) {
+  return {
+    edges: [...new Set([...previous.edges.keys(), ...next.edges.keys()])],
+    nodes: [
+      ...new Set(
+        [
+          previous.activeSlug,
+          next.activeSlug,
+          ...previous.nodeScales.keys(),
+          ...next.nodeScales.keys(),
+        ].filter((slug): slug is string => Boolean(slug)),
+      ),
+    ],
+  };
 }
 
 /** Recolors the current graph and renderer without replacing graph lifecycle state. */
@@ -1072,6 +1129,10 @@ export function Component() {
   const sigmaRef = useRef<SigmaLib | null>(null);
   const graphRef = useRef<Graph | null>(null);
   const graphThemeRef = useRef<GraphThemeColors | null>(null);
+  const neuralControllerRef = useRef<GraphNeuralAnimationController | null>(null);
+  const neuralSnapshotRef = useRef<GraphNeuralAnimationSnapshot | null>(null);
+  const neuralSelectionCallbackRef = useRef<((slug: string) => void) | null>(null);
+  const neuralFallbackWarningShownRef = useRef(false);
   const hoveredRef = useRef<string | null>(null);
   const focusedRef = useRef<string | null>(null);
   const linkedHoverRef = useRef<string | null>(null);
@@ -1145,6 +1206,7 @@ export function Component() {
   }, [detailPanelHeight, focusedSlug]);
 
   const handleSearchSelect = useCallback((slug: string) => {
+    neuralSelectionCallbackRef.current?.(slug);
     focusedRef.current = slug;
     focusIsolationCallbackRef.current?.(slug);
     setFocusedSlug(slug);
@@ -1168,6 +1230,7 @@ export function Component() {
 
   const handleInfoClose = useCallback(() => {
     const sigma = sigmaRef.current;
+    neuralControllerRef.current?.clearSelection();
     focusedRef.current = null;
     focusIsolationCallbackRef.current?.(null);
     setFocusedSlug(null);
@@ -1183,6 +1246,7 @@ export function Component() {
   }, []);
 
   const handleInfoNeighborClick = useCallback((slug: string) => {
+    neuralSelectionCallbackRef.current?.(slug);
     focusedRef.current = slug;
     focusIsolationCallbackRef.current?.(slug);
     setFocusedSlug(slug);
@@ -1262,112 +1326,182 @@ export function Component() {
       containerRef.current.clientHeight,
     );
 
-    const sigma = new SigmaLib(graph, containerRef.current, {
-      allowInvalidContainer: true,
-      ...GRAPH_MOVEMENT_RENDERING_SETTINGS,
-      renderLabels: true,
-      renderEdgeLabels: false,
-      defaultDrawNodeLabel: createGraphLabelDrawer(graphTheme),
-      labelColor: { color: graphTheme.label },
-      labelFont: '"Urbanist", -apple-system, BlinkMacSystemFont, sans-serif',
-      labelSize: viewportSettings.labelSize,
-      labelWeight: "600",
-      labelDensity: viewportSettings.labelDensity,
-      labelGridCellSize: viewportSettings.labelGridCellSize,
-      labelRenderedSizeThreshold: 1_000,
-      defaultEdgeColor: graphTheme.edgeDefault,
-      defaultEdgeType: "line",
-      defaultNodeColor: graphTheme.nodeDefault,
-      minEdgeThickness: 1,
-      stagePadding: viewportSettings.stagePadding,
-      edgeReducer(edge, data) {
-        const colors = graphThemeRef.current ?? graphTheme;
-        const focused = focusedRef.current;
-        const hovered = hoveredRef.current;
-        const res = { ...data };
-        const src = graph.source(edge);
-        const tgt = graph.target(edge);
+    let neuralEnabled = true;
+    const createRenderer = () =>
+      new SigmaLib(graph, containerRef.current!, {
+        allowInvalidContainer: true,
+        ...GRAPH_MOVEMENT_RENDERING_SETTINGS,
+        renderLabels: true,
+        renderEdgeLabels: false,
+        defaultDrawNodeLabel: createGraphLabelDrawer(graphTheme),
+        labelColor: { color: graphTheme.label },
+        labelFont: '"Urbanist", -apple-system, BlinkMacSystemFont, sans-serif',
+        labelSize: viewportSettings.labelSize,
+        labelWeight: "600",
+        labelDensity: viewportSettings.labelDensity,
+        labelGridCellSize: viewportSettings.labelGridCellSize,
+        labelRenderedSizeThreshold: 1_000,
+        defaultEdgeColor: graphTheme.edgeDefault,
+        defaultEdgeType: "line",
+        defaultNodeColor: graphTheme.nodeDefault,
+        edgeProgramClasses: getGraphEdgeProgramClasses(neuralEnabled),
+        minEdgeThickness: 1,
+        stagePadding: viewportSettings.stagePadding,
+        edgeReducer(edge, data) {
+          const colors = graphThemeRef.current ?? graphTheme;
+          const focused = focusedRef.current;
+          const hovered = hoveredRef.current;
+          const res = { ...data };
+          const src = graph.source(edge);
+          const tgt = graph.target(edge);
 
-        if (focused) {
-          if (src === focused) {
-            res.color = colors.edgeOutgoing;
-            res.size = Math.max(2.1, res.size ?? 1);
-            res.type = "arrow";
-          } else if (tgt === focused) {
-            res.color = colors.edgeIncoming;
-            res.size = Math.max(2.1, res.size ?? 1);
-            res.type = "arrow";
-          } else {
-            res.hidden = true;
-          }
-        } else if (hovered) {
-          if (src === hovered || tgt === hovered) {
-            res.color = colors.edgeOutgoing;
-            res.size = Math.max(1.8, res.size ?? 1);
-          } else {
-            res.color = colors.edgeMuted;
-            res.size = Math.max(0.8, (res.size ?? 1) * 0.7);
-          }
-        }
-        return res;
-      },
-      nodeReducer(node, data) {
-        const colors = graphThemeRef.current ?? graphTheme;
-        const focused = isolatedFocusRef.current;
-        const hovered = hoveredRef.current;
-        const linkedHover = linkedHoverRef.current;
-        const active = focused ?? hovered;
-        const res = { ...data };
-        res.label = viewportSettings.compact ? data.compactLabel : data.label;
-        res.forceLabel = Boolean(data.forceLabel);
-
-        if (active) {
-          const isActive = node === active;
-          const isNeighbor = graph.hasEdge(active, node) || graph.hasEdge(node, active);
-
-          if (isActive) {
-            res.highlighted = true;
-            res.zIndex = 2;
-            res.size = (res.size ?? 4) * 1.3;
-          } else if (isNeighbor) {
-            res.zIndex = 1;
-            if (focused) {
-              res.forceLabel = true;
-              res.size = (res.size ?? 4) * 1.08;
-            }
-          } else {
-            res.zIndex = 0;
-            if (focused) {
-              const transition = getGraphDisconnectedNodeTransition(
-                isolationProgressRef.current,
-              );
-              res.color = mixGraphColors(
-                String(data.originalColor ?? data.color ?? colors.nodeDefault),
-                colors.background,
-                transition.colorMix,
-              );
-              res.size = (res.size ?? 4) * transition.sizeScale;
-              res.hidden = transition.hidden;
-              res.label = "";
-              res.forceLabel = false;
+          if (focused) {
+            if (src === focused) {
+              res.color = colors.edgeOutgoing;
+              res.size = Math.max(2.1, res.size ?? 1);
+              res.type = "arrow";
+            } else if (tgt === focused) {
+              res.color = colors.edgeIncoming;
+              res.size = Math.max(2.1, res.size ?? 1);
+              res.type = "arrow";
             } else {
-              res.color = colors.nodeMuted;
+              res.hidden = true;
+            }
+          } else if (hovered) {
+            if (src === hovered || tgt === hovered) {
+              res.color = colors.edgeOutgoing;
+              res.size = Math.max(1.8, res.size ?? 1);
+            } else {
+              res.color = colors.edgeMuted;
+              res.size = Math.max(0.8, (res.size ?? 1) * 0.7);
             }
           }
-        }
 
-        if (node === linkedHover) {
-          res.highlighted = true;
-          res.forceLabel = true;
-          res.zIndex = 3;
-          res.size = (res.size ?? 4) * linkedPulseScaleRef.current;
-        }
+          const neuralSnapshot = neuralSnapshotRef.current;
+          const neuralFrame = neuralEnabled ? neuralSnapshot?.edges.get(edge) : undefined;
+          if (neuralFrame && neuralSnapshot?.activeSlug) {
+            const neuralColor =
+              src === neuralSnapshot.activeSlug ? colors.edgeOutgoing : colors.edgeIncoming;
+            Object.assign(res, getGraphNeuralEdgeDisplayAttributes(neuralFrame, neuralColor));
+            res.size = Math.max(2.5, res.size ?? 1);
+          }
 
-        return res;
-      },
-    });
+          return res;
+        },
+        nodeReducer(node, data) {
+          const colors = graphThemeRef.current ?? graphTheme;
+          const focused = isolatedFocusRef.current;
+          const hovered = hoveredRef.current;
+          const linkedHover = linkedHoverRef.current;
+          const active = focused ?? hovered;
+          const res = { ...data };
+          res.label = viewportSettings.compact ? data.compactLabel : data.label;
+          res.forceLabel = Boolean(data.forceLabel);
+
+          if (active) {
+            const isActive = node === active;
+            const isNeighbor = graph.hasEdge(active, node) || graph.hasEdge(node, active);
+
+            if (isActive) {
+              res.highlighted = true;
+              res.zIndex = 2;
+              res.size = (res.size ?? 4) * 1.3;
+            } else if (isNeighbor) {
+              res.zIndex = 1;
+              if (focused) {
+                res.forceLabel = true;
+                res.size = (res.size ?? 4) * 1.08;
+              }
+            } else {
+              res.zIndex = 0;
+              if (focused) {
+                const transition = getGraphDisconnectedNodeTransition(
+                  isolationProgressRef.current,
+                );
+                res.color = mixGraphColors(
+                  String(data.originalColor ?? data.color ?? colors.nodeDefault),
+                  colors.background,
+                  transition.colorMix,
+                );
+                res.size = (res.size ?? 4) * transition.sizeScale;
+                res.hidden = transition.hidden;
+                res.label = "";
+                res.forceLabel = false;
+              } else {
+                res.color = colors.nodeMuted;
+              }
+            }
+          }
+
+          if (node === linkedHover) {
+            res.highlighted = true;
+            res.forceLabel = true;
+            res.zIndex = 3;
+            res.size = (res.size ?? 4) * linkedPulseScaleRef.current;
+          }
+
+          const neuralSnapshot = neuralEnabled ? neuralSnapshotRef.current : null;
+          if (neuralSnapshot) {
+            let neuralScale = neuralSnapshot.nodeScales.get(node) ?? 1;
+            if (node === neuralSnapshot.activeSlug) {
+              let maximumIntensity = 0;
+              for (const frame of neuralSnapshot.edges.values()) {
+                maximumIntensity = Math.max(maximumIntensity, frame.edgeIntensity);
+              }
+              neuralScale = Math.max(neuralScale, 1 + maximumIntensity * 0.08);
+            }
+            res.size = (res.size ?? 4) * neuralScale;
+          }
+
+          return res;
+        },
+      });
+
+    let sigma: SigmaLib;
+    try {
+      sigma = createRenderer();
+    } catch (error) {
+      neuralEnabled = false;
+      containerRef.current.replaceChildren();
+      if (!neuralFallbackWarningShownRef.current) {
+        neuralFallbackWarningShownRef.current = true;
+        console.warn(
+          "Neural graph rendering is unavailable; using the static edge renderer.",
+          error,
+        );
+      }
+      sigma = createRenderer();
+    }
 
     sigmaRef.current = sigma;
+    const neuralController = createGraphNeuralAnimationController({
+      onFrame(snapshot) {
+        const previousSnapshot = neuralSnapshotRef.current ?? snapshot;
+        const partialGraph = getGraphNeuralRefreshPartialGraph(previousSnapshot, snapshot);
+        // Sigma runs partial reducers synchronously, so retain the old keys first, then expose
+        // the next frame before refreshing both sides of a replacement or clear.
+        neuralSnapshotRef.current = snapshot;
+        sigmaRef.current?.refresh({
+          partialGraph,
+          schedule: true,
+        });
+      },
+    });
+    neuralControllerRef.current = neuralController;
+    neuralSnapshotRef.current = neuralController.getSnapshot();
+    const activateNeural = (slug: string, mode: "hover" | "selection") => {
+      if (!neuralEnabled) return false;
+      return neuralController.activate({
+        activeSlug: slug,
+        edges: getGraphNeuralDirectEdges(slug, data.edges),
+        mode,
+        reducedMotion: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+      });
+    };
+    neuralSelectionCallbackRef.current = (slug) => {
+      activateNeural(slug, "selection");
+    };
+
     let focusIsolationFrame: number | null = null;
     const animateFocusIsolation = (nextSlug: string | null) => {
       if (focusIsolationFrame !== null) {
@@ -1424,6 +1558,7 @@ export function Component() {
     if (focusedRef.current) {
       isolatedFocusRef.current = focusedRef.current;
       isolationProgressRef.current = 1;
+      neuralSelectionCallbackRef.current(focusedRef.current);
     }
     let labelLayoutFrame: number | null = null;
     const schedulePersistentLabelLayout = () => {
@@ -1463,11 +1598,13 @@ export function Component() {
 
     sigma.on("enterNode", ({ node }) => {
       hoveredRef.current = node;
+      if (!focusedRef.current) activateNeural(node, "hover");
       sigma.refresh();
       containerRef.current!.style.cursor = "pointer";
     });
 
     sigma.on("leaveNode", () => {
+      neuralController.releaseHover();
       hoveredRef.current = null;
       sigma.refresh();
       setTooltip(null);
@@ -1478,6 +1615,7 @@ export function Component() {
       const selection = getGraphNodeClickSelection(focusedRef.current, node);
       if (!selection.shouldCenter) return;
 
+      neuralSelectionCallbackRef.current?.(selection.focusedSlug);
       focusedRef.current = selection.focusedSlug;
       focusIsolationCallbackRef.current?.(selection.focusedSlug);
       setFocusedSlug(selection.focusedSlug);
@@ -1487,6 +1625,7 @@ export function Component() {
     });
 
     sigma.on("clickStage", () => {
+      neuralController.clearSelection();
       if (focusedRef.current) {
         focusedRef.current = null;
         focusIsolationCallbackRef.current?.(null);
@@ -1498,6 +1637,10 @@ export function Component() {
 
     return () => {
       layoutWorker?.terminate();
+      neuralSelectionCallbackRef.current = null;
+      neuralController.destroy();
+      neuralControllerRef.current = null;
+      neuralSnapshotRef.current = null;
       if (focusIsolationFrame !== null) cancelAnimationFrame(focusIsolationFrame);
       focusIsolationCallbackRef.current = null;
       isolatedFocusRef.current = null;

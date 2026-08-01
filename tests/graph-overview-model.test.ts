@@ -4,8 +4,12 @@ import Graph from "graphology";
 vi.mock("sigma", () => ({ default: class Sigma {} }));
 
 import type { GraphNode } from "../src/lib/wiki-shared";
+import { NeuralEdgeProgram } from "../src/client/graph-neural-edge-program";
 import {
   applyGraphThemeColors,
+  getGraphEdgeProgramClasses,
+  getGraphNeuralEdgeDisplayAttributes,
+  getGraphNeuralRefreshPartialGraph,
   updateGraphThemeInPlace,
 } from "../src/client/routes/graph-route";
 import {
@@ -54,6 +58,86 @@ function node(overrides: Partial<GraphNode> & Pick<GraphNode, "slug">): GraphNod
 }
 
 describe("graph overview model", () => {
+  it("registers the neural edge program only while the enhancement is enabled", () => {
+    expect(getGraphEdgeProgramClasses(true)).toEqual({ neural: NeuralEdgeProgram });
+    expect(getGraphEdgeProgramClasses(false)).toEqual({});
+  });
+
+  it("maps neural signal frames to Sigma display attributes", () => {
+    expect(
+      getGraphNeuralEdgeDisplayAttributes(
+        {
+          phase: "transmitting",
+          primaryProgress: 0.4,
+          echoProgress: null,
+          edgeIntensity: 0.8,
+          arrivalScale: 1,
+          complete: false,
+        },
+        "#00628d",
+      ),
+    ).toMatchObject({
+      type: "neural",
+      color: "#00628d",
+      neuralPrimaryProgress: 0.4,
+      neuralEchoProgress: -1,
+      neuralIntensity: 0.8,
+    });
+
+    expect(
+      getGraphNeuralEdgeDisplayAttributes(
+        getGraphNeuralSignalFrame(2_000, 0, "selection", false),
+        "#875800",
+      ),
+    ).toMatchObject({
+      type: "neural",
+      color: "#875800",
+      neuralPrimaryProgress: -1,
+      neuralEchoProgress: -1,
+      neuralIntensity: 1,
+    });
+  });
+
+  it("refreshes both previous and next neural cache entries when an activation changes", () => {
+    expect(
+      getGraphNeuralRefreshPartialGraph(
+        {
+          activeSlug: "previous",
+          mode: "selection",
+          edges: new Map([["previous->old", getGraphNeuralSignalFrame(0, 0, "selection", true)]]),
+          nodeScales: new Map([["old", 1.1]]),
+        },
+        {
+          activeSlug: "next",
+          mode: "selection",
+          edges: new Map([["next->new", getGraphNeuralSignalFrame(0, 0, "selection", true)]]),
+          nodeScales: new Map([["new", 1.12]]),
+        },
+      ),
+    ).toEqual({
+      edges: ["previous->old", "next->new"],
+      nodes: ["previous", "next", "old", "new"],
+    });
+
+    const previous = {
+      activeSlug: "previous",
+      mode: "selection" as const,
+      edges: new Map([["previous->old", getGraphNeuralSignalFrame(0, 0, "selection", true)]]),
+      nodeScales: new Map([["old", 1.1]]),
+    };
+    expect(
+      getGraphNeuralRefreshPartialGraph(previous, {
+        activeSlug: null,
+        mode: null,
+        edges: new Map(),
+        nodeScales: new Map(),
+      }),
+    ).toEqual({
+      edges: ["previous->old"],
+      nodes: ["previous", "old"],
+    });
+  });
+
   it("models deterministic direct neural activations and their signal phases", () => {
     const edges = [
       { source: "active", target: "out", weight: 1 },
