@@ -115,6 +115,20 @@ describe("unified color system", () => {
     expect(graphSource).not.toContain("sm:top-[calc(env(safe-area-inset-top)+8.75rem)]");
   });
 
+  it("renders graph counts as plain header text without control chrome", () => {
+    const graphSource = source("../src/client/routes/graph-route.tsx");
+    const statsStart = graphSource.indexOf(
+      '<span className="app-route-header-meta hidden items-center gap-1.5 text-xs sm:flex">',
+    );
+    const statsEnd = graphSource.indexOf("</span>", statsStart);
+    const statsMarkup = graphSource.slice(statsStart, statsEnd);
+
+    expect(statsStart).toBeGreaterThan(-1);
+    expect(statsMarkup).not.toContain("app-route-header-control");
+    expect(statsMarkup).not.toContain("graph-stat-accent");
+    expect(statsMarkup).not.toContain("rounded-md");
+  });
+
   it("keeps Sigma renderer colors in its supported hex or rgb formats", () => {
     const styles = source("../src/client/globals.css");
     const rendererTokens = [

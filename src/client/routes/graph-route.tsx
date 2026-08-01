@@ -1863,11 +1863,7 @@ export function Component() {
           </div>
         </Link>
         <div className="relative z-20 ml-auto flex items-center gap-1.5 sm:gap-2.5">
-          <span className="app-route-header-control hidden items-center gap-2 rounded-md px-3.5 py-2 text-xs sm:flex">
-            <span
-              className="h-1.5 w-1.5 rounded-full bg-[var(--graph-stat-accent)]"
-              aria-hidden="true"
-            />
+          <span className="app-route-header-meta hidden items-center gap-1.5 text-xs sm:flex">
             <span className="font-semibold tabular-nums">
               {data.nodes.length}
             </span>
