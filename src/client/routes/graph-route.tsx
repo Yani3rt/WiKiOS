@@ -23,12 +23,15 @@ import {
   type GraphNeuralAnimationSnapshot,
 } from "@/client/graph-neural-animation";
 import {
+  clearGraphNeuralRendererAnimationState,
   NeuralEdgeProgram,
+  setGraphNeuralRendererAnimationState,
   type NeuralEdgeDisplayData,
 } from "@/client/graph-neural-edge-program";
 import { useWikiConfig } from "@/client/wiki-config";
 import {
   getCollisionAwareGraphLabelPlacements,
+  createGraphNeuralActivationIndex,
   getDeterministicGraphPositions,
   getGraphCameraCenterForViewportTarget,
   getGraphConnectionGroups,
@@ -40,7 +43,7 @@ import {
   getGraphIsolationFrameRefreshOptions,
   getGraphLayoutIterations,
   getGraphLinkedNodePulseScale,
-  getGraphNeuralDirectEdges,
+  getGraphNeuralIndexedDirectEdges,
   getGraphNodeClickSelection,
   getGraphNodeFocusViewportPoint,
   getGraphNodeSize,
@@ -217,23 +220,19 @@ export function hasGraphNeuralEdgeProgram(
 }
 
 export function getGraphNeuralEdgeDisplayAttributes(
-  frame: GraphNeuralSignalFrame,
+  _frame: GraphNeuralSignalFrame,
   color: string,
+  neuralEnabled = true,
+  delayMs = 0,
 ): Pick<
   NeuralEdgeDisplayData,
-  | "type"
-  | "color"
-  | "neuralPrimaryProgress"
-  | "neuralEchoProgress"
-  | "neuralIntensity"
-> {
-  const settledSelection = frame.complete && frame.phase === "selected";
+  "type" | "color" | "neuralDelayMs"
+> | null {
+  if (!neuralEnabled) return null;
   return {
     type: "neural",
     color,
-    neuralPrimaryProgress: settledSelection ? -1 : (frame.primaryProgress ?? -1),
-    neuralEchoProgress: settledSelection ? -1 : (frame.echoProgress ?? -1),
-    neuralIntensity: frame.edgeIntensity,
+    neuralDelayMs: delayMs,
   };
 }
 
@@ -253,6 +252,94 @@ export function getGraphNeuralRefreshPartialGraph(
         ].filter((slug): slug is string => Boolean(slug)),
       ),
     ],
+  };
+}
+
+function haveSameGraphNeuralEdgeMembership(
+  previous: GraphNeuralAnimationSnapshot,
+  next: GraphNeuralAnimationSnapshot,
+) {
+  if (previous.edges.size !== next.edges.size) return false;
+  for (const edge of previous.edges.keys()) {
+    if (!next.edges.has(edge)) return false;
+  }
+  return true;
+}
+
+export function getGraphNeuralFrameRefreshOptions(
+  previous: GraphNeuralAnimationSnapshot,
+  next: GraphNeuralAnimationSnapshot,
+): Parameters<SigmaLib["refresh"]>[0] {
+  const partialGraph = getGraphNeuralRefreshPartialGraph(previous, next);
+  const edgeMembershipStable = haveSameGraphNeuralEdgeMembership(previous, next);
+  const colorOwnerStable =
+    next.edges.size === 0 || previous.activeSlug === next.activeSlug;
+
+  if (edgeMembershipStable && colorOwnerStable) {
+    return {
+      partialGraph: { nodes: partialGraph.nodes },
+      skipIndexation: true,
+      schedule: true,
+    };
+  }
+
+  return { partialGraph, schedule: true };
+}
+
+export function cleanupFailedGraphRendererContainer(container: HTMLElement) {
+  for (const canvas of container.querySelectorAll("canvas")) {
+    for (const contextId of ["webgl2", "webgl", "experimental-webgl"] as const) {
+      try {
+        const context = canvas.getContext(contextId as "webgl");
+        if (!context) continue;
+        context.getExtension("WEBGL_lose_context")?.loseContext();
+        break;
+      } catch {
+        // The context was only partially constructed; continue to best-effort DOM cleanup.
+      }
+    }
+  }
+  container.replaceChildren();
+}
+
+interface GraphRendererConstruction<Renderer> {
+  renderer: Renderer;
+  neuralEnabled: boolean;
+}
+
+interface GraphRendererRuntimeOptions<Renderer, Controller> {
+  createRenderer(neuralEnabled: boolean): GraphRendererConstruction<Renderer>;
+  cleanupFailedConstruction(): void;
+  createNeuralController(renderer: Renderer): Controller;
+  onFallback(error: unknown): void;
+}
+
+export function createGraphRendererRuntime<Renderer, Controller>(
+  options: GraphRendererRuntimeOptions<Renderer, Controller>,
+) {
+  let construction: GraphRendererConstruction<Renderer>;
+
+  try {
+    construction = options.createRenderer(true);
+  } catch (error) {
+    options.cleanupFailedConstruction();
+    options.onFallback(error);
+    try {
+      construction = options.createRenderer(false);
+    } catch (staticError) {
+      options.cleanupFailedConstruction();
+      throw staticError;
+    }
+  }
+
+  const { renderer, neuralEnabled } = construction;
+
+  return {
+    renderer,
+    neuralEnabled,
+    neuralController: neuralEnabled
+      ? options.createNeuralController(renderer)
+      : null,
   };
 }
 
@@ -1325,6 +1412,7 @@ export function Component() {
     const graphTheme = getGraphThemeColors(containerRef.current);
     graphThemeRef.current = graphTheme;
     const graph = buildGraph(data, config.categories.aliases, graphTheme);
+    const neuralActivationIndex = createGraphNeuralActivationIndex(data.edges);
     const isolationFrameRefreshOptions = getGraphIsolationFrameRefreshOptions(graph.nodes());
     graphRef.current = graph;
     let viewportSettings = getGraphViewportSettings(
@@ -1332,12 +1420,11 @@ export function Component() {
       containerRef.current.clientHeight,
     );
 
-    let neuralEnabled = true;
-    const createRenderer = () => {
-      const edgeProgramClasses = getGraphEdgeProgramClasses(neuralEnabled);
-      neuralEnabled = hasGraphNeuralEdgeProgram(edgeProgramClasses);
+    const createRenderer = (requestedNeuralEnabled: boolean) => {
+      const edgeProgramClasses = getGraphEdgeProgramClasses(requestedNeuralEnabled);
+      const rendererNeuralEnabled = hasGraphNeuralEdgeProgram(edgeProgramClasses);
 
-      return new SigmaLib(graph, containerRef.current!, {
+      const renderer = new SigmaLib(graph, containerRef.current!, {
         allowInvalidContainer: true,
         ...GRAPH_MOVEMENT_RENDERING_SETTINGS,
         renderLabels: true,
@@ -1387,12 +1474,22 @@ export function Component() {
           }
 
           const neuralSnapshot = neuralSnapshotRef.current;
-          const neuralFrame = neuralEnabled ? neuralSnapshot?.edges.get(edge) : undefined;
+          const neuralFrame = rendererNeuralEnabled
+            ? neuralSnapshot?.edges.get(edge)
+            : undefined;
           if (neuralFrame && neuralSnapshot?.activeSlug) {
             const neuralColor =
               src === neuralSnapshot.activeSlug ? colors.edgeOutgoing : colors.edgeIncoming;
-            Object.assign(res, getGraphNeuralEdgeDisplayAttributes(neuralFrame, neuralColor));
-            res.size = Math.max(2.5, res.size ?? 1);
+            const neuralAttributes = getGraphNeuralEdgeDisplayAttributes(
+              neuralFrame,
+              neuralColor,
+              rendererNeuralEnabled,
+              neuralSnapshot.edgeDelays.get(edge) ?? 0,
+            );
+            if (neuralAttributes) {
+              Object.assign(res, neuralAttributes);
+              res.size = Math.max(2.5, res.size ?? 1);
+            }
           }
 
           return res;
@@ -1449,15 +1546,13 @@ export function Component() {
             res.size = (res.size ?? 4) * linkedPulseScaleRef.current;
           }
 
-          const neuralSnapshot = neuralEnabled ? neuralSnapshotRef.current : null;
+          const neuralSnapshot = rendererNeuralEnabled
+            ? neuralSnapshotRef.current
+            : null;
           if (neuralSnapshot) {
             let neuralScale = neuralSnapshot.nodeScales.get(node) ?? 1;
             if (node === neuralSnapshot.activeSlug) {
-              let maximumIntensity = 0;
-              for (const frame of neuralSnapshot.edges.values()) {
-                maximumIntensity = Math.max(maximumIntensity, frame.edgeIntensity);
-              }
-              neuralScale = Math.max(neuralScale, 1 + maximumIntensity * 0.08);
+              neuralScale = Math.max(neuralScale, neuralSnapshot.activeNodeScale);
             }
             res.size = (res.size ?? 4) * neuralScale;
           }
@@ -1465,45 +1560,59 @@ export function Component() {
           return res;
         },
       });
+
+      return { renderer, neuralEnabled: rendererNeuralEnabled };
     };
 
-    let sigma: SigmaLib;
-    try {
-      sigma = createRenderer();
-    } catch (error) {
-      neuralEnabled = false;
-      containerRef.current.replaceChildren();
-      if (!neuralFallbackWarningShownRef.current) {
+    const runtime = createGraphRendererRuntime({
+      createRenderer,
+      cleanupFailedConstruction: () =>
+        cleanupFailedGraphRendererContainer(containerRef.current!),
+      createNeuralController(renderer) {
+        return createGraphNeuralAnimationController({
+          onFrame(snapshot) {
+            const previousSnapshot =
+              neuralSnapshotRef.current ?? snapshot;
+            // Sigma applies partial reducers synchronously. Expose the next snapshot and
+            // renderer-local shader clock before scheduling either the membership reindex
+            // or the steady render-only edge pass.
+            neuralSnapshotRef.current = snapshot;
+            if (snapshot.mode) {
+              setGraphNeuralRendererAnimationState(renderer, {
+                elapsedMs: snapshot.elapsedMs,
+                mode: snapshot.mode,
+                releaseOpacity: snapshot.releaseOpacity,
+                reducedMotion: snapshot.reducedMotion,
+              });
+            } else {
+              clearGraphNeuralRendererAnimationState(renderer);
+            }
+            renderer.refresh(
+              getGraphNeuralFrameRefreshOptions(previousSnapshot, snapshot),
+            );
+          },
+        });
+      },
+      onFallback(error) {
+        if (neuralFallbackWarningShownRef.current) return;
         neuralFallbackWarningShownRef.current = true;
         console.warn(
           "Neural graph rendering is unavailable; using the static edge renderer.",
           error,
         );
-      }
-      sigma = createRenderer();
-    }
-
-    sigmaRef.current = sigma;
-    const neuralController = createGraphNeuralAnimationController({
-      onFrame(snapshot) {
-        const previousSnapshot = neuralSnapshotRef.current ?? snapshot;
-        const partialGraph = getGraphNeuralRefreshPartialGraph(previousSnapshot, snapshot);
-        // Sigma runs partial reducers synchronously, so retain the old keys first, then expose
-        // the next frame before refreshing both sides of a replacement or clear.
-        neuralSnapshotRef.current = snapshot;
-        sigmaRef.current?.refresh({
-          partialGraph,
-          schedule: true,
-        });
       },
     });
+    const sigma = runtime.renderer;
+    const neuralEnabled = runtime.neuralEnabled;
+    const neuralController = runtime.neuralController;
+    sigmaRef.current = sigma;
     neuralControllerRef.current = neuralController;
-    neuralSnapshotRef.current = neuralController.getSnapshot();
+    neuralSnapshotRef.current = neuralController?.getSnapshot() ?? null;
     const activateNeural = (slug: string, mode: "hover" | "selection") => {
-      if (!neuralEnabled) return false;
+      if (!neuralEnabled || !neuralController) return false;
       return neuralController.activate({
         activeSlug: slug,
-        edges: getGraphNeuralDirectEdges(slug, data.edges),
+        edges: getGraphNeuralIndexedDirectEdges(slug, neuralActivationIndex),
         mode,
         reducedMotion: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
       });
@@ -1614,7 +1723,7 @@ export function Component() {
     });
 
     sigma.on("leaveNode", () => {
-      neuralController.releaseHover();
+      neuralController?.releaseHover();
       hoveredRef.current = null;
       sigma.refresh();
       setTooltip(null);
@@ -1635,7 +1744,7 @@ export function Component() {
     });
 
     sigma.on("clickStage", () => {
-      neuralController.clearSelection();
+      neuralController?.clearSelection();
       if (focusedRef.current) {
         focusedRef.current = null;
         focusIsolationCallbackRef.current?.(null);
@@ -1648,7 +1757,8 @@ export function Component() {
     return () => {
       layoutWorker?.terminate();
       neuralSelectionCallbackRef.current = null;
-      neuralController.destroy();
+      neuralController?.destroy();
+      clearGraphNeuralRendererAnimationState(sigma);
       neuralControllerRef.current = null;
       neuralSnapshotRef.current = null;
       if (focusIsolationFrame !== null) cancelAnimationFrame(focusIsolationFrame);

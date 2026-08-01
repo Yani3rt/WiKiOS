@@ -140,6 +140,25 @@ describe("graph neural animation controller", () => {
     expect(snapshots.at(-1)).toBe(snapshot);
   });
 
+  it("publishes continuous active-node charge and link ignition progress", () => {
+    const { controller, scheduler } = setup();
+    controller.activate({ activeSlug: "active", edges, mode: "hover", reducedMotion: false });
+    scheduler.advanceTimersBy(GRAPH_NEURAL_TIMING.hoverIntentMs);
+
+    expect(controller.getSnapshot()).toMatchObject({
+      activeNodeScale: 1,
+      elapsedMs: 0,
+      releaseOpacity: 1,
+    });
+
+    scheduler.runNextFrame(GRAPH_NEURAL_TIMING.hoverIntentMs + 50);
+    expect(controller.getSnapshot().activeNodeScale).toBeCloseTo(1.04);
+    expect(controller.getSnapshot().edges.get("active->out")?.edgeIntensity).toBe(0);
+
+    scheduler.runNextFrame(GRAPH_NEURAL_TIMING.hoverIntentMs + 160);
+    expect(controller.getSnapshot().edges.get("active->out")?.edgeIntensity).toBeCloseTo(0.35);
+  });
+
   it("keeps selection precedence while allowing a new selection to replace it", () => {
     const { controller, scheduler } = setup();
     controller.activate({
@@ -178,6 +197,9 @@ describe("graph neural animation controller", () => {
     const initialIntensity = controller
       .getSnapshot()
       .edges.get("active->out")?.edgeIntensity;
+    const frozenPrimaryProgress = controller
+      .getSnapshot()
+      .edges.get("active->out")?.primaryProgress;
 
     controller.releaseHover();
     scheduler.runNextFrame(
@@ -185,6 +207,11 @@ describe("graph neural animation controller", () => {
     );
     expect(controller.getSnapshot().edges.get("active->out")?.edgeIntensity).toBeCloseTo(
       (initialIntensity ?? 0) / 2,
+    );
+    expect(controller.getSnapshot().edges.get("active->out")?.releaseOpacity).toBeCloseTo(0.5);
+    expect(controller.getSnapshot().releaseOpacity).toBeCloseTo(0.5);
+    expect(controller.getSnapshot().edges.get("active->out")?.primaryProgress).toBe(
+      frozenPrimaryProgress,
     );
     scheduler.runNextFrame(
       GRAPH_NEURAL_TIMING.hoverIntentMs + 500 + GRAPH_NEURAL_TIMING.releaseMs,
@@ -204,6 +231,27 @@ describe("graph neural animation controller", () => {
     expect(scheduler.frameCount).toBe(1);
   });
 
+  it("keeps release monotonic when leave is reported more than once", () => {
+    const { controller, scheduler } = setup();
+    controller.activate({ activeSlug: "active", edges, mode: "hover", reducedMotion: false });
+    scheduler.advanceTimersBy(GRAPH_NEURAL_TIMING.hoverIntentMs);
+    scheduler.runNextFrame(GRAPH_NEURAL_TIMING.hoverIntentMs + 500);
+
+    controller.releaseHover();
+    scheduler.runNextFrame(
+      GRAPH_NEURAL_TIMING.hoverIntentMs + 500 + GRAPH_NEURAL_TIMING.releaseMs / 2,
+    );
+    const halfwayOpacity = controller.getSnapshot().releaseOpacity;
+
+    controller.releaseHover();
+    scheduler.runNextFrame(
+      GRAPH_NEURAL_TIMING.hoverIntentMs + 500 + GRAPH_NEURAL_TIMING.releaseMs / 2 + 10,
+    );
+
+    expect(halfwayOpacity).toBeCloseTo(0.5);
+    expect(controller.getSnapshot().releaseOpacity).toBeLessThan(halfwayOpacity);
+  });
+
   it("publishes reduced motion immediately without scheduling work", () => {
     const { controller, scheduler, snapshots } = setup();
 
@@ -219,6 +267,10 @@ describe("graph neural animation controller", () => {
     expect(controller.getSnapshot().edges.get("active->out")).toMatchObject({
       phase: "selected",
       edgeIntensity: 1,
+      chargeProgress: 1,
+      ignitionProgress: 1,
+      activeNodeScale: 1,
+      releaseOpacity: 1,
       complete: true,
     });
   });
@@ -246,6 +298,12 @@ describe("graph neural animation controller", () => {
     scheduler.advanceTimersBy(GRAPH_NEURAL_TIMING.hoverIntentMs);
     scheduler.runNextFrame(GRAPH_NEURAL_TIMING.hoverIntentMs + 2_000);
 
+    expect(controller.getSnapshot().edges.get("active->out")).toMatchObject({
+      primaryProgress: null,
+      echoProgress: null,
+      complete: true,
+    });
+
     expect(controller.activate({
       activeSlug: "active",
       edges,
@@ -254,6 +312,27 @@ describe("graph neural animation controller", () => {
     })).toBe(false);
     expect(scheduler.timerCount).toBe(0);
     expect(scheduler.frameCount).toBe(0);
+  });
+
+  it("clears an empty-edge hover on release without scheduling a frame", () => {
+    const { controller, scheduler, snapshots } = setup();
+    controller.activate({
+      activeSlug: "isolated",
+      edges: [],
+      mode: "hover",
+      reducedMotion: false,
+    });
+    scheduler.advanceTimersBy(GRAPH_NEURAL_TIMING.hoverIntentMs);
+
+    expect(controller.getSnapshot().activeSlug).toBe("isolated");
+    expect(scheduler.frameCount).toBe(0);
+
+    controller.releaseHover();
+
+    expect(controller.getSnapshot()).toMatchObject({ activeSlug: null, mode: null });
+    expect(controller.getSnapshot().edges.size).toBe(0);
+    expect(scheduler.frameCount).toBe(0);
+    expect(snapshots.at(-1)).toBe(controller.getSnapshot());
   });
 
   it("clears a selected network immediately", () => {

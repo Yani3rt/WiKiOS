@@ -35,10 +35,19 @@ export interface GraphNeuralSignalFrame {
   phase: "charging" | "transmitting" | "selected";
   primaryProgress: number | null;
   echoProgress: number | null;
+  chargeProgress: number;
+  ignitionProgress: number;
   edgeIntensity: number;
+  activeNodeScale: number;
   arrivalScale: number;
+  releaseOpacity: number;
   complete: boolean;
 }
+
+export type GraphNeuralActivationIndex = ReadonlyMap<
+  string,
+  readonly GraphNeuralEdgeActivation[]
+>;
 
 export interface GraphLayoutNodeInput {
   key: string;
@@ -116,6 +125,8 @@ export const GRAPH_NEURAL_TIMING = {
   maximumStaggerMs: 100,
 } as const;
 
+const EMPTY_GRAPH_NEURAL_ACTIVATIONS: readonly GraphNeuralEdgeActivation[] = Object.freeze([]);
+
 function getStableGraphStringHash(value: string) {
   let hash = 0;
   for (const character of value) {
@@ -128,28 +139,54 @@ function clampGraphNeuralProgress(value: number) {
   return Math.max(0, Math.min(1, value));
 }
 
+export function createGraphNeuralActivationIndex(
+  edges: readonly GraphEdge[],
+): GraphNeuralActivationIndex {
+  const activations = new Map<string, GraphNeuralEdgeActivation[]>();
+  const addActivation = (activeSlug: string, activation: GraphNeuralEdgeActivation) => {
+    const bucket = activations.get(activeSlug);
+    if (bucket) bucket.push(activation);
+    else activations.set(activeSlug, [activation]);
+  };
+
+  for (const edge of edges) {
+    const edgeKey = `${edge.source}->${edge.target}`;
+    const delayMs =
+      getStableGraphStringHash(edgeKey) % (GRAPH_NEURAL_TIMING.maximumStaggerMs + 1);
+    const baseActivation = {
+      edgeKey,
+      source: edge.source,
+      target: edge.target,
+      receivingNode: edge.target,
+      delayMs,
+    };
+
+    addActivation(edge.source, { ...baseActivation, direction: "outgoing" });
+    if (edge.target !== edge.source) {
+      addActivation(edge.target, { ...baseActivation, direction: "incoming" });
+    }
+  }
+
+  for (const [slug, bucket] of activations) {
+    bucket.sort((left, right) => left.edgeKey.localeCompare(right.edgeKey));
+    activations.set(slug, bucket);
+  }
+
+  return activations;
+}
+
+export function getGraphNeuralIndexedDirectEdges(
+  activeSlug: string,
+  index: GraphNeuralActivationIndex,
+): readonly GraphNeuralEdgeActivation[] {
+  return index.get(activeSlug) ?? EMPTY_GRAPH_NEURAL_ACTIVATIONS;
+}
+
 export function getGraphNeuralDirectEdges(
   activeSlug: string,
-  edges: GraphEdge[],
+  edges: readonly GraphEdge[],
 ): GraphNeuralEdgeActivation[] {
-  return edges
-    .filter((edge) => edge.source === activeSlug || edge.target === activeSlug)
-    .map((edge) => {
-      const edgeKey = `${edge.source}->${edge.target}`;
-      const direction: GraphNeuralDirection =
-        edge.source === activeSlug ? "outgoing" : "incoming";
-
-      return {
-        edgeKey,
-        source: edge.source,
-        target: edge.target,
-        direction,
-        receivingNode: edge.target,
-        delayMs:
-          getStableGraphStringHash(edgeKey) % (GRAPH_NEURAL_TIMING.maximumStaggerMs + 1),
-      };
-    })
-    .sort((left, right) => left.edgeKey.localeCompare(right.edgeKey));
+  return [...getGraphNeuralIndexedDirectEdges(activeSlug, createGraphNeuralActivationIndex(edges))];
 }
 
 export function getGraphNeuralSignalFrame(
@@ -163,14 +200,24 @@ export function getGraphNeuralSignalFrame(
       phase: "selected",
       primaryProgress: null,
       echoProgress: null,
+      chargeProgress: 1,
+      ignitionProgress: 1,
       edgeIntensity: 1,
+      activeNodeScale: 1,
       arrivalScale: 1,
+      releaseOpacity: 1,
       complete: true,
     };
   }
 
   const elapsed = Math.max(0, elapsedMs);
   const delay = Math.max(0, delayMs);
+  const chargeProgress = clampGraphNeuralProgress(elapsed / GRAPH_NEURAL_TIMING.chargeMs);
+  const ignitionProgress = clampGraphNeuralProgress(
+    (elapsed - GRAPH_NEURAL_TIMING.chargeMs) / GRAPH_NEURAL_TIMING.ignitionMs,
+  );
+  const activeNodeScale =
+    1 + chargeProgress * (mode === "selection" ? 0.1 : 0.08);
   const travelMs =
     mode === "selection"
       ? GRAPH_NEURAL_TIMING.selectionTravelMs
@@ -185,15 +232,19 @@ export function getGraphNeuralSignalFrame(
       : null;
   const terminalTravelEnd =
     mode === "selection" ? echoStart + travelMs : travelStart + travelMs;
-  const complete = elapsed >= terminalTravelEnd + GRAPH_NEURAL_TIMING.releaseMs;
+  const complete = elapsed >= terminalTravelEnd;
 
   if (complete && mode === "selection") {
     return {
       phase: "selected",
-      primaryProgress: 1,
-      echoProgress: 1,
+      primaryProgress: null,
+      echoProgress: null,
+      chargeProgress,
+      ignitionProgress,
       edgeIntensity: 1,
+      activeNodeScale,
       arrivalScale: 1,
+      releaseOpacity: 1,
       complete: true,
     };
   }
@@ -201,10 +252,14 @@ export function getGraphNeuralSignalFrame(
   if (complete) {
     return {
       phase: "transmitting",
-      primaryProgress: 1,
+      primaryProgress: null,
       echoProgress: null,
+      chargeProgress,
+      ignitionProgress,
       edgeIntensity: 0.45,
+      activeNodeScale,
       arrivalScale: 1,
+      releaseOpacity: 1,
       complete: true,
     };
   }
@@ -216,20 +271,27 @@ export function getGraphNeuralSignalFrame(
       )
     : 0;
   const arrivalScale = 1 + Math.sin(arrivalProgress * Math.PI) * 0.12;
-  const releaseProgress = clampGraphNeuralProgress(
-    (elapsed - terminalTravelEnd) / GRAPH_NEURAL_TIMING.releaseMs,
-  );
+  const targetIntensity = mode === "selection" ? 1 : 0.7;
+  const hoverSettleProgress =
+    mode === "hover"
+      ? clampGraphNeuralProgress(
+          (elapsed - (terminalTravelEnd - GRAPH_NEURAL_TIMING.arrivalMs)) /
+            GRAPH_NEURAL_TIMING.arrivalMs,
+        )
+      : 0;
   const edgeIntensity =
-    mode === "selection"
-      ? 1 - releaseProgress * 0.15
-      : 0.7 - releaseProgress * 0.25;
+    targetIntensity * ignitionProgress - hoverSettleProgress * 0.25;
 
   return {
     phase: primaryStarted ? "transmitting" : "charging",
     primaryProgress: primaryStarted ? primaryProgress : null,
     echoProgress,
+    chargeProgress,
+    ignitionProgress,
     edgeIntensity,
+    activeNodeScale,
     arrivalScale,
+    releaseOpacity: 1,
     complete: false,
   };
 }

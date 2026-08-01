@@ -10,13 +10,18 @@ export interface GraphNeuralAnimationSnapshot {
   activeSlug: string | null;
   mode: GraphNeuralActivationMode | null;
   edges: ReadonlyMap<string, GraphNeuralSignalFrame>;
+  edgeDelays: ReadonlyMap<string, number>;
   nodeScales: ReadonlyMap<string, number>;
+  activeNodeScale: number;
+  elapsedMs: number;
+  releaseOpacity: number;
+  reducedMotion: boolean;
 }
 
 export interface GraphNeuralAnimationController {
   activate(input: {
     activeSlug: string;
-    edges: GraphNeuralEdgeActivation[];
+    edges: readonly GraphNeuralEdgeActivation[];
     mode: GraphNeuralActivationMode;
     reducedMotion: boolean;
   }): boolean;
@@ -42,7 +47,12 @@ const createEmptySnapshot = (): GraphNeuralAnimationSnapshot =>
     activeSlug: null,
     mode: null,
     edges: new Map<string, GraphNeuralSignalFrame>(),
+    edgeDelays: new Map<string, number>(),
     nodeScales: new Map<string, number>(),
+    activeNodeScale: 1,
+    elapsedMs: 0,
+    releaseOpacity: 0,
+    reducedMotion: false,
   });
 
 function createSnapshot(
@@ -50,7 +60,9 @@ function createSnapshot(
   elapsedMs: number,
 ): GraphNeuralAnimationSnapshot {
   const edgeFrames = new Map<string, GraphNeuralSignalFrame>();
+  const edgeDelays = new Map<string, number>();
   const nodeScales = new Map<string, number>();
+  let activeNodeScale = 1;
 
   for (const edge of input.edges) {
     const frame = getGraphNeuralSignalFrame(
@@ -60,6 +72,8 @@ function createSnapshot(
       input.reducedMotion,
     );
     edgeFrames.set(edge.edgeKey, frame);
+    edgeDelays.set(edge.edgeKey, edge.delayMs);
+    activeNodeScale = Math.max(activeNodeScale, frame.activeNodeScale);
     nodeScales.set(
       edge.receivingNode,
       Math.max(nodeScales.get(edge.receivingNode) ?? 1, frame.arrivalScale),
@@ -70,7 +84,12 @@ function createSnapshot(
     activeSlug: input.activeSlug,
     mode: input.mode,
     edges: edgeFrames,
+    edgeDelays,
     nodeScales,
+    activeNodeScale,
+    elapsedMs,
+    releaseOpacity: 1,
+    reducedMotion: input.reducedMotion,
   });
 }
 
@@ -183,6 +202,7 @@ export function createGraphNeuralAnimationController(
 
       const remaining = 1 - progress;
       const edgeFrames = new Map<string, GraphNeuralSignalFrame>();
+      const edgeDelays = new Map<string, number>();
       const nodeScales = new Map<string, number>();
       for (const edge of releaseInput.edges) {
         const frame = releaseSnapshot.edges.get(edge.edgeKey);
@@ -190,10 +210,13 @@ export function createGraphNeuralAnimationController(
         const fadedFrame = {
           ...frame,
           edgeIntensity: frame.edgeIntensity * remaining,
+          activeNodeScale: 1 + (frame.activeNodeScale - 1) * remaining,
           arrivalScale: 1 + (frame.arrivalScale - 1) * remaining,
+          releaseOpacity: remaining,
           complete: false,
         };
         edgeFrames.set(edge.edgeKey, fadedFrame);
+        edgeDelays.set(edge.edgeKey, edge.delayMs);
         nodeScales.set(
           edge.receivingNode,
           Math.max(nodeScales.get(edge.receivingNode) ?? 1, fadedFrame.arrivalScale),
@@ -204,7 +227,13 @@ export function createGraphNeuralAnimationController(
           activeSlug: releaseInput.activeSlug,
           mode: releaseInput.mode,
           edges: edgeFrames,
+          edgeDelays,
           nodeScales,
+          activeNodeScale:
+            1 + (releaseSnapshot.activeNodeScale - 1) * remaining,
+          elapsedMs: releaseSnapshot.elapsedMs,
+          releaseOpacity: remaining,
+          reducedMotion: releaseInput.reducedMotion,
         }),
       );
       scheduleReleaseFrame(generation, releaseStart, releaseSnapshot, releaseInput);
@@ -244,8 +273,13 @@ export function createGraphNeuralAnimationController(
     releaseHover() {
       if (destroyed) return;
       cancelHoverIntent();
+      if (releasingHover) return;
       if (activeInput?.mode !== "hover") return;
       if (activeInput.reducedMotion) {
+        reset(true);
+        return;
+      }
+      if (activeInput.edges.length === 0) {
         reset(true);
         return;
       }

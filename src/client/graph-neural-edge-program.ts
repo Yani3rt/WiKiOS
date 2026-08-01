@@ -2,6 +2,11 @@ import type { EdgeProgram as SigmaEdgeProgram, ProgramInfo } from "sigma/renderi
 import type { EdgeDisplayData, NodeDisplayData, RenderParams } from "sigma/types";
 import { floatColor } from "sigma/utils";
 
+import {
+  GRAPH_NEURAL_TIMING,
+  type GraphNeuralActivationMode,
+} from "./graph-overview-model";
+
 type EdgeProgramConstructor = typeof SigmaEdgeProgram;
 
 const EdgeProgram = (
@@ -21,6 +26,10 @@ const UNIFORMS = [
   "u_correctionRatio",
   "u_minEdgeThickness",
   "u_feather",
+  "u_elapsedMs",
+  "u_mode",
+  "u_releaseOpacity",
+  "u_reducedMotion",
 ] as const;
 
 const ATTRIBUTES = [
@@ -29,7 +38,7 @@ const ATTRIBUTES = [
   { name: "a_normal", size: 2, type: FLOAT },
   { name: "a_color", size: 4, type: UNSIGNED_BYTE, normalized: true },
   { name: "a_id", size: 4, type: UNSIGNED_BYTE, normalized: true },
-  { name: "a_signal", size: 3, type: FLOAT },
+  { name: "a_delayMs", size: 1, type: FLOAT },
 ];
 
 const CONSTANT_ATTRIBUTES = [
@@ -45,7 +54,7 @@ attribute float a_normalCoef;
 attribute vec2 a_positionStart;
 attribute vec2 a_positionEnd;
 attribute float a_positionCoef;
-attribute vec3 a_signal;
+attribute float a_delayMs;
 
 uniform mat3 u_matrix;
 uniform float u_sizeRatio;
@@ -60,16 +69,11 @@ varying vec2 v_normal;
 varying float v_thickness;
 varying float v_feather;
 varying float v_pathPosition;
-varying float v_primaryProgress;
-varying float v_echoProgress;
-varying float v_intensity;
+varying float v_delayMs;
 
 const float bias = 255.0 / 254.0;
 
 void main() {
-  float a_primaryProgress = a_signal.x;
-  float a_echoProgress = a_signal.y;
-  float a_intensity = a_signal.z;
   vec2 normal = a_normal * a_normalCoef;
   vec2 position = mix(a_positionStart, a_positionEnd, a_positionCoef);
   float normalLength = length(normal);
@@ -89,9 +93,7 @@ void main() {
   v_normal = unitNormal;
   v_feather = u_feather * u_correctionRatio / u_zoomRatio / u_pixelRatio * 2.0;
   v_pathPosition = a_positionCoef;
-  v_primaryProgress = a_primaryProgress;
-  v_echoProgress = a_echoProgress;
-  v_intensity = a_intensity;
+  v_delayMs = a_delayMs;
 
   #ifdef PICKING_MODE
   v_color = a_id;
@@ -111,9 +113,12 @@ varying vec2 v_normal;
 varying float v_thickness;
 varying float v_feather;
 varying float v_pathPosition;
-varying float v_primaryProgress;
-varying float v_echoProgress;
-varying float v_intensity;
+varying float v_delayMs;
+
+uniform float u_elapsedMs;
+uniform float u_mode;
+uniform float u_releaseOpacity;
+uniform float u_reducedMotion;
 
 void main(void) {
   #ifdef PICKING_MODE
@@ -121,23 +126,113 @@ void main(void) {
   #else
   float crossDistance = length(v_normal) * v_thickness;
   float edgeMask = 1.0 - smoothstep(v_thickness - v_feather, v_thickness, crossDistance);
-  float primaryHead = exp(-pow((v_pathPosition - v_primaryProgress) / 0.045, 2.0));
+  float selectionMode = step(0.5, u_mode);
+  float staticMode = step(0.5, u_reducedMotion);
+  float travelMs = mix(
+    ${GRAPH_NEURAL_TIMING.hoverTravelMs.toFixed(1)},
+    ${GRAPH_NEURAL_TIMING.selectionTravelMs.toFixed(1)},
+    selectionMode
+  );
+  float travelStart =
+    ${GRAPH_NEURAL_TIMING.chargeMs.toFixed(1)} +
+    ${GRAPH_NEURAL_TIMING.ignitionMs.toFixed(1)} +
+    v_delayMs;
+  float primaryRaw = (u_elapsedMs - travelStart) / travelMs;
+  float primaryProgress = clamp(primaryRaw, 0.0, 1.0);
+  float primaryActive =
+    step(0.0, primaryRaw) *
+    (1.0 - step(1.0, primaryRaw)) *
+    (1.0 - staticMode);
+  float primaryVisibility = 1.0 - smoothstep(0.9, 1.0, primaryProgress);
+  float primaryDelta = (v_pathPosition - primaryProgress) / 0.045;
+  float primaryHead =
+    exp(-(primaryDelta * primaryDelta)) * primaryActive * primaryVisibility;
   float primaryTail =
-    smoothstep(v_primaryProgress - 0.16, v_primaryProgress, v_pathPosition) *
-    (1.0 - step(v_primaryProgress, v_pathPosition));
-  float echoHead = exp(-pow((v_pathPosition - v_echoProgress) / 0.055, 2.0)) * 0.55;
-  float filament = 0.28 + 0.32 * v_intensity;
+    smoothstep(primaryProgress - 0.16, primaryProgress, v_pathPosition) *
+    (1.0 - step(primaryProgress, v_pathPosition)) *
+    primaryActive *
+    primaryVisibility;
+  float echoRaw =
+    (u_elapsedMs - travelStart - ${GRAPH_NEURAL_TIMING.echoDelayMs.toFixed(1)}) /
+    travelMs;
+  float echoProgress = clamp(echoRaw, 0.0, 1.0);
+  float echoActive =
+    selectionMode *
+    step(0.0, echoRaw) *
+    (1.0 - step(1.0, echoRaw)) *
+    (1.0 - staticMode);
+  float echoVisibility = 1.0 - smoothstep(0.9, 1.0, echoProgress);
+  float echoDelta = (v_pathPosition - echoProgress) / 0.055;
+  float echoHead =
+    exp(-(echoDelta * echoDelta)) * echoActive * echoVisibility * 0.55;
+  float ignitionProgress = clamp(
+    (u_elapsedMs - ${GRAPH_NEURAL_TIMING.chargeMs.toFixed(1)}) /
+      ${GRAPH_NEURAL_TIMING.ignitionMs.toFixed(1)},
+    0.0,
+    1.0
+  );
+  float targetIntensity = mix(0.7, 1.0, selectionMode);
+  float edgeIntensity = targetIntensity * ignitionProgress;
+  float hoverSettle =
+    (1.0 - selectionMode) *
+    smoothstep(
+      travelStart + travelMs - ${GRAPH_NEURAL_TIMING.arrivalMs.toFixed(1)},
+      travelStart + travelMs,
+      u_elapsedMs
+    );
+  edgeIntensity -= hoverSettle * 0.25;
+  edgeIntensity = mix(edgeIntensity, 1.0, staticMode);
+  ignitionProgress = mix(ignitionProgress, 1.0, staticMode);
+  float filament = 0.28 * ignitionProgress + 0.32 * edgeIntensity;
   float energy = max(primaryHead, max(primaryTail * 0.62, echoHead));
-  float alpha = edgeMask * clamp(filament + energy, 0.0, 1.0) * v_color.a;
-  gl_FragColor = vec4(v_color.rgb, alpha);
+  float alpha =
+    edgeMask *
+    clamp(filament + energy, 0.0, 1.0) *
+    v_color.a *
+    clamp(u_releaseOpacity, 0.0, 1.0);
+  gl_FragColor = vec4(v_color.rgb * alpha, alpha);
   #endif
 }
 `;
 
+export interface GraphNeuralRendererAnimationState {
+  elapsedMs: number;
+  mode: GraphNeuralActivationMode;
+  releaseOpacity: number;
+  reducedMotion: boolean;
+}
+
+const graphNeuralRendererAnimationStates = new WeakMap<
+  object,
+  Readonly<GraphNeuralRendererAnimationState>
+>();
+
+export function setGraphNeuralRendererAnimationState(
+  renderer: object,
+  state: GraphNeuralRendererAnimationState,
+) {
+  graphNeuralRendererAnimationStates.set(
+    renderer,
+    Object.freeze({
+      ...state,
+      elapsedMs: Math.max(0, state.elapsedMs),
+      releaseOpacity: Math.max(0, Math.min(1, state.releaseOpacity)),
+    }),
+  );
+}
+
+export function getGraphNeuralRendererAnimationState(
+  renderer: object,
+): Readonly<GraphNeuralRendererAnimationState> | null {
+  return graphNeuralRendererAnimationStates.get(renderer) ?? null;
+}
+
+export function clearGraphNeuralRendererAnimationState(renderer: object) {
+  graphNeuralRendererAnimationStates.delete(renderer);
+}
+
 export interface NeuralEdgeDisplayData extends EdgeDisplayData {
-  neuralPrimaryProgress?: number;
-  neuralEchoProgress?: number;
-  neuralIntensity?: number;
+  neuralDelayMs?: number;
 }
 
 type NeuralEdgeUniform = (typeof UNIFORMS)[number];
@@ -192,12 +287,11 @@ export class NeuralEdgeProgram extends EdgeProgram<NeuralEdgeUniform> {
     array[startIndex++] = normalY;
     array[startIndex++] = floatColor(data.color);
     array[startIndex++] = edgeIndex;
-    array[startIndex++] = data.neuralPrimaryProgress ?? -1;
-    array[startIndex++] = data.neuralEchoProgress ?? -1;
-    array[startIndex] = data.neuralIntensity ?? 0;
+    array[startIndex] = data.neuralDelayMs ?? 0;
   }
 
-  setUniforms(params: RenderParams, { gl, uniformLocations }: ProgramInfo<NeuralEdgeUniform>) {
+  setUniforms(params: RenderParams, programInfo: ProgramInfo<NeuralEdgeUniform>) {
+    const { gl, uniformLocations, isPicking } = programInfo;
     gl.uniformMatrix3fv(uniformLocations.u_matrix, false, params.matrix);
     gl.uniform1f(uniformLocations.u_zoomRatio, params.zoomRatio);
     gl.uniform1f(uniformLocations.u_sizeRatio, params.sizeRatio);
@@ -205,5 +299,15 @@ export class NeuralEdgeProgram extends EdgeProgram<NeuralEdgeUniform> {
     gl.uniform1f(uniformLocations.u_pixelRatio, params.pixelRatio);
     gl.uniform1f(uniformLocations.u_feather, params.antiAliasingFeather);
     gl.uniform1f(uniformLocations.u_minEdgeThickness, params.minEdgeThickness);
+    if (isPicking) return;
+
+    const animationState = getGraphNeuralRendererAnimationState(this.renderer);
+    gl.uniform1f(uniformLocations.u_elapsedMs, animationState?.elapsedMs ?? 0);
+    gl.uniform1f(
+      uniformLocations.u_mode,
+      animationState?.mode === "selection" ? 1 : 0,
+    );
+    gl.uniform1f(uniformLocations.u_releaseOpacity, animationState?.releaseOpacity ?? 0);
+    gl.uniform1f(uniformLocations.u_reducedMotion, animationState?.reducedMotion ? 1 : 0);
   }
 }

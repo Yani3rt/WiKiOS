@@ -7,14 +7,18 @@ import type { GraphNode } from "../src/lib/wiki-shared";
 import { NeuralEdgeProgram } from "../src/client/graph-neural-edge-program";
 import {
   applyGraphThemeColors,
+  cleanupFailedGraphRendererContainer,
+  createGraphRendererRuntime,
   getGraphEdgeProgramClasses,
-  hasGraphNeuralEdgeProgram,
   getGraphNeuralEdgeDisplayAttributes,
-  getGraphNeuralRefreshPartialGraph,
+  getGraphNeuralFrameRefreshOptions,
+  hasGraphNeuralEdgeProgram,
   updateGraphThemeInPlace,
 } from "../src/client/routes/graph-route";
 import {
+  createGraphNeuralActivationIndex,
   getGraphNeuralDirectEdges,
+  getGraphNeuralIndexedDirectEdges,
   getGraphNeuralSignalFrame,
   GRAPH_INDEX_LIMIT,
   GRAPH_MOVEMENT_RENDERING_SETTINGS,
@@ -76,72 +80,219 @@ describe("graph overview model", () => {
           phase: "transmitting",
           primaryProgress: 0.4,
           echoProgress: null,
+          chargeProgress: 1,
+          ignitionProgress: 1,
           edgeIntensity: 0.8,
+          activeNodeScale: 1.08,
           arrivalScale: 1,
+          releaseOpacity: 1,
           complete: false,
         },
         "#00628d",
+        true,
+        42,
       ),
     ).toMatchObject({
       type: "neural",
       color: "#00628d",
-      neuralPrimaryProgress: 0.4,
-      neuralEchoProgress: -1,
-      neuralIntensity: 0.8,
+      neuralDelayMs: 42,
     });
 
     expect(
       getGraphNeuralEdgeDisplayAttributes(
         getGraphNeuralSignalFrame(2_000, 0, "selection", false),
         "#875800",
+        false,
+        0,
       ),
-    ).toMatchObject({
-      type: "neural",
-      color: "#875800",
-      neuralPrimaryProgress: -1,
-      neuralEchoProgress: -1,
-      neuralIntensity: 1,
-    });
+    ).toBeNull();
   });
 
-  it("refreshes both previous and next neural cache entries when an activation changes", () => {
+  it("reindexes neural programs only when activation membership changes", () => {
     expect(
-      getGraphNeuralRefreshPartialGraph(
+      getGraphNeuralFrameRefreshOptions(
         {
           activeSlug: "previous",
           mode: "selection",
           edges: new Map([["previous->old", getGraphNeuralSignalFrame(0, 0, "selection", true)]]),
+          edgeDelays: new Map([["previous->old", 0]]),
           nodeScales: new Map([["old", 1.1]]),
+          activeNodeScale: 1,
+          elapsedMs: 0,
+          releaseOpacity: 1,
+          reducedMotion: true,
         },
         {
           activeSlug: "next",
           mode: "selection",
           edges: new Map([["next->new", getGraphNeuralSignalFrame(0, 0, "selection", true)]]),
+          edgeDelays: new Map([["next->new", 0]]),
           nodeScales: new Map([["new", 1.12]]),
+          activeNodeScale: 1,
+          elapsedMs: 0,
+          releaseOpacity: 1,
+          reducedMotion: true,
         },
       ),
     ).toEqual({
-      edges: ["previous->old", "next->new"],
-      nodes: ["previous", "next", "old", "new"],
+      partialGraph: {
+        edges: ["previous->old", "next->new"],
+        nodes: ["previous", "next", "old", "new"],
+      },
+      schedule: true,
     });
 
     const previous = {
       activeSlug: "previous",
       mode: "selection" as const,
       edges: new Map([["previous->old", getGraphNeuralSignalFrame(0, 0, "selection", true)]]),
+      edgeDelays: new Map([["previous->old", 0]]),
       nodeScales: new Map([["old", 1.1]]),
+      activeNodeScale: 1,
+      elapsedMs: 0,
+      releaseOpacity: 1,
+      reducedMotion: true,
     };
     expect(
-      getGraphNeuralRefreshPartialGraph(previous, {
+      getGraphNeuralFrameRefreshOptions(previous, {
         activeSlug: null,
         mode: null,
         edges: new Map(),
+        edgeDelays: new Map(),
         nodeScales: new Map(),
+        activeNodeScale: 1,
+        elapsedMs: 0,
+        releaseOpacity: 0,
+        reducedMotion: false,
       }),
     ).toEqual({
-      edges: ["previous->old"],
-      nodes: ["previous", "old"],
+      partialGraph: { edges: ["previous->old"], nodes: ["previous", "old"] },
+      schedule: true,
     });
+
+    const stableNext = {
+      ...previous,
+      elapsedMs: 240,
+      nodeScales: new Map([["old", 1.06]]),
+    };
+    expect(getGraphNeuralFrameRefreshOptions(previous, stableNext)).toEqual({
+      partialGraph: { nodes: ["previous", "old"] },
+      skipIndexation: true,
+      schedule: true,
+    });
+  });
+
+  it("retries a failed neural renderer with static reducers and releases partial contexts", () => {
+    let lostContexts = 0;
+    let clearedChildren = 0;
+    let controllerCreations = 0;
+    const constructionModes: boolean[] = [];
+    const container = {
+      querySelectorAll: () => [
+        {
+          getContext: (kind: string) =>
+            kind === "webgl"
+              ? {
+                  getExtension: (name: string) =>
+                    name === "WEBGL_lose_context"
+                      ? { loseContext: () => (lostContexts += 1) }
+                      : null,
+                }
+              : null,
+        },
+      ],
+      replaceChildren: () => {
+        clearedChildren += 1;
+      },
+    };
+
+    const runtime = createGraphRendererRuntime({
+      createRenderer(neuralEnabled: boolean) {
+        constructionModes.push(neuralEnabled);
+        if (neuralEnabled) throw new Error("injected shader construction failure");
+        return {
+          renderer: { kind: "static" as const },
+          neuralEnabled: false,
+        };
+      },
+      cleanupFailedConstruction: () =>
+        cleanupFailedGraphRendererContainer(container as unknown as HTMLElement),
+      createNeuralController() {
+        controllerCreations += 1;
+        return { kind: "controller" as const };
+      },
+      onFallback() {},
+    });
+
+    expect(constructionModes).toEqual([true, false]);
+    expect(runtime).toEqual({
+      renderer: { kind: "static" },
+      neuralEnabled: false,
+      neuralController: null,
+    });
+    expect(controllerCreations).toBe(0);
+    expect(lostContexts).toBe(1);
+    expect(clearedChildren).toBe(1);
+    expect(
+      getGraphNeuralEdgeDisplayAttributes(
+        getGraphNeuralSignalFrame(400, 0, "hover", false),
+        "#00628d",
+        runtime.neuralEnabled,
+        0,
+      ),
+    ).toBeNull();
+  });
+
+  it("suppresses the controller when construction succeeds without a neural program", () => {
+    let controllerCreations = 0;
+    const runtime = createGraphRendererRuntime({
+      createRenderer() {
+        return {
+          renderer: { kind: "forced-static" as const },
+          neuralEnabled: false,
+        };
+      },
+      cleanupFailedConstruction() {},
+      createNeuralController() {
+        controllerCreations += 1;
+        return { kind: "controller" as const };
+      },
+      onFallback() {},
+    });
+
+    expect(runtime).toEqual({
+      renderer: { kind: "forced-static" },
+      neuralEnabled: false,
+      neuralController: null,
+    });
+    expect(controllerCreations).toBe(0);
+  });
+
+  it("cleans up a second partial renderer before surfacing static retry failure", () => {
+    let cleanupCount = 0;
+    let fallbackWarnings = 0;
+
+    expect(() =>
+      createGraphRendererRuntime({
+        createRenderer(neuralEnabled: boolean): {
+          renderer: never;
+          neuralEnabled: boolean;
+        } {
+          throw new Error(neuralEnabled ? "neural failed" : "static failed");
+        },
+        cleanupFailedConstruction() {
+          cleanupCount += 1;
+        },
+        createNeuralController() {
+          throw new Error("controller must not be created");
+        },
+        onFallback() {
+          fallbackWarnings += 1;
+        },
+      }),
+    ).toThrow("static failed");
+    expect(cleanupCount).toBe(2);
+    expect(fallbackWarnings).toBe(1);
   });
 
   it("models deterministic direct neural activations and their signal phases", () => {
@@ -171,6 +322,11 @@ describe("graph overview model", () => {
     );
     expect(first.every(({ delayMs }) => delayMs >= 0 && delayMs <= 100)).toBe(true);
 
+    const index = createGraphNeuralActivationIndex(edges);
+    expect(getGraphNeuralIndexedDirectEdges("active", index)).toBe(index.get("active"));
+    expect(getGraphNeuralIndexedDirectEdges("active", index)).toEqual(first);
+    expect(getGraphNeuralIndexedDirectEdges("missing", index)).toEqual([]);
+
     const beforeTravel = getGraphNeuralSignalFrame(180, 20, "hover", false);
     expect(beforeTravel.primaryProgress).toBeNull();
     expect(beforeTravel.phase).toBe("charging");
@@ -188,6 +344,67 @@ describe("graph overview model", () => {
       primaryProgress: null,
       echoProgress: null,
       edgeIntensity: 1,
+      complete: true,
+    });
+  });
+
+  it("ramps charge and ignition continuously and settles selection without an intensity snap", () => {
+    const initial = getGraphNeuralSignalFrame(0, 0, "hover", false);
+    const midCharge = getGraphNeuralSignalFrame(50, 0, "hover", false);
+    const chargeBoundary = getGraphNeuralSignalFrame(100, 0, "hover", false);
+    const midIgnition = getGraphNeuralSignalFrame(160, 0, "hover", false);
+    const travelBoundary = getGraphNeuralSignalFrame(220, 0, "hover", false);
+
+    expect(initial).toMatchObject({
+      chargeProgress: 0,
+      ignitionProgress: 0,
+      edgeIntensity: 0,
+      activeNodeScale: 1,
+      releaseOpacity: 1,
+    });
+    expect(midCharge.chargeProgress).toBeCloseTo(0.5);
+    expect(midCharge.activeNodeScale).toBeCloseTo(1.04);
+    expect(chargeBoundary).toMatchObject({ chargeProgress: 1, ignitionProgress: 0 });
+    expect(midIgnition.ignitionProgress).toBeCloseTo(0.5);
+    expect(midIgnition.edgeIntensity).toBeCloseTo(0.35);
+    expect(travelBoundary).toMatchObject({
+      chargeProgress: 1,
+      ignitionProgress: 1,
+      edgeIntensity: 0.7,
+    });
+
+    const selectionEnd =
+      100 + 120 + 620 + 180;
+    const beforeSelectionEnd = getGraphNeuralSignalFrame(
+      selectionEnd - 0.001,
+      0,
+      "selection",
+      false,
+    );
+    const completedSelection = getGraphNeuralSignalFrame(
+      selectionEnd,
+      0,
+      "selection",
+      false,
+    );
+    expect(beforeSelectionEnd.edgeIntensity).toBeCloseTo(1);
+    expect(completedSelection).toMatchObject({
+      phase: "selected",
+      primaryProgress: null,
+      echoProgress: null,
+      edgeIntensity: 1,
+      complete: true,
+    });
+  });
+
+  it("clears a completed hover signal instead of pinning its head at the target", () => {
+    const completed = getGraphNeuralSignalFrame(100 + 120 + 520, 0, "hover", false);
+
+    expect(completed).toMatchObject({
+      primaryProgress: null,
+      echoProgress: null,
+      edgeIntensity: 0.45,
+      arrivalScale: 1,
       complete: true,
     });
   });
