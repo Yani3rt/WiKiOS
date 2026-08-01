@@ -29,9 +29,7 @@ const ATTRIBUTES = [
   { name: "a_normal", size: 2, type: FLOAT },
   { name: "a_color", size: 4, type: UNSIGNED_BYTE, normalized: true },
   { name: "a_id", size: 4, type: UNSIGNED_BYTE, normalized: true },
-  { name: "a_primaryProgress", size: 1, type: FLOAT },
-  { name: "a_echoProgress", size: 1, type: FLOAT },
-  { name: "a_intensity", size: 1, type: FLOAT },
+  { name: "a_signal", size: 3, type: FLOAT },
 ];
 
 const CONSTANT_ATTRIBUTES = [
@@ -47,9 +45,7 @@ attribute float a_normalCoef;
 attribute vec2 a_positionStart;
 attribute vec2 a_positionEnd;
 attribute float a_positionCoef;
-attribute float a_primaryProgress;
-attribute float a_echoProgress;
-attribute float a_intensity;
+attribute vec3 a_signal;
 
 uniform mat3 u_matrix;
 uniform float u_sizeRatio;
@@ -71,6 +67,9 @@ varying float v_intensity;
 const float bias = 255.0 / 254.0;
 
 void main() {
+  float a_primaryProgress = a_signal.x;
+  float a_echoProgress = a_signal.y;
+  float a_intensity = a_signal.z;
   vec2 normal = a_normal * a_normalCoef;
   vec2 position = mix(a_positionStart, a_positionEnd, a_positionCoef);
   float normalLength = length(normal);
