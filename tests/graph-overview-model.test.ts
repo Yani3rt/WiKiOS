@@ -8,6 +8,7 @@ import { NeuralEdgeProgram } from "../src/client/graph-neural-edge-program";
 import {
   applyGraphThemeColors,
   getGraphEdgeProgramClasses,
+  hasGraphNeuralEdgeProgram,
   getGraphNeuralEdgeDisplayAttributes,
   getGraphNeuralRefreshPartialGraph,
   updateGraphThemeInPlace,
@@ -61,6 +62,11 @@ describe("graph overview model", () => {
   it("registers the neural edge program only while the enhancement is enabled", () => {
     expect(getGraphEdgeProgramClasses(true)).toEqual({ neural: NeuralEdgeProgram });
     expect(getGraphEdgeProgramClasses(false)).toEqual({});
+  });
+
+  it("keeps neural reducers disabled when the renderer has no neural edge program", () => {
+    expect(hasGraphNeuralEdgeProgram(getGraphEdgeProgramClasses(true))).toBe(true);
+    expect(hasGraphNeuralEdgeProgram(getGraphEdgeProgramClasses(false))).toBe(false);
   });
 
   it("maps neural signal frames to Sigma display attributes", () => {

@@ -210,6 +210,12 @@ export function getGraphEdgeProgramClasses(
   return neuralEnabled ? { neural: NeuralEdgeProgram } : {};
 }
 
+export function hasGraphNeuralEdgeProgram(
+  edgeProgramClasses: Record<string, EdgeProgramType>,
+) {
+  return Boolean(edgeProgramClasses.neural);
+}
+
 export function getGraphNeuralEdgeDisplayAttributes(
   frame: GraphNeuralSignalFrame,
   color: string,
@@ -1327,8 +1333,11 @@ export function Component() {
     );
 
     let neuralEnabled = true;
-    const createRenderer = () =>
-      new SigmaLib(graph, containerRef.current!, {
+    const createRenderer = () => {
+      const edgeProgramClasses = getGraphEdgeProgramClasses(neuralEnabled);
+      neuralEnabled = hasGraphNeuralEdgeProgram(edgeProgramClasses);
+
+      return new SigmaLib(graph, containerRef.current!, {
         allowInvalidContainer: true,
         ...GRAPH_MOVEMENT_RENDERING_SETTINGS,
         renderLabels: true,
@@ -1344,7 +1353,7 @@ export function Component() {
         defaultEdgeColor: graphTheme.edgeDefault,
         defaultEdgeType: "line",
         defaultNodeColor: graphTheme.nodeDefault,
-        edgeProgramClasses: getGraphEdgeProgramClasses(neuralEnabled),
+        edgeProgramClasses,
         minEdgeThickness: 1,
         stagePadding: viewportSettings.stagePadding,
         edgeReducer(edge, data) {
@@ -1456,6 +1465,7 @@ export function Component() {
           return res;
         },
       });
+    };
 
     let sigma: SigmaLib;
     try {
