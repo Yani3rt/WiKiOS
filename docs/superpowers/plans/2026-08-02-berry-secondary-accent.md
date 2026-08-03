@@ -30,7 +30,7 @@
 - Consumes: production source text through the existing `source()` test helper.
 - Produces: regression coverage for `--brand-secondary-accent`, `--brand-secondary-accent-soft`, `.chip-secondary`, and Stats' allowed accent tokens.
 
-- [ ] **Step 1: Write the failing source-level test**
+- [x] **Step 1: Write the failing source-level test**
 
 Add a test that requires:
 
@@ -45,13 +45,13 @@ expect(statsSource).toContain('className="chip-secondary');
 expect(statsSource).not.toContain('accent: "var(--brand-warning)"');
 ```
 
-- [ ] **Step 2: Run the focused test and verify failure**
+- [x] **Step 2: Run the focused test and verify failure**
 
 Run: `pnpm exec vitest run tests/unified-color-system.test.ts`
 
 Expected: FAIL because the Berry tokens and `.chip-secondary` do not exist and Stats still uses warning amber decoratively.
 
-- [ ] **Step 3: Commit the failing test with the implementation in Task 2**
+- [x] **Step 3: Commit the failing test with the implementation in Task 2**
 
 Do not commit a deliberately red main branch; include this test in the Task 2 commit after it passes.
 
@@ -68,7 +68,7 @@ Do not commit a deliberately red main branch; include this test in the Task 2 co
 - Consumes: global CSS custom properties and the Stats card/bar accent arrays.
 - Produces: `--brand-secondary-accent`, `--brand-secondary-accent-soft`, and `.chip-secondary`.
 
-- [ ] **Step 1: Define the global Berry tokens**
+- [x] **Step 1: Define the global Berry tokens**
 
 Add these values beside the stable semantic tokens in `:root`:
 
@@ -77,7 +77,7 @@ Add these values beside the stable semantic tokens in `:root`:
 --brand-secondary-accent-soft: oklch(0.92 0.03 345);
 ```
 
-- [ ] **Step 2: Add the reusable chip treatment**
+- [x] **Step 2: Add the reusable chip treatment**
 
 Replace the unused `.chip-lavender` rule with:
 
@@ -89,20 +89,20 @@ Replace the unused `.chip-lavender` rule with:
 }
 ```
 
-- [ ] **Step 3: Apply Berry to Stats secondary emphasis**
+- [x] **Step 3: Apply Berry to Stats secondary emphasis**
 
 Change the Avg. Words card and third bar accent from
 `var(--brand-warning)` to `var(--brand-secondary-accent)`. Change the Stats
 eyebrow from `.chip-teal` to `.chip-secondary` and its dot to
 `var(--brand-secondary-accent)`.
 
-- [ ] **Step 4: Run focused verification**
+- [x] **Step 4: Run focused verification**
 
 Run: `pnpm exec vitest run tests/unified-color-system.test.ts`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit the implementation**
+- [x] **Step 5: Commit the implementation**
 
 ```bash
 git add src/client/globals.css src/client/routes/stats-route.tsx tests/unified-color-system.test.ts
@@ -122,27 +122,26 @@ git commit -m "feat: add berry secondary accent"
 - Consumes: the complete application and test configuration.
 - Produces: evidence that the token-only visual change is production-safe.
 
-- [ ] **Step 1: Run static verification**
+- [x] **Step 1: Run static verification**
 
 Run: `pnpm lint && pnpm typecheck`
 
 Expected: PASS.
 
-- [ ] **Step 2: Run the complete test suite**
+- [x] **Step 2: Run the complete test suite**
 
 Run: `pnpm test`
 
 Expected: PASS.
 
-- [ ] **Step 3: Run the production build**
+- [x] **Step 3: Run the production build**
 
 Run: `pnpm build`
 
 Expected: PASS.
 
-- [ ] **Step 4: Inspect the finished diff**
+- [x] **Step 4: Inspect the finished diff**
 
 Run: `git diff --check && git status --short`
 
 Expected: no whitespace errors; only the intended implementation and plan documents are present before their commits.
-
