@@ -59,6 +59,34 @@ describe("unified color system", () => {
     expect(statsSource).not.toContain('accent: "var(--brand-warning)"');
   });
 
+  it("uses Berry consistently for secondary discovery and recent-history surfaces", () => {
+    const styles = source("../src/client/globals.css");
+    const homeSource = source("../src/components/homepage-content.tsx");
+    const commandPaletteSource = source("../src/components/command-palette.tsx");
+    const setupSource = source("../src/client/routes/setup-route.tsx");
+    const noteViewerSource = source("../src/components/note-viewer.tsx");
+
+    expect(homeSource).toContain('accent="secondary"');
+    expect(homeSource).toContain("var(--home-section-accent)");
+    expect(styles).toContain(
+      '.home-section[data-home-section-accent="secondary"]',
+    );
+    expect(commandPaletteSource).toContain(
+      'data-mode={hasQuery ? "search" : "recent"}',
+    );
+    expect(styles).toContain(
+      '.command-palette-dialog[data-mode="recent"] .command-palette-result-icon',
+    );
+    expect(setupSource).toContain('data-recent-vault-icon="true"');
+    expect(setupSource).toContain(
+      "bg-[var(--brand-secondary-accent-soft)] text-[var(--brand-secondary-accent)]",
+    );
+    expect(noteViewerSource).toContain('data-related-concept-link="true"');
+    expect(noteViewerSource).toContain(
+      "bg-[var(--brand-secondary-accent-soft)]",
+    );
+  });
+
   it("removes stale deep Teal tokens from production consumers", () => {
     const productionSources = [
       "../src/client/routes/stats-route.tsx",

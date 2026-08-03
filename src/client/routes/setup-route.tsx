@@ -345,7 +345,14 @@ export function Component() {
                           }
                           className="group flex w-full min-w-0 items-center gap-3 py-3 text-start transition-colors duration-150 hover:text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-55"
                         >
-                          <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-[var(--brand-accent-soft)] text-[var(--brand-accent)]">
+                          <span
+                            data-recent-vault-icon="true"
+                            className={`flex size-9 shrink-0 items-center justify-center rounded-full ${
+                              vault.available
+                                ? "bg-[var(--brand-secondary-accent-soft)] text-[var(--brand-secondary-accent)]"
+                                : "bg-[var(--muted)] text-[var(--muted-foreground)]"
+                            }`}
+                          >
                             {vault.available ? (
                               <Folder aria-hidden className="size-4" />
                             ) : (

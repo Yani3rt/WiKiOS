@@ -27,21 +27,30 @@ navigation, selections, and primary interaction states.
 
 ## Application
 
-Use Berry only for non-semantic secondary emphasis:
+Use Berry only for non-semantic secondary emphasis, with a consistent bias
+toward rediscovery, recent local history, and supporting relationships:
 
-- The Stats editorial eyebrow chip.
-- The Avg. Words card accent.
-- The third color in the Most Backlinked Concepts bar sequence.
+- The Home **Recently visited** section heading, icon well, and interactions.
+- The command palette's **Recently opened** mode and result icon wells. Typed
+  search results return to the selected theme accent.
+- Available **Recent vaults** icon wells in Setup; unavailable folders stay
+  neutral.
+- **Related Concepts** pills in the note reader.
+- The Stats editorial eyebrow chip, Avg. Words card accent, and third color in
+  the Most Backlinked Concepts bar sequence.
 
-This removes the current misuse of warning amber as decorative chart color while
-introducing Berry in one surface where multicolor comparison is meaningful.
-Graph relationship/category colors and every semantic state remain unchanged.
+This creates a recognizable secondary discovery language and removes the prior
+misuse of warning amber as decorative chart color. Graph relationship/category
+colors, primary navigation, current selections, focus rings, and every semantic
+state remain unchanged.
 
 ## Accessibility and Constraints
 
 - Preserve WCAG 2.2 AA contrast.
 - Do not communicate meaning through Berry alone.
 - Do not use Berry for focus, selection, success, warning, or error.
+- Do not apply Berry to core Explorer or Graph navigation; those surfaces need
+  the selected theme color for wayfinding and data-legibility.
 - Do not add gradients, glows, decorative rails, or new production dependencies.
 - Keep the change token-driven so configuration overrides can customize it.
 
@@ -51,4 +60,3 @@ Graph relationship/category colors and every semantic state remain unchanged.
 - Confirm Stats no longer uses warning amber for decorative accents.
 - Run focused tests, lint, typecheck, the complete test suite, and production
   build.
-

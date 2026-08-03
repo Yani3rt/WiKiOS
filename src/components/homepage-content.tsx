@@ -130,7 +130,7 @@ function RecentlyVisitedRow({ page }: { page: ExplorerPage }) {
       className="home-note-link group flex min-h-14 min-w-0 items-start py-3 text-left"
     >
       <span className="min-w-0">
-        <span className="block truncate text-[0.95rem] font-medium text-[var(--home-ink)] group-hover:text-[var(--home-accent)]">
+        <span className="block truncate text-[0.95rem] font-medium text-[var(--home-ink)] group-hover:text-[var(--home-section-accent)]">
           {page.title}
         </span>
         <span className="mt-1 block truncate text-sm leading-5 text-[var(--home-muted)]">
@@ -188,6 +188,7 @@ function PersonRow({ person }: { person: PageSummary }) {
 
 function HomeSection({
   sectionKey,
+  accent = "primary",
   icon,
   title,
   description,
@@ -198,6 +199,7 @@ function HomeSection({
   children,
 }: {
   sectionKey: HomepageSectionKey;
+  accent?: "primary" | "secondary";
   icon: ReactNode;
   title: string;
   description: string;
@@ -211,7 +213,11 @@ function HomeSection({
   const hasMore = itemCount > HOME_SECTION_PREVIEW_LIMIT;
 
   return (
-    <section aria-labelledby={headingId}>
+    <section
+      aria-labelledby={headingId}
+      className="home-section"
+      data-home-section-accent={accent}
+    >
       <div
         data-home-section-header="true"
         className="mb-3 flex items-center justify-between gap-4 pb-4"
@@ -220,14 +226,14 @@ function HomeSection({
           <span
             aria-hidden="true"
             data-home-section-icon-tile="true"
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[var(--home-accent-soft)] text-[var(--home-accent)]"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[var(--home-section-accent-soft)] text-[var(--home-section-accent)]"
           >
             {icon}
           </span>
           <div className="min-w-0">
             <h2
               id={headingId}
-              className="truncate text-lg font-semibold leading-6 tracking-[-0.01em] text-[var(--home-accent)]"
+              className="truncate text-lg font-semibold leading-6 tracking-[-0.01em] text-[var(--home-section-accent)]"
             >
               {title}
             </h2>
@@ -240,7 +246,7 @@ function HomeSection({
             onClick={onToggle}
             aria-expanded={expanded}
             aria-controls={`home-${sectionKey}-list`}
-            className="min-h-11 shrink-0 rounded-md px-2 text-sm font-medium text-[var(--home-accent)] hover:bg-[var(--home-accent-soft)]"
+            className="min-h-11 shrink-0 rounded-md px-2 text-sm font-medium text-[var(--home-section-accent)] hover:bg-[var(--home-section-accent-soft)]"
           >
             {expanded ? "Show less" : `Show all ${itemCount}`}
           </button>
@@ -294,8 +300,12 @@ export function HomepageContent({
     featured: (
       <HomeSection
         sectionKey="featured"
+        accent="secondary"
         icon={
-          <Eye aria-hidden="true" className="h-5 w-5 shrink-0 text-[var(--home-accent)]" />
+          <Eye
+            aria-hidden="true"
+            className="h-5 w-5 shrink-0 text-[var(--home-section-accent)]"
+          />
         }
         title={labels.featured}
         description="Notes you opened most recently on this device."
@@ -320,7 +330,10 @@ export function HomepageContent({
       <HomeSection
         sectionKey="topConnected"
         icon={
-          <Waypoints aria-hidden="true" className="h-5 w-5 shrink-0 text-[var(--home-accent)]" />
+          <Waypoints
+            aria-hidden="true"
+            className="h-5 w-5 shrink-0 text-[var(--home-section-accent)]"
+          />
         }
         title={labels.topConnected}
         description="Notes referenced most often across your vault."
@@ -340,7 +353,10 @@ export function HomepageContent({
       <HomeSection
         sectionKey="people"
         icon={
-          <Users aria-hidden="true" className="h-5 w-5 shrink-0 text-[var(--home-accent)]" />
+          <Users
+            aria-hidden="true"
+            className="h-5 w-5 shrink-0 text-[var(--home-section-accent)]"
+          />
         }
         title={labels.people}
         description="People with dedicated notes in your vault."
@@ -360,7 +376,10 @@ export function HomepageContent({
       <HomeSection
         sectionKey="recentPages"
         icon={
-          <FileClock aria-hidden="true" className="h-5 w-5 shrink-0 text-[var(--home-accent)]" />
+          <FileClock
+            aria-hidden="true"
+            className="h-5 w-5 shrink-0 text-[var(--home-section-accent)]"
+          />
         }
         title={labels.recentPages}
         description="Notes changed most recently."

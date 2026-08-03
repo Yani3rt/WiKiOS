@@ -128,6 +128,7 @@ export function CommandPalette({
       <div
         ref={dialogRef}
         className="command-palette-dialog"
+        data-mode={hasQuery ? "search" : "recent"}
         role="dialog"
         aria-modal="true"
         aria-label="Search notes"

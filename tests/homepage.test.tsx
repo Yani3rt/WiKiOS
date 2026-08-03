@@ -122,14 +122,16 @@ describe("Home progressive disclosure", () => {
     expect(markup.match(/data-home-section-header="true"/gu)?.length).toBe(4);
     expect(markup).toContain('data-home-section-icon-tile="true"');
     expect(markup.match(/data-home-section-icon-tile="true"/gu)?.length).toBe(4);
+    expect(markup).toContain('data-home-section-accent="secondary"');
+    expect(markup.match(/data-home-section-accent="secondary"/gu)?.length).toBe(1);
     expect(markup).toContain(
-      "h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[var(--home-accent-soft)]",
+      "h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[var(--home-section-accent-soft)]",
     );
     expect(markup).toContain(
       "mb-3 flex items-center justify-between gap-4 pb-4",
     );
     expect(
-      markup.match(/h-5 w-5 shrink-0 text-\[var\(--home-accent\)\]/gu)?.length,
+      markup.match(/h-5 w-5 shrink-0 text-\[var\(--home-section-accent\)\]/gu)?.length,
     ).toBe(4);
     expect(markup).toContain("home-note-link group");
     expect(markup).toContain(

@@ -1172,12 +1172,15 @@ export function NoteViewer({
                   <Link
                     key={link.href}
                     to={link.href}
+                    data-related-concept-link="true"
                     onClick={(event) => {
                       navigateToRelatedNote(link.href, event);
                     }}
-                    className="inline-flex min-h-11 items-center rounded-full border border-[var(--brand-control-border)] bg-[var(--brand-surface)] px-3.5 py-1.5 text-sm transition-[color,background-color,transform] duration-150 hover:bg-[var(--brand-accent-soft)] active:scale-[0.97] sm:min-h-0"
+                    className="group inline-flex min-h-11 items-center rounded-full border border-[var(--brand-control-border)] bg-[var(--brand-secondary-accent-soft)] px-3.5 py-1.5 text-sm transition-[border-color,color,background-color,transform] duration-150 hover:border-[var(--brand-secondary-accent)] active:scale-[0.97] sm:min-h-0"
                   >
-                    <span className="font-display font-light text-[var(--foreground)]">{link.label}</span>
+                    <span className="font-display font-light text-[var(--foreground)] transition-colors duration-150 group-hover:text-[var(--brand-secondary-accent)]">
+                      {link.label}
+                    </span>
                   </Link>
                 ))}
               </div>

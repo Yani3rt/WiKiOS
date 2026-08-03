@@ -759,6 +759,16 @@ html {
   font-family: var(--font-sans);
 }
 
+.home-section {
+  --home-section-accent: var(--home-accent);
+  --home-section-accent-soft: var(--home-accent-soft);
+}
+
+.home-section[data-home-section-accent="secondary"] {
+  --home-section-accent: var(--brand-secondary-accent);
+  --home-section-accent-soft: var(--brand-secondary-accent-soft);
+}
+
 .home-hero {
   background: var(--home-hero);
   color: var(--home-hero-ink);
@@ -1306,6 +1316,10 @@ html {
   text-transform: uppercase;
 }
 
+.command-palette-dialog[data-mode="recent"] .command-palette-section-heading {
+  color: var(--brand-secondary-accent);
+}
+
 .command-palette-state {
   margin: 0.25rem;
   border: 1px dashed var(--border);
@@ -1355,6 +1369,11 @@ html {
   border-radius: 0.65rem;
   background: var(--brand-accent-soft);
   color: var(--brand-accent);
+}
+
+.command-palette-dialog[data-mode="recent"] .command-palette-result-icon {
+  background: var(--brand-secondary-accent-soft);
+  color: var(--brand-secondary-accent);
 }
 
 .command-palette-result-copy {

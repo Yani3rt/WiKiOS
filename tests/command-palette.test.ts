@@ -175,6 +175,7 @@ describe("command palette modal", () => {
     expect(markup).toContain('role="dialog"');
     expect(markup).toContain('aria-modal="true"');
     expect(markup).toContain('aria-label="Search notes"');
+    expect(markup).toContain('data-mode="recent"');
     expect(markup).not.toContain("aria-labelledby");
     expect(markup).toContain("Recently opened");
     expect(markup).toContain("Agent Config");
