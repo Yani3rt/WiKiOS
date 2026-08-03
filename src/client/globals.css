@@ -1164,7 +1164,7 @@ html {
 }
 
 .toc-item[class*="font-medium"]::before {
-  background: var(--teal);
+  background: var(--brand-secondary-accent);
 }
 
 .explorer-shell {

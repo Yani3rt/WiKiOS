@@ -64,6 +64,7 @@ describe("unified color system", () => {
     const homeSource = source("../src/components/homepage-content.tsx");
     const commandPaletteSource = source("../src/components/command-palette.tsx");
     const setupSource = source("../src/client/routes/setup-route.tsx");
+    const wikiRouteSource = source("../src/client/routes/wiki-route.tsx");
     const noteViewerSource = source("../src/components/note-viewer.tsx");
 
     expect(homeSource).toContain('accent="secondary"');
@@ -84,6 +85,13 @@ describe("unified color system", () => {
     expect(noteViewerSource).toContain('data-related-concept-link="true"');
     expect(noteViewerSource).toContain(
       "bg-[var(--brand-secondary-accent-soft)]",
+    );
+    expect(wikiRouteSource).toContain('data-note-breadcrumb="true"');
+    expect(wikiRouteSource).toContain(
+      "text-[var(--brand-secondary-accent)]",
+    );
+    expect(styles).toMatch(
+      /\.toc-item\[class\*="font-medium"\]::before\s*\{[^}]*background:\s*var\(--brand-secondary-accent\);/u,
     );
   });
 

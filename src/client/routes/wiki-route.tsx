@@ -140,11 +140,17 @@ export function Component() {
           />
         ) : (
           <>
-            <nav className="mb-6 flex items-center gap-2 text-sm text-[var(--muted-foreground)]">
-              <Link to="/" className="transition-colors duration-150 hover:text-[var(--foreground)]">
+            <nav
+              className="mb-6 flex items-center gap-2 text-sm text-[var(--muted-foreground)]"
+              data-note-breadcrumb="true"
+            >
+              <Link
+                to="/"
+                className="text-[var(--brand-secondary-accent)] transition-colors duration-150 hover:text-[var(--foreground)]"
+              >
                 Home
               </Link>
-              <span className="select-none">/</span>
+              <span className="select-none text-[var(--brand-secondary-accent)]">/</span>
               <span className="text-[var(--foreground)]">{result.page.title}</span>
             </nav>
 
