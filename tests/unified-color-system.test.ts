@@ -63,6 +63,7 @@ describe("unified color system", () => {
     const styles = source("../src/client/globals.css");
     const homeSource = source("../src/components/homepage-content.tsx");
     const commandPaletteSource = source("../src/components/command-palette.tsx");
+    const explorerRouteSource = source("../src/client/routes/explorer-route.tsx");
     const setupSource = source("../src/client/routes/setup-route.tsx");
     const wikiRouteSource = source("../src/client/routes/wiki-route.tsx");
     const noteViewerSource = source("../src/components/note-viewer.tsx");
@@ -92,6 +93,9 @@ describe("unified color system", () => {
     );
     expect(styles).toMatch(
       /\.toc-item\[class\*="font-medium"\]::before\s*\{[^}]*background:\s*var\(--brand-secondary-accent\);/u,
+    );
+    expect(explorerRouteSource).toContain(
+      "shadow-[inset_0_-2px_0_var(--brand-secondary-accent)]",
     );
   });
 

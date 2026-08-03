@@ -668,7 +668,7 @@ export function ExplorerTabs({
             key={tab.slug}
             className={`relative flex shrink-0 items-center overflow-hidden border-r border-[var(--explorer-border)] ${
               active
-                ? "bg-[var(--explorer-canvas)] text-[var(--explorer-accent)] shadow-[inset_0_-2px_0_var(--explorer-accent)]"
+                ? "bg-[var(--explorer-canvas)] text-[var(--explorer-accent)] shadow-[inset_0_-2px_0_var(--brand-secondary-accent)]"
                 : "bg-[var(--explorer-surface-subtle)]"
             }`}
           >
