@@ -36,6 +36,29 @@ describe("unified color system", () => {
     expect(styles).not.toContain("--brand-deep-teal-hover");
   });
 
+  it("defines Berry as a stable secondary accent for non-semantic Stats emphasis", () => {
+    const styles = source("../src/client/globals.css");
+    const statsSource = source("../src/client/routes/stats-route.tsx");
+    const sharedRootStart = styles.indexOf(":root {");
+    const sharedRootEnd = styles.indexOf("\n}", sharedRootStart);
+    const sharedRoot = styles.slice(sharedRootStart, sharedRootEnd);
+
+    expect(sharedRoot).toContain(
+      "--brand-secondary-accent: oklch(0.48 0.12 345);",
+    );
+    expect(sharedRoot).toContain(
+      "--brand-secondary-accent-soft: oklch(0.92 0.03 345);",
+    );
+    expect(styles).toMatch(
+      /\.chip-secondary\s*\{[^}]*background:\s*var\(--brand-secondary-accent-soft\);[^}]*color:\s*var\(--brand-secondary-accent\);/u,
+    );
+    expect(statsSource).toContain(
+      'accent: "var(--brand-secondary-accent)"',
+    );
+    expect(statsSource).toContain('className="chip-secondary');
+    expect(statsSource).not.toContain('accent: "var(--brand-warning)"');
+  });
+
   it("removes stale deep Teal tokens from production consumers", () => {
     const productionSources = [
       "../src/client/routes/stats-route.tsx",

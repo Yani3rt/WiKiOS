@@ -42,7 +42,7 @@ export function Component() {
         ? Math.round(stats.total_words / stats.total_pages)
         : 0
       ).toLocaleString(),
-      accent: "var(--brand-warning)",
+      accent: "var(--brand-secondary-accent)",
     },
     {
       label: "Top Links",
@@ -54,7 +54,7 @@ export function Component() {
   const barAccents = [
     "var(--brand-accent)",
     "var(--brand-deep-hover)",
-    "var(--brand-warning)",
+    "var(--brand-secondary-accent)",
   ];
 
   return (
@@ -94,8 +94,8 @@ export function Component() {
       >
         <div className="space-y-10 sm:space-y-12">
           <div>
-            <span className="chip-teal inline-flex items-center gap-1.5 rounded-md px-3 py-1 text-[0.7rem] font-semibold uppercase tracking-[0.16em]">
-              <span className="h-1.5 w-1.5 rounded-full bg-[var(--brand-accent)]" />
+            <span className="chip-secondary inline-flex items-center gap-1.5 rounded-md px-3 py-1 text-[0.7rem] font-semibold uppercase tracking-[0.16em]">
+              <span className="h-1.5 w-1.5 rounded-full bg-[var(--brand-secondary-accent)]" />
               {config.homepage.labels.statsEyebrow}
             </span>
             <h1 className="mt-3 font-display text-[2.75rem] leading-[1.05] tracking-[-0.02em] text-[var(--foreground)] sm:text-5xl">

@@ -104,6 +104,10 @@
 }
 
 :root {
+  /* Shared secondary emphasis stays stable across product color themes. */
+  --brand-secondary-accent: oklch(0.48 0.12 345);
+  --brand-secondary-accent-soft: oklch(0.92 0.03 345);
+
   /* Semantic colors remain stable across product color themes. */
   --brand-success: oklch(0.42 0.1 150);
   --brand-success-soft: oklch(0.93 0.035 150);
@@ -1116,10 +1120,10 @@ html {
   background: var(--brand-warning-soft);
   color: var(--brand-warning);
 }
-.chip-lavender {
+.chip-secondary {
   border: 1px solid var(--brand-border);
-  background: var(--brand-accent-soft);
-  color: var(--brand-accent);
+  background: var(--brand-secondary-accent-soft);
+  color: var(--brand-secondary-accent);
 }
 
 /* Focus ring using teal — inherits element's own border-radius */
