@@ -20,6 +20,7 @@ import remarkGfm from "remark-gfm";
 import { usePersonImage } from "@/client/use-person-image";
 import { useResolvedThemeMode } from "@/client/appearance-provider";
 import { adaptGraphCategoryColor } from "@/client/graph-overview-model";
+import { readMermaidThemeColors, renderMermaidDiagram } from "@/client/mermaid-theme";
 import type { ResolvedThemeMode } from "@/client/theme-mode";
 import { useWikiConfig } from "@/client/wiki-config";
 import { createHeadingId } from "@/lib/markdown";
@@ -56,8 +57,6 @@ type CodeBlockPreProps = ComponentPropsWithoutRef<"pre"> & {
   node?: unknown;
   children?: ReactNode;
 };
-
-let mermaidModulePromise: Promise<typeof import("mermaid")> | null = null;
 
 function formatDate(timestamp: number) {
   return new Date(timestamp).toLocaleDateString("en-US", {
@@ -118,33 +117,23 @@ export async function copyCodeBlockText(codeText: string, writeText: ClipboardWr
   await writeText(codeText);
 }
 
-async function loadMermaid() {
-  if (!mermaidModulePromise) {
-    mermaidModulePromise = import("mermaid").then((module) => {
-      module.default.initialize({
-        startOnLoad: false,
-        securityLevel: "strict",
-        theme: "default",
-      });
-      return module;
-    });
-  }
-
-  return mermaidModulePromise;
-}
-
 function MermaidBlock({ codeText }: { codeText: string }) {
   const [svg, setSvg] = useState<string | null>(null);
   const [renderFailed, setRenderFailed] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
   const renderId = useId().replace(/:/gu, "");
+  const resolvedMode = useResolvedThemeMode();
 
   useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
     let cancelled = false;
+    const colors = readMermaidThemeColors(container);
 
     async function renderDiagram() {
       try {
-        const mermaid = (await loadMermaid()).default;
-        const { svg: nextSvg } = await mermaid.render(`note-mermaid-${renderId}`, codeText);
+        const { svg: nextSvg } = await renderMermaidDiagram(codeText, renderId, resolvedMode, colors);
         if (!cancelled) {
           setSvg(nextSvg);
           setRenderFailed(false);
@@ -162,10 +151,10 @@ function MermaidBlock({ codeText }: { codeText: string }) {
     return () => {
       cancelled = true;
     };
-  }, [codeText, renderId]);
+  }, [codeText, renderId, resolvedMode]);
 
   return (
-    <div className="note-mermaid-block" data-mermaid-source={codeText}>
+    <div ref={containerRef} className="note-mermaid-block" data-mermaid-source={codeText}>
       {svg ? (
         <div
           aria-label="Mermaid diagram"

@@ -765,6 +765,18 @@ describe("shared note viewer rendering and route boundaries", () => {
     expect(markup).not.toContain('data-code-language="mermaid"');
   });
 
+  it("rerenders Mermaid diagrams when the resolved theme mode changes", () => {
+    const source = readFileSync(
+      fileURLToPath(new URL("../src/components/note-viewer.tsx", import.meta.url)),
+      "utf8",
+    );
+
+    expect(source).toContain("useResolvedThemeMode()");
+    expect(source).toContain("renderMermaidDiagram(codeText, renderId, resolvedMode");
+    expect(source).toContain("[codeText, renderId, resolvedMode]");
+    expect(source).not.toContain('theme: "default"');
+  });
+
   it("keeps the code-block wrapper hook-free across ordinary and mermaid navigation", () => {
     const viewerSource = readFileSync(
       fileURLToPath(new URL("../src/components/note-viewer.tsx", import.meta.url)),
