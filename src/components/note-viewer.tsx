@@ -20,7 +20,11 @@ import remarkGfm from "remark-gfm";
 import { usePersonImage } from "@/client/use-person-image";
 import { useResolvedThemeMode } from "@/client/appearance-provider";
 import { adaptGraphCategoryColor } from "@/client/graph-overview-model";
-import { readMermaidThemeColors, renderMermaidDiagram } from "@/client/mermaid-theme";
+import {
+  createLatestMermaidRenderGuard,
+  readMermaidThemeColors,
+  renderMermaidDiagram,
+} from "@/client/mermaid-theme";
 import type { ResolvedThemeMode } from "@/client/theme-mode";
 import { useWikiConfig } from "@/client/wiki-config";
 import { createHeadingId } from "@/lib/markdown";
@@ -121,6 +125,7 @@ function MermaidBlock({ codeText }: { codeText: string }) {
   const [svg, setSvg] = useState<string | null>(null);
   const [renderFailed, setRenderFailed] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const renderGuardRef = useRef(createLatestMermaidRenderGuard());
   const renderId = useId().replace(/:/gu, "");
   const resolvedMode = useResolvedThemeMode();
 
@@ -128,18 +133,18 @@ function MermaidBlock({ codeText }: { codeText: string }) {
     const container = containerRef.current;
     if (!container) return;
 
-    let cancelled = false;
+    const isLatestRender = renderGuardRef.current.begin();
     const colors = readMermaidThemeColors(container);
 
     async function renderDiagram() {
       try {
         const { svg: nextSvg } = await renderMermaidDiagram(codeText, renderId, resolvedMode, colors);
-        if (!cancelled) {
+        if (isLatestRender()) {
           setSvg(nextSvg);
           setRenderFailed(false);
         }
       } catch {
-        if (!cancelled) {
+        if (isLatestRender()) {
           setSvg(null);
           setRenderFailed(true);
         }
@@ -149,7 +154,7 @@ function MermaidBlock({ codeText }: { codeText: string }) {
     void renderDiagram();
 
     return () => {
-      cancelled = true;
+      renderGuardRef.current.invalidate();
     };
   }, [codeText, renderId, resolvedMode]);
 

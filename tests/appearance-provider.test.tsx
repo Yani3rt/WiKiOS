@@ -36,11 +36,13 @@ describe("appearance provider", () => {
     const main = readFileSync(new URL("../src/client/main.tsx", import.meta.url), "utf8");
     const colorInit = main.indexOf("initializeBrowserColorTheme()");
     const modeInit = main.indexOf("initializeBrowserThemeMode()");
+    const chromeInit = main.indexOf("updateBrowserThemeColor(initialColorTheme");
     const config = main.indexOf("applyThemeVariables(config)");
     const render = main.indexOf("createRoot(rootContainer).render");
     expect(colorInit).toBeGreaterThan(-1);
     expect(modeInit).toBeGreaterThan(-1);
-    expect(Math.max(colorInit, modeInit)).toBeLessThan(config);
+    expect(chromeInit).toBeGreaterThan(Math.max(colorInit, modeInit));
+    expect(chromeInit).toBeLessThan(config);
     expect(config).toBeLessThan(render);
   });
 
@@ -77,6 +79,7 @@ describe("appearance provider", () => {
     });
 
     const root = { setAttribute: vi.fn() };
+    const themeColor = { setAttribute: vi.fn() };
     const storage = { getItem: vi.fn(), setItem: vi.fn() };
     let mediaListener: ((event: MediaQueryListEvent) => void) | undefined;
     const media = {
@@ -86,7 +89,10 @@ describe("appearance provider", () => {
       }),
       removeEventListener: vi.fn(),
     };
-    vi.stubGlobal("document", { documentElement: root });
+    vi.stubGlobal("document", {
+      documentElement: root,
+      querySelector: vi.fn(() => themeColor),
+    });
     vi.stubGlobal("window", { localStorage: storage, matchMedia: vi.fn(() => media) });
 
     const { AppearanceProvider: HookAppearanceProvider } = await import("../src/client/appearance-provider");
@@ -97,16 +103,23 @@ describe("appearance provider", () => {
         initialColorTheme: "teal",
         initialModePreference: "system",
         initialResolvedMode: "light",
-      }) as ReactElement<{ value: { selectModePreference(preference: "system" | "light" | "dark"): void } }>;
+      }) as ReactElement<{ value: {
+        selectColorTheme(theme: "teal" | "blue" | "violet"): void;
+        selectModePreference(preference: "system" | "light" | "dark"): void;
+      } }>;
     };
 
     const provider = renderProvider();
     mediaListener?.({ matches: true } as MediaQueryListEvent);
     expect(root.setAttribute).toHaveBeenCalledWith("data-mode", "dark");
+    expect(themeColor.setAttribute).toHaveBeenCalledWith("content", "#142426");
 
     provider.props.value.selectModePreference("light");
     expect(root.setAttribute).toHaveBeenCalledWith("data-mode", "light");
     expect(storage.setItem).toHaveBeenCalledWith("wikios:theme-mode", "light");
+
+    provider.props.value.selectColorTheme("violet");
+    expect(themeColor.setAttribute).toHaveBeenCalledWith("content", "#f4f2fb");
 
     renderProvider();
     expect(media.removeEventListener).toHaveBeenCalledWith("change", mediaListener);

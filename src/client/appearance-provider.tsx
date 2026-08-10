@@ -14,6 +14,7 @@ import {
   persistColorTheme,
   type ColorThemeId,
 } from "./color-theme";
+import { updateBrowserThemeColor } from "./appearance-chrome";
 import {
   applyResolvedThemeMode,
   browserColorSchemeMediaQuery,
@@ -52,18 +53,20 @@ export function AppearanceProvider({
 
   const selectColorTheme = useCallback((theme: ColorThemeId) => {
     applyColorTheme(document.documentElement, theme);
+    updateBrowserThemeColor(theme, resolvedMode);
     persistColorTheme(browserThemeStorage(), theme);
     setColorTheme(theme);
-  }, []);
+  }, [resolvedMode]);
 
   const selectModePreference = useCallback((preference: ThemeModePreference) => {
     const media = browserColorSchemeMediaQuery();
     const nextResolvedMode = resolveThemeMode(preference, media);
     applyResolvedThemeMode(document.documentElement, nextResolvedMode);
+    updateBrowserThemeColor(colorTheme, nextResolvedMode);
     persistThemeModePreference(browserThemeStorage(), preference);
     setModePreference(preference);
     setResolvedMode(nextResolvedMode);
-  }, []);
+  }, [colorTheme]);
 
   useEffect(() => {
     if (modePreference !== "system") return;
@@ -71,9 +74,10 @@ export function AppearanceProvider({
     return subscribeToSystemTheme(media, (event) => {
       const nextResolvedMode: ResolvedThemeMode = event.matches ? "dark" : "light";
       applyResolvedThemeMode(document.documentElement, nextResolvedMode);
+      updateBrowserThemeColor(colorTheme, nextResolvedMode);
       setResolvedMode(nextResolvedMode);
     });
-  }, [modePreference]);
+  }, [colorTheme, modePreference]);
 
   const value = useMemo(() => ({
     colorTheme,

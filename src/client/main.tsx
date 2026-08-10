@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { RouterProvider } from "react-router-dom";
 
 import { fetchJson } from "@/client/api";
+import { updateBrowserThemeColor } from "@/client/appearance-chrome";
 import { AppearanceProvider } from "@/client/appearance-provider";
 import { initializeBrowserColorTheme } from "@/client/color-theme";
 import { initializeBrowserThemeMode } from "@/client/theme-mode";
@@ -21,6 +22,7 @@ if (!(container instanceof HTMLElement)) {
 const rootContainer: HTMLElement = container;
 const initialColorTheme = initializeBrowserColorTheme();
 const initialThemeMode = initializeBrowserThemeMode();
+updateBrowserThemeColor(initialColorTheme, initialThemeMode.resolvedMode);
 
 async function bootstrap() {
   const config = await fetchJson<WikiOsConfig>("/api/config").catch(() => DEFAULT_WIKI_OS_CONFIG);

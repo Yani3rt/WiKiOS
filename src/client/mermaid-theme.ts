@@ -47,6 +47,19 @@ export function getMermaidConfig(mode: ResolvedThemeMode, colors: MermaidThemeCo
 
 let renderQueue: Promise<void> = Promise.resolve();
 
+export function createLatestMermaidRenderGuard() {
+  let revision = 0;
+  return {
+    begin() {
+      const activeRevision = ++revision;
+      return () => activeRevision === revision;
+    },
+    invalidate() {
+      revision += 1;
+    },
+  };
+}
+
 export function renderMermaidDiagram(
   code: string,
   id: string,

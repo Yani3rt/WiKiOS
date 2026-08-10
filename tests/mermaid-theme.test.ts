@@ -1,6 +1,20 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { getMermaidConfig } from "../src/client/mermaid-theme";
+const mermaidRender = vi.hoisted(() => vi.fn());
+const mermaidInitialize = vi.hoisted(() => vi.fn());
+
+vi.mock("mermaid", () => ({
+  default: {
+    initialize: mermaidInitialize,
+    render: mermaidRender,
+  },
+}));
+
+import {
+  createLatestMermaidRenderGuard,
+  getMermaidConfig,
+  renderMermaidDiagram,
+} from "../src/client/mermaid-theme";
 
 const colors = {
   background: "#142426",
@@ -29,5 +43,44 @@ describe("Mermaid appearance", () => {
         tertiaryColor: "#203235",
       },
     });
+  });
+
+  it("continues the serialized queue after a render rejection", async () => {
+    mermaidRender
+      .mockRejectedValueOnce(new Error("invalid first diagram"))
+      .mockResolvedValueOnce({ svg: "<svg>new</svg>" });
+
+    await expect(renderMermaidDiagram("bad", "first", "dark", colors)).rejects.toThrow(
+      "invalid first diagram",
+    );
+    await expect(renderMermaidDiagram("good", "second", "light", colors)).resolves.toEqual({
+      svg: "<svg>new</svg>",
+    });
+
+    expect(mermaidRender).toHaveBeenNthCalledWith(1, "note-mermaid-first", "bad");
+    expect(mermaidRender).toHaveBeenNthCalledWith(2, "note-mermaid-second", "good");
+  });
+
+  it("allows only the newest delayed render to commit", async () => {
+    const guard = createLatestMermaidRenderGuard();
+    const firstIsLatest = guard.begin();
+    let releaseFirst: ((value: string) => void) | undefined;
+    const firstRender = new Promise<string>((resolve) => {
+      releaseFirst = resolve;
+    }).then((svg) => {
+      if (firstIsLatest()) committed.push(svg);
+    });
+
+    const secondIsLatest = guard.begin();
+    const committed: string[] = [];
+    const secondRender = Promise.resolve("new svg").then((svg) => {
+      if (secondIsLatest()) committed.push(svg);
+    });
+
+    await secondRender;
+    releaseFirst?.("old svg");
+    await firstRender;
+
+    expect(committed).toEqual(["new svg"]);
   });
 });

@@ -30,4 +30,14 @@
 
   root.setAttribute("data-color-theme", color);
   root.setAttribute("data-mode", mode);
+
+  var themeColors = {
+    teal: { light: "#ebf6f7", dark: "#142426" },
+    blue: { light: "#eef4fb", dark: "#141d2b" },
+    violet: { light: "#f4f2fb", dark: "#201a2b" },
+  };
+  var themeColor = document.querySelector('meta[name="theme-color"]');
+  if (themeColor) {
+    themeColor.setAttribute("content", themeColors[color][mode]);
+  }
 })();

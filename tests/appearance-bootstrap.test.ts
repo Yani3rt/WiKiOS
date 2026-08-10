@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 
 const bootstrapUrl = new URL("../public/appearance-bootstrap.js", import.meta.url);
 const indexUrl = new URL("../index.html", import.meta.url);
+const manifestUrl = new URL("../public/manifest.json", import.meta.url);
 
 function runBootstrap(options: {
   storedColor?: string | null;
@@ -14,6 +15,7 @@ function runBootstrap(options: {
   mediaThrows?: boolean;
 } = {}) {
   const attributes = new Map<string, string>();
+  let themeColor = "#faf7f3";
   const getItem = vi.fn((key: string) => {
     if (options.storageThrows) throw new Error("storage unavailable");
     return key === "wikios:color-theme"
@@ -28,6 +30,14 @@ function runBootstrap(options: {
           attributes.set(name, value);
         },
       },
+      querySelector(selector: string) {
+        if (selector !== 'meta[name="theme-color"]') return null;
+        return {
+          setAttribute(name: string, value: string) {
+            if (name === "content") themeColor = value;
+          },
+        };
+      },
     },
     localStorage: { getItem },
     matchMedia: vi.fn(() => {
@@ -36,7 +46,7 @@ function runBootstrap(options: {
     }),
   });
 
-  return attributes;
+  return { attributes, themeColor };
 }
 
 describe("pre-paint appearance bootstrap", () => {
@@ -49,22 +59,41 @@ describe("pre-paint appearance bootstrap", () => {
     expect(bootstrap).toBeLessThan(application);
   });
 
+  it("uses a dark static PWA launch surface and a translucent iOS status bar", () => {
+    const index = readFileSync(indexUrl, "utf8");
+    const manifest = JSON.parse(readFileSync(manifestUrl, "utf8")) as {
+      background_color: string;
+      theme_color: string;
+    };
+
+    expect(manifest).toMatchObject({
+      background_color: "#142426",
+      theme_color: "#142426",
+    });
+    expect(index).toContain(
+      '<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />',
+    );
+    expect(index).not.toContain("#faf7f3");
+  });
+
   it("applies stored Blue and Dark before application startup", () => {
     const attributes = runBootstrap({ storedColor: "blue", storedMode: "dark" });
 
-    expect(attributes.get("data-color-theme")).toBe("blue");
-    expect(attributes.get("data-mode")).toBe("dark");
+    expect(attributes.attributes.get("data-color-theme")).toBe("blue");
+    expect(attributes.attributes.get("data-mode")).toBe("dark");
+    expect(attributes.themeColor).toBe("#141d2b");
   });
 
   it("resolves System from the OS preference", () => {
-    expect(runBootstrap({ storedMode: "system", systemDark: true }).get("data-mode")).toBe("dark");
-    expect(runBootstrap({ storedMode: "system", systemDark: false }).get("data-mode")).toBe("light");
+    expect(runBootstrap({ storedMode: "system", systemDark: true }).attributes.get("data-mode")).toBe("dark");
+    expect(runBootstrap({ storedMode: "system", systemDark: false }).attributes.get("data-mode")).toBe("light");
   });
 
   it("falls back safely to Teal and Light when browser APIs are unavailable", () => {
     const attributes = runBootstrap({ storageThrows: true, mediaThrows: true });
 
-    expect(attributes.get("data-color-theme")).toBe("teal");
-    expect(attributes.get("data-mode")).toBe("light");
+    expect(attributes.attributes.get("data-color-theme")).toBe("teal");
+    expect(attributes.attributes.get("data-mode")).toBe("light");
+    expect(attributes.themeColor).toBe("#ebf6f7");
   });
 });
