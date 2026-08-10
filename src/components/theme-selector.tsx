@@ -51,7 +51,7 @@ export function ThemeOptions({
               onChange={() => onSelect(theme.id)}
             />
             <span className="theme-option-swatches" aria-hidden="true">
-              {theme.preview.map((color) => (
+              {theme.preview.light.map((color) => (
                 <span key={color} style={{ backgroundColor: color }} />
               ))}
             </span>

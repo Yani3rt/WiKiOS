@@ -1,16 +1,20 @@
+import type { ResolvedThemeMode } from "./theme-mode";
+
 export const COLOR_THEME_IDS = ["teal", "blue", "violet"] as const;
 export type ColorThemeId = (typeof COLOR_THEME_IDS)[number];
+
+type ThemePreview = readonly [deep: string, accent: string, canvas: string];
 
 export interface ColorThemeDefinition {
   readonly id: ColorThemeId;
   readonly label: string;
-  readonly preview: readonly [deep: string, accent: string, canvas: string];
+  readonly preview: Readonly<Record<ResolvedThemeMode, ThemePreview>>;
 }
 
 export const COLOR_THEMES: readonly ColorThemeDefinition[] = [
-  { id: "teal", label: "Teal", preview: ["#004950", "#00626c", "#ebf6f7"] },
-  { id: "blue", label: "Blue", preview: ["#12426d", "#1a588f", "#eef4fb"] },
-  { id: "violet", label: "Violet", preview: ["#433567", "#5a4789", "#f4f2fb"] },
+  { id: "teal", label: "Teal", preview: { light: ["#004950", "#00626c", "#ebf6f7"], dark: ["#101f21", "#67bfc6", "#18282a"] } },
+  { id: "blue", label: "Blue", preview: { light: ["#12426d", "#1a588f", "#eef4fb"], dark: ["#111b2a", "#7eb5ef", "#192333"] } },
+  { id: "violet", label: "Violet", preview: { light: ["#433567", "#5a4789", "#f4f2fb"], dark: ["#1d1828", "#b09be8", "#262032"] } },
 ] as const;
 
 export const DEFAULT_COLOR_THEME: ColorThemeId = "teal";

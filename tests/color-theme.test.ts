@@ -24,6 +24,14 @@ describe("color theme model", () => {
     expect(parseColorThemeId(null)).toBe("teal");
   });
 
+  it("publishes exact previews for light and dark modes", () => {
+    expect(COLOR_THEMES.map(({ id, preview }) => ({ id, preview }))).toEqual([
+      { id: "teal", preview: { light: ["#004950", "#00626c", "#ebf6f7"], dark: ["#101f21", "#67bfc6", "#18282a"] } },
+      { id: "blue", preview: { light: ["#12426d", "#1a588f", "#eef4fb"], dark: ["#111b2a", "#7eb5ef", "#192333"] } },
+      { id: "violet", preview: { light: ["#433567", "#5a4789", "#f4f2fb"], dark: ["#1d1828", "#b09be8", "#262032"] } },
+    ]);
+  });
+
   it("reads and writes storage without allowing storage errors to escape", () => {
     const storage = { getItem: vi.fn(() => "violet"), setItem: vi.fn() };
     expect(readStoredColorTheme(storage)).toBe("violet");
