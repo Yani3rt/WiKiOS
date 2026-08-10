@@ -14,7 +14,11 @@ import {
   X,
 } from "lucide-react";
 import SigmaLib from "sigma";
-import type { EdgeProgramType, NodeLabelDrawingFunction } from "sigma/rendering";
+import type {
+  EdgeProgramType,
+  NodeHoverDrawingFunction,
+  NodeLabelDrawingFunction,
+} from "sigma/rendering";
 
 import { useAppearance } from "@/client/appearance-provider";
 import {
@@ -205,6 +209,10 @@ function createGraphLabelDrawer(colors: GraphThemeColors): NodeLabelDrawingFunct
   };
 }
 
+function createGraphHoverDrawer(colors: GraphThemeColors): NodeHoverDrawingFunction {
+  return createGraphLabelDrawer(colors);
+}
+
 interface GraphThemeRenderer {
   setSettings(settings: Parameters<SigmaLib["setSettings"]>[0]): unknown;
   refresh(): unknown;
@@ -357,6 +365,7 @@ export function updateGraphThemeInPlace(
   applyGraphThemeColors(graph, aliases, colors, resolvedMode);
   sigma.setSettings({
     defaultDrawNodeLabel: createGraphLabelDrawer(colors),
+    defaultDrawNodeHover: createGraphHoverDrawer(colors),
     labelColor: { color: colors.label },
     defaultEdgeColor: colors.edgeDefault,
     defaultNodeColor: colors.nodeDefault,
@@ -1451,6 +1460,7 @@ export function Component() {
         renderLabels: true,
         renderEdgeLabels: false,
         defaultDrawNodeLabel: createGraphLabelDrawer(graphTheme),
+        defaultDrawNodeHover: createGraphHoverDrawer(graphTheme),
         labelColor: { color: graphTheme.label },
         labelFont: '"Urbanist", -apple-system, BlinkMacSystemFont, sans-serif',
         labelSize: viewportSettings.labelSize,

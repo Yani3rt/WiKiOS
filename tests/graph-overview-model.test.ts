@@ -539,11 +539,41 @@ describe("graph overview model", () => {
     expect(sigma.setSettings).toHaveBeenCalledOnce();
     expect(sigma.setSettings).toHaveBeenCalledWith(
       expect.objectContaining({
+        defaultDrawNodeHover: expect.any(Function),
         labelColor: { color: "#251f34" },
         defaultEdgeColor: "#796d91",
         defaultNodeColor: "#433567",
       }),
     );
+
+    const settings = sigma.setSettings.mock.calls[0]?.[0];
+    const hoverContext = {
+      save: vi.fn(),
+      restore: vi.fn(),
+      measureText: vi.fn(() => ({ width: 72 })),
+      strokeText: vi.fn(),
+      fillText: vi.fn(),
+      font: "",
+      lineJoin: "miter",
+      lineWidth: 0,
+      strokeStyle: "",
+      fillStyle: "",
+    };
+    settings.defaultDrawNodeHover(
+      hoverContext,
+      { x: 100, y: 80, size: 12, label: "Research Queue", color: "#a2cad6" },
+      {
+        labelColor: { color: colors.label },
+        labelFont: "Urbanist",
+        labelSize: 12,
+        labelWeight: "600",
+      },
+    );
+
+    expect(hoverContext.strokeStyle).toBe(colors.background);
+    expect(hoverContext.fillStyle).toBe(colors.label);
+    expect(hoverContext.strokeText).toHaveBeenCalledWith("Research Queue", 117, 84);
+    expect(hoverContext.fillText).toHaveBeenCalledWith("Research Queue", 117, 84);
     expect(sigma.refresh).toHaveBeenCalledOnce();
     expect(sigma.getCamera).not.toHaveBeenCalled();
     expect(sigma.kill).not.toHaveBeenCalled();
