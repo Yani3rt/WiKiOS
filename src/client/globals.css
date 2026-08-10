@@ -654,7 +654,6 @@ html {
 }
 
 .theme-mode-option {
-  position: relative;
   display: flex;
   min-height: 2.75rem;
   align-items: center;
@@ -669,9 +668,12 @@ html {
 }
 
 .theme-mode-option-state {
-  position: absolute;
-  top: 0.25rem;
-  right: 0.25rem;
+  display: inline-flex;
+  width: 1rem;
+  height: 1rem;
+  flex: none;
+  align-items: center;
+  justify-content: center;
 }
 
 .theme-mode-option:has(input:checked) {

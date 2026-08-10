@@ -96,11 +96,13 @@ describe("ThemeSelector", () => {
     const modes = childElements(options).map((label) => {
       const children = childElements(label);
       const radio = children.find((child) => child.type === "input");
+      const state = children.find((child) => child.props.className === "theme-mode-option-state");
       if (!radio) throw new Error("Mode option is missing its radio input");
+      if (!state) throw new Error("Mode option is missing its reserved state slot");
       return [
         radio.props.value,
         radio.props.checked,
-        children.some((child) => child.props.className === "theme-mode-option-state h-4 w-4"),
+        childElements(state).length === 1,
       ];
     });
 
@@ -109,6 +111,11 @@ describe("ThemeSelector", () => {
       ["light", false, false],
       ["dark", true, true],
     ]);
+
+    const css = readFileSync(new URL("../src/client/globals.css", import.meta.url), "utf8");
+    const stateRule = css.match(/\.theme-mode-option-state\s*\{([^}]*)\}/)?.[1];
+    expect(stateRule).toContain("width: 1rem");
+    expect(stateRule).not.toContain("position: absolute");
   });
 
   it("closes for an outside pointer press but not an inside press", () => {
