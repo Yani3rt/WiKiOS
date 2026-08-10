@@ -83,7 +83,7 @@ describe("ThemeSelector", () => {
     expect(markup).toContain("#192333");
   });
 
-  it("renders a visible non-color cue only for the selected appearance mode", () => {
+  it("keeps appearance mode buttons uncluttered while native radios retain selection", () => {
     const markup = renderToStaticMarkup(
       createElement(ModeOptions, { selectedMode: "system", onSelect: vi.fn() }),
     );
@@ -96,26 +96,25 @@ describe("ThemeSelector", () => {
     const modes = childElements(options).map((label) => {
       const children = childElements(label);
       const radio = children.find((child) => child.type === "input");
-      const state = children.find((child) => child.props.className === "theme-mode-option-state");
       if (!radio) throw new Error("Mode option is missing its radio input");
-      if (!state) throw new Error("Mode option is missing its reserved state slot");
       return [
         radio.props.value,
         radio.props.checked,
-        childElements(state).length === 1,
+        children.length,
       ];
     });
 
     expect(modes).toEqual([
-      ["system", false, false],
-      ["light", false, false],
-      ["dark", true, true],
+      ["system", false, 3],
+      ["light", false, 3],
+      ["dark", true, 3],
     ]);
 
     const css = readFileSync(new URL("../src/client/globals.css", import.meta.url), "utf8");
-    const stateRule = css.match(/\.theme-mode-option-state\s*\{([^}]*)\}/)?.[1];
-    expect(stateRule).toContain("width: 1rem");
-    expect(stateRule).not.toContain("position: absolute");
+    expect(css).not.toContain(".theme-mode-option-state");
+    expect(css).toMatch(
+      /\.theme-mode-option:has\(input:checked\)\s*\{[^}]*border-color:\s*var\(--brand-accent\);[^}]*background:\s*var\(--brand-accent-soft\);/u,
+    );
   });
 
   it("closes for an outside pointer press but not an inside press", () => {

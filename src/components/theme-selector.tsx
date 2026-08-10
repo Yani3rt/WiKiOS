@@ -104,9 +104,6 @@ export function ModeOptions({
             />
             <Icon aria-hidden className="h-4 w-4" />
             <span>{mode.label}</span>
-            <span className="theme-mode-option-state" aria-hidden="true">
-              {selected ? <Check className="h-4 w-4" /> : null}
-            </span>
           </label>
         );
       })}

@@ -858,15 +858,6 @@ html {
   font-weight: 650;
 }
 
-.theme-mode-option-state {
-  display: inline-flex;
-  width: 1rem;
-  height: 1rem;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-}
-
 .theme-mode-option:has(input:checked) {
   border-color: var(--brand-accent);
   background: var(--brand-accent-soft);
