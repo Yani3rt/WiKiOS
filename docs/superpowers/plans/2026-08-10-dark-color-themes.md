@@ -1081,7 +1081,7 @@ git commit -m "feat: theme Mermaid diagrams"
 - Consumes: completed Tasks 1–6.
 - Produces: verified six-theme release candidate with no new dependency.
 
-- [ ] **Step 1: Run the complete automated gate**
+- [x] **Step 1: Run the complete automated gate**
 
 ```bash
 pnpm lint
@@ -1094,7 +1094,7 @@ git diff --check
 Expected: every command exits 0. If a command fails, fix the concrete defect,
 rerun its focused test first, then rerun this complete gate.
 
-- [ ] **Step 2: Verify dependency and light-palette stability**
+- [x] **Step 2: Verify dependency and light-palette stability**
 
 ```bash
 git diff 972716d -- package.json pnpm-lock.yaml package-lock.json
@@ -1104,7 +1104,7 @@ git diff 972716d -- src/client/globals.css
 Expected: no dependency changes; the three light palette declaration values are
 unchanged apart from combined selectors and the newly added renderer tokens.
 
-- [ ] **Step 3: Start the app for browser verification**
+- [x] **Step 3: Start the app for browser verification**
 
 ```bash
 pnpm dev
@@ -1113,7 +1113,7 @@ pnpm dev
 Expected: Vite client at `http://localhost:5211/` and API at
 `http://127.0.0.1:5212` without startup errors.
 
-- [ ] **Step 4: Inspect the full route/theme matrix**
+- [x] **Step 4: Inspect the full route/theme matrix**
 
 At widths 1440px and 390px, inspect these routes:
 
@@ -1131,7 +1131,7 @@ Verify canvas, header, surfaces, text, muted text, links, borders, inputs,
 selected/hover/focus states, loading/empty/error chrome, overlays, and mobile
 safe-area layout. No surface may retain stale light chrome in Dark.
 
-- [ ] **Step 5: Inspect behavioral appearance changes**
+- [x] **Step 5: Inspect behavioral appearance changes**
 
 Verify in the browser:
 
@@ -1145,7 +1145,7 @@ Verify in the browser:
 8. Mermaid diagrams rerender with readable fills, text, borders, and lines.
 9. Code blocks, tables, inline code, command palette, and sidebars remain readable.
 
-- [ ] **Step 6: Run the final automated gate after visual fixes**
+- [x] **Step 6: Run the final automated gate after visual fixes**
 
 ```bash
 pnpm lint && pnpm typecheck && pnpm test && pnpm build && git diff --check
@@ -1153,7 +1153,7 @@ pnpm lint && pnpm typecheck && pnpm test && pnpm build && git diff --check
 
 Expected: all commands exit 0.
 
-- [ ] **Step 7: Commit verification fixes, if any**
+- [x] **Step 7: Commit verification fixes, if any**
 
 If Step 4 or 5 required tracked fixes:
 
@@ -1168,11 +1168,11 @@ If no tracked fix was required, do not create an empty commit.
 
 ## Final Review Checklist
 
-- [ ] Every approved design requirement maps to a task above.
-- [ ] No placeholder or deferred implementation instruction remains.
-- [ ] Public types and function signatures match across tasks.
-- [ ] System preference cleanup is covered.
-- [ ] Existing light palette values and config precedence are covered.
-- [ ] Sigma, neighborhood canvas, and Mermaid each react to resolved mode.
-- [ ] Contrast, automated checks, and the 72-view route/theme/viewport matrix are covered.
-- [ ] No production dependency or redundant Appearance copy is introduced.
+- [x] Every approved design requirement maps to a task above.
+- [x] No placeholder or deferred implementation instruction remains.
+- [x] Public types and function signatures match across tasks.
+- [x] System preference cleanup is covered.
+- [x] Existing light palette values and config precedence are covered.
+- [x] Sigma, neighborhood canvas, and Mermaid each react to resolved mode.
+- [x] Contrast, automated checks, and the 72-view route/theme/viewport matrix are covered.
+- [x] No production dependency or redundant Appearance copy is introduced.
