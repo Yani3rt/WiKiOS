@@ -80,6 +80,7 @@ import { RouteErrorBoundary } from "../route-error-boundary";
 
 export interface GraphThemeColors {
   background: string;
+  surface: string;
   foreground: string;
   muted: string;
   label: string;
@@ -93,6 +94,7 @@ export interface GraphThemeColors {
 
 const GRAPH_THEME_TOKENS: Record<keyof GraphThemeColors, string> = {
   background: "--graph-background",
+  surface: "--graph-surface",
   foreground: "--graph-foreground",
   muted: "--graph-muted",
   label: "--graph-label",
@@ -210,7 +212,53 @@ function createGraphLabelDrawer(colors: GraphThemeColors): NodeLabelDrawingFunct
 }
 
 function createGraphHoverDrawer(colors: GraphThemeColors): NodeHoverDrawingFunction {
-  return createGraphLabelDrawer(colors);
+  const drawLabel = createGraphLabelDrawer(colors);
+
+  return (context, data, settings) => {
+    const padding = 2;
+    const labelSize = settings.labelSize;
+    const radius = Math.max(data.size, labelSize / 2) + padding;
+
+    context.save();
+    context.font = `${settings.labelWeight} ${labelSize}px ${settings.labelFont}`;
+    context.fillStyle = colors.surface;
+    context.shadowOffsetX = 0;
+    context.shadowOffsetY = 0;
+    context.shadowBlur = 8;
+    context.shadowColor = "#000";
+    context.beginPath();
+
+    if (typeof data.label === "string") {
+      const boxWidth = Math.round(context.measureText(data.label).width + 5);
+      const boxHeight = Math.round(labelSize + 2 * padding);
+      const angleRadian = Math.asin(boxHeight / 2 / radius);
+      const xDelta = Math.sqrt(Math.abs(radius ** 2 - (boxHeight / 2) ** 2));
+
+      if (data.labelPlacement === "left") {
+        context.moveTo(data.x - xDelta, data.y + boxHeight / 2);
+        context.lineTo(data.x - radius - boxWidth, data.y + boxHeight / 2);
+        context.lineTo(data.x - radius - boxWidth, data.y - boxHeight / 2);
+        context.lineTo(data.x - xDelta, data.y - boxHeight / 2);
+        context.arc(data.x, data.y, radius, Math.PI + angleRadian, Math.PI - angleRadian, true);
+      } else {
+        context.moveTo(data.x + xDelta, data.y + boxHeight / 2);
+        context.lineTo(data.x + radius + boxWidth, data.y + boxHeight / 2);
+        context.lineTo(data.x + radius + boxWidth, data.y - boxHeight / 2);
+        context.lineTo(data.x + xDelta, data.y - boxHeight / 2);
+        context.arc(data.x, data.y, radius, angleRadian, -angleRadian);
+      }
+    } else {
+      context.arc(data.x, data.y, radius, 0, Math.PI * 2);
+    }
+
+    context.closePath();
+    context.fill();
+    context.shadowOffsetX = 0;
+    context.shadowOffsetY = 0;
+    context.shadowBlur = 0;
+    drawLabel(context, data, settings);
+    context.restore();
+  };
 }
 
 interface GraphThemeRenderer {

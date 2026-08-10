@@ -423,6 +423,7 @@ describe("graph overview model", () => {
     graph.addEdge("neutral", "topic", { color: "#000000" });
     const colors = {
       background: "#eef4fb",
+      surface: "#fcfdff",
       foreground: "#15202d",
       muted: "#4d5969",
       nodeDefault: "#234566",
@@ -461,6 +462,7 @@ describe("graph overview model", () => {
     });
     const colors = {
       background: "#eef4fb",
+      surface: "#fcfdff",
       foreground: "#15202d",
       muted: "#4d5969",
       nodeDefault: "#234566",
@@ -496,6 +498,7 @@ describe("graph overview model", () => {
     };
     const initialColors = {
       background: "#eef4fb",
+      surface: "#fcfdff",
       foreground: "#15202d",
       muted: "#4d5969",
       nodeDefault: "#234566",
@@ -507,8 +510,9 @@ describe("graph overview model", () => {
       label: "#15202d",
     };
     const colors = {
-      background: "#f4f2fb",
-      foreground: "#251f34",
+      background: "#201a2b",
+      surface: "#2b2438",
+      foreground: "#f5f1fb",
       muted: "#635b73",
       nodeDefault: "#433567",
       nodeMuted: "#928aa1",
@@ -516,7 +520,7 @@ describe("graph overview model", () => {
       edgeMuted: "#aaa3b5",
       edgeOutgoing: "#5a4789",
       edgeIncoming: "#875800",
-      label: "#251f34",
+      label: "#f5f1fb",
     };
 
     const aliases = { design: { color: "#85b9c9" } };
@@ -540,24 +544,42 @@ describe("graph overview model", () => {
     expect(sigma.setSettings).toHaveBeenCalledWith(
       expect.objectContaining({
         defaultDrawNodeHover: expect.any(Function),
-        labelColor: { color: "#251f34" },
+        labelColor: { color: "#f5f1fb" },
         defaultEdgeColor: "#796d91",
         defaultNodeColor: "#433567",
       }),
     );
 
     const settings = sigma.setSettings.mock.calls[0]?.[0];
+    const hoverFillStyles: string[] = [];
+    let hoverFillStyle = "";
     const hoverContext = {
       save: vi.fn(),
       restore: vi.fn(),
       measureText: vi.fn(() => ({ width: 72 })),
+      beginPath: vi.fn(),
+      moveTo: vi.fn(),
+      lineTo: vi.fn(),
+      arc: vi.fn(),
+      closePath: vi.fn(),
+      fill: vi.fn(),
       strokeText: vi.fn(),
       fillText: vi.fn(),
       font: "",
       lineJoin: "miter",
       lineWidth: 0,
       strokeStyle: "",
-      fillStyle: "",
+      get fillStyle() {
+        return hoverFillStyle;
+      },
+      set fillStyle(value: string) {
+        hoverFillStyle = value;
+        hoverFillStyles.push(value);
+      },
+      shadowOffsetX: 0,
+      shadowOffsetY: 0,
+      shadowBlur: 0,
+      shadowColor: "",
     };
     settings.defaultDrawNodeHover(
       hoverContext,
@@ -570,6 +592,8 @@ describe("graph overview model", () => {
       },
     );
 
+    expect(hoverFillStyles).toContain(colors.surface);
+    expect(hoverContext.fill).toHaveBeenCalledOnce();
     expect(hoverContext.strokeStyle).toBe(colors.background);
     expect(hoverContext.fillStyle).toBe(colors.label);
     expect(hoverContext.strokeText).toHaveBeenCalledWith("Research Queue", 117, 84);
