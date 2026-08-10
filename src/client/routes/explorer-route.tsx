@@ -1165,7 +1165,7 @@ export function Component() {
           aria-hidden={!sidebarInteractive}
           aria-modal={sidebarModalActive}
           role="dialog"
-          className={`fixed inset-y-16 left-0 z-40 w-[18.5rem] max-w-[calc(100vw-2rem)] border-r border-[var(--explorer-border)] bg-[var(--explorer-surface)] shadow-[4px_0_8px_rgba(24,30,36,0.08)] md:static md:inset-auto md:z-auto md:max-w-none md:shadow-none ${
+          className={`fixed inset-y-16 left-0 z-40 w-[18.5rem] max-w-[calc(100vw-2rem)] border-r border-[var(--explorer-border)] bg-[var(--explorer-surface)] shadow-[4px_0_8px_var(--brand-shadow-soft)] md:static md:inset-auto md:z-auto md:max-w-none md:shadow-none ${
             sidebarOpen ? "translate-x-0" : "-translate-x-[calc(100%+1rem)]"
           } ${desktopSidebarVisible ? "md:w-[19rem] md:translate-x-0 md:opacity-100" : "md:w-0 md:translate-x-[-1rem] md:opacity-0 md:border-r-0"} ${prefersReducedMotion ? "transition-none" : "transition-all duration-200 ease-out"} overflow-hidden motion-reduce:transition-none`}
         >

@@ -7,30 +7,56 @@ function source(relativePath: string) {
   return readFileSync(fileURLToPath(new URL(relativePath, import.meta.url)), "utf8");
 }
 
+function themeBlock(styles: string, color: "teal" | "blue" | "violet", mode: "light" | "dark") {
+  const selector = `:root[data-color-theme="${color}"][data-mode="${mode}"]`;
+  const start = styles.indexOf(selector);
+  const end = styles.indexOf("\n}", start);
+  expect(start, selector).toBeGreaterThan(-1);
+  expect(styles.slice(start, start + selector.length + 2), selector).toBe(`${selector} {`);
+  return styles.slice(start, end);
+}
+
 describe("unified color system", () => {
-  it("defines complete Teal, Blue, and Violet token presets", () => {
+  it("defines complete light and dark Teal, Blue, and Violet token presets", () => {
     const styles = source("../src/client/globals.css");
     const required = [
-      "brand-deep", "brand-deep-hover", "brand-canvas", "brand-surface",
+      "brand-deep", "brand-deep-hover", "brand-on-deep", "brand-on-deep-muted",
+      "brand-on-deep-accent", "brand-deep-border", "brand-deep-control-border",
+      "brand-deep-control", "brand-canvas", "brand-surface", "brand-surface-subtle",
       "brand-muted-surface",
       "brand-ink", "brand-muted-ink", "brand-accent", "brand-accent-soft",
-      "brand-border", "brand-control-border", "graph-background",
-      "graph-foreground", "graph-node-default", "graph-edge-default", "graph-label",
+      "brand-border", "brand-control-border", "brand-focus-soft", "brand-skeleton",
+      "brand-scrollbar", "brand-overlay", "brand-shadow-soft", "brand-shadow-strong",
+      "graph-background", "graph-foreground", "graph-muted", "graph-node-default",
+      "graph-node-muted", "graph-edge-default", "graph-edge-muted", "graph-label",
+      "mini-graph-edge", "mini-graph-edge-hover", "mini-graph-label",
+      "mini-graph-label-muted", "mermaid-background", "mermaid-primary",
+      "mermaid-primary-text", "mermaid-primary-border", "mermaid-line",
+      "mermaid-secondary", "mermaid-tertiary",
     ];
     const mutedSurfaceByTheme = {
       teal: "oklch(0.93 0.018 205)",
       blue: "oklch(0.93 0.018 250)",
       violet: "oklch(0.93 0.018 295)",
     } as const;
-    for (const id of ["teal", "blue", "violet"]) {
-      const start = styles.indexOf(`:root[data-color-theme="${id}"]`);
-      const end = styles.indexOf("\n}", start);
-      const block = styles.slice(start, end);
-      expect(start, id).toBeGreaterThan(-1);
-      for (const token of required) expect(block, `${id}:${token}`).toContain(`--${token}:`);
-      expect(block, `${id}:brand-muted-surface`).toContain(
-        `--brand-muted-surface: ${mutedSurfaceByTheme[id as keyof typeof mutedSurfaceByTheme]};`,
+    const graphValues = {
+      teal: ["#ebf6f7", "#102227", "#485c61", "#3a6c72", "#93a9ac", "#5a787b", "#a9bbbd", "#102227"],
+      blue: ["#eef4fb", "#15202d", "#4d5969", "#234566", "#8494a8", "#667d94", "#93a0ae", "#15202d"],
+      violet: ["#f4f2fb", "#201c2c", "#595567", "#453b61", "#938ea6", "#7c7690", "#9f9cad", "#201c2c"],
+    } as const;
+    const graphTokens = ["graph-background", "graph-foreground", "graph-muted", "graph-node-default", "graph-node-muted", "graph-edge-default", "graph-edge-muted", "graph-label"];
+    for (const id of ["teal", "blue", "violet"] as const) {
+      for (const mode of ["light", "dark"] as const) {
+        const block = themeBlock(styles, id, mode);
+        for (const token of required) expect(block, `${id}:${mode}:${token}`).toContain(`--${token}:`);
+      }
+      const lightBlock = themeBlock(styles, id, "light");
+      expect(lightBlock, `${id}:brand-muted-surface`).toContain(
+        `--brand-muted-surface: ${mutedSurfaceByTheme[id]};`,
       );
+      graphTokens.forEach((token, index) => {
+        expect(lightBlock, `${id}:${token}`).toContain(`--${token}: ${graphValues[id][index]};`);
+      });
     }
     expect(styles).not.toContain("--brand-deep-teal");
     expect(styles).not.toContain("--brand-deep-teal-hover");
@@ -39,14 +65,14 @@ describe("unified color system", () => {
   it("defines Berry as a stable secondary accent for non-semantic Stats emphasis", () => {
     const styles = source("../src/client/globals.css");
     const statsSource = source("../src/client/routes/stats-route.tsx");
-    const sharedRootStart = styles.indexOf(":root {");
-    const sharedRootEnd = styles.indexOf("\n}", sharedRootStart);
-    const sharedRoot = styles.slice(sharedRootStart, sharedRootEnd);
+    const lightModeStart = styles.indexOf(':root[data-mode="light"]');
+    const lightModeEnd = styles.indexOf("\n}", lightModeStart);
+    const lightMode = styles.slice(lightModeStart, lightModeEnd);
 
-    expect(sharedRoot).toContain(
+    expect(lightMode).toContain(
       "--brand-secondary-accent: oklch(0.48 0.12 345);",
     );
-    expect(sharedRoot).toContain(
+    expect(lightMode).toContain(
       "--brand-secondary-accent-soft: oklch(0.92 0.03 345);",
     );
     expect(styles).toMatch(
@@ -57,6 +83,17 @@ describe("unified color system", () => {
     );
     expect(statsSource).toContain('className="chip-secondary');
     expect(statsSource).not.toContain('accent: "var(--brand-warning)"');
+  });
+
+  it("uses mode color schemes and theme-aware interface shadows", () => {
+    const styles = source("../src/client/globals.css");
+    const explorerSource = source("../src/client/routes/explorer-route.tsx");
+
+    expect(styles).toContain(':root[data-mode="light"] {\n  color-scheme: light;');
+    expect(styles).toContain(':root[data-mode="dark"] {\n  color-scheme: dark;');
+    expect(styles).not.toMatch(/^html\s*\{[^}]*color-scheme:/msu);
+    expect(explorerSource).not.toContain("rgba(24,30,36,0.08)");
+    expect(explorerSource).toContain("var(--brand-shadow-soft)");
   });
 
   it("uses Berry consistently for secondary discovery and recent-history surfaces", () => {
