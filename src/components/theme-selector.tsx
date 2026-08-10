@@ -1,7 +1,7 @@
 import { Check, Palette } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 
-import { useColorTheme } from "@/client/color-theme-provider";
+import { useAppearance } from "@/client/appearance-provider";
 import { COLOR_THEMES, type ColorThemeId } from "@/client/color-theme";
 
 interface ThemeSelectorDismissOptions {
@@ -83,7 +83,7 @@ function readDropdownCloseDurationMs(fallback = 150): number {
 }
 
 export function ThemeSelector() {
-  const { colorTheme, selectColorTheme } = useColorTheme();
+  const { colorTheme, selectColorTheme } = useAppearance();
   const [state, setState] = useState<ThemeSelectorState>("closed");
   const wrapperRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);

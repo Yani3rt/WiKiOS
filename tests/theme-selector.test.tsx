@@ -10,7 +10,7 @@ import {
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
-import { ColorThemeProvider } from "../src/client/color-theme-provider";
+import { AppearanceProvider } from "../src/client/appearance-provider";
 import {
   createThemeSelectorDismissHandlers,
   ThemeOptions,
@@ -47,7 +47,11 @@ describe("ThemeSelector", () => {
 
   it("renders a named trigger with popup state", () => {
     const markup = renderToStaticMarkup(
-      createElement(ColorThemeProvider, { initialTheme: "teal" }, createElement(ThemeSelector)),
+      createElement(AppearanceProvider, {
+        initialColorTheme: "teal",
+        initialModePreference: "system",
+        initialResolvedMode: "light",
+      }, createElement(ThemeSelector)),
     );
     expect(markup).toContain('aria-label="Choose color theme"');
     expect(markup).toContain('aria-expanded="false"');
@@ -147,8 +151,8 @@ describe("ThemeSelector", () => {
         useState: () => [state, setState],
       };
     });
-    vi.doMock("@/client/color-theme-provider", () => ({
-      useColorTheme: () => ({ colorTheme: selectedTheme, selectColorTheme }),
+    vi.doMock("@/client/appearance-provider", () => ({
+      useAppearance: () => ({ colorTheme: selectedTheme, selectColorTheme }),
     }));
 
     try {
@@ -209,7 +213,7 @@ describe("ThemeSelector", () => {
       expect(popoverAfterSelection.props.inert).toBe(true);
     } finally {
       vi.doUnmock("react");
-      vi.doUnmock("@/client/color-theme-provider");
+      vi.doUnmock("@/client/appearance-provider");
       vi.resetModules();
     }
   });

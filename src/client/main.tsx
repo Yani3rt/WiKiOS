@@ -3,8 +3,9 @@ import { createRoot } from "react-dom/client";
 import { RouterProvider } from "react-router-dom";
 
 import { fetchJson } from "@/client/api";
+import { AppearanceProvider } from "@/client/appearance-provider";
 import { initializeBrowserColorTheme } from "@/client/color-theme";
-import { ColorThemeProvider } from "@/client/color-theme-provider";
+import { initializeBrowserThemeMode } from "@/client/theme-mode";
 import { WikiConfigProvider, applyThemeVariables } from "@/client/wiki-config";
 import { DEFAULT_WIKI_OS_CONFIG, type WikiOsConfig } from "@/lib/wiki-config";
 
@@ -19,6 +20,7 @@ if (!(container instanceof HTMLElement)) {
 
 const rootContainer: HTMLElement = container;
 const initialColorTheme = initializeBrowserColorTheme();
+const initialThemeMode = initializeBrowserThemeMode();
 
 async function bootstrap() {
   const config = await fetchJson<WikiOsConfig>("/api/config").catch(() => DEFAULT_WIKI_OS_CONFIG);
@@ -29,9 +31,13 @@ async function bootstrap() {
   createRoot(rootContainer).render(
     <StrictMode>
       <WikiConfigProvider config={config}>
-        <ColorThemeProvider initialTheme={initialColorTheme}>
+        <AppearanceProvider
+          initialColorTheme={initialColorTheme}
+          initialModePreference={initialThemeMode.preference}
+          initialResolvedMode={initialThemeMode.resolvedMode}
+        >
           <RouterProvider router={router} />
-        </ColorThemeProvider>
+        </AppearanceProvider>
       </WikiConfigProvider>
     </StrictMode>,
   );

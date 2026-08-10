@@ -16,7 +16,7 @@ import {
 import SigmaLib from "sigma";
 import type { EdgeProgramType, NodeLabelDrawingFunction } from "sigma/rendering";
 
-import { useColorTheme } from "@/client/color-theme-provider";
+import { useAppearance } from "@/client/appearance-provider";
 import {
   createGraphNeuralAnimationController,
   type GraphNeuralAnimationController,
@@ -1216,7 +1216,7 @@ export async function loader() {
 export function Component() {
   const data = useLoaderData() as GraphData;
   const config = useWikiConfig();
-  const { colorTheme } = useColorTheme();
+  const { colorTheme } = useAppearance();
   const navigate = useNavigate();
   const containerRef = useRef<HTMLDivElement>(null);
   const sigmaRef = useRef<SigmaLib | null>(null);
