@@ -1,8 +1,11 @@
 import type { GraphEdge, GraphNode } from "@/lib/wiki-shared";
+import type { ResolvedThemeMode } from "@/client/theme-mode";
 
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 const GRAPH_COLOR_MIX = 0.42;
 const GRAPH_INK_RGB = [37, 49, 67] as const;
+const GRAPH_PAPER_RGB = [238, 244, 247] as const;
+const GRAPH_DARK_COLOR_MIX = 0.28;
 
 export interface GraphPosition {
   x: number;
@@ -692,6 +695,19 @@ export function strengthenGraphColor(color: string) {
   const source = match.slice(1).map((channel) => Number.parseInt(channel, 16));
   const mixed = source.map((channel, index) =>
     Math.round(channel * (1 - GRAPH_COLOR_MIX) + GRAPH_INK_RGB[index] * GRAPH_COLOR_MIX),
+  );
+  return `#${mixed.map((channel) => channel.toString(16).padStart(2, "0")).join("")}`;
+}
+
+export function adaptGraphCategoryColor(color: string, mode: ResolvedThemeMode) {
+  if (mode === "light") return strengthenGraphColor(color);
+  const match = /^#([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(color.trim());
+  if (!match) return color;
+  const source = match.slice(1).map((channel) => Number.parseInt(channel, 16));
+  const mixed = source.map((channel, index) =>
+    Math.round(
+      channel * (1 - GRAPH_DARK_COLOR_MIX) + GRAPH_PAPER_RGB[index] * GRAPH_DARK_COLOR_MIX,
+    ),
   );
   return `#${mixed.map((channel) => channel.toString(16).padStart(2, "0")).join("")}`;
 }

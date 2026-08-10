@@ -18,6 +18,9 @@ import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
 
 import { usePersonImage } from "@/client/use-person-image";
+import { useResolvedThemeMode } from "@/client/appearance-provider";
+import { adaptGraphCategoryColor } from "@/client/graph-overview-model";
+import type { ResolvedThemeMode } from "@/client/theme-mode";
 import { useWikiConfig } from "@/client/wiki-config";
 import { createHeadingId } from "@/lib/markdown";
 import { getTopicColor, type TopicAliasConfig } from "@/lib/wiki-config";
@@ -632,12 +635,17 @@ function useActiveHeading(
   return activeId;
 }
 
-function miniColor(cats: string[], aliases: Record<string, TopicAliasConfig>): string {
+function miniColor(
+  cats: string[],
+  aliases: Record<string, TopicAliasConfig>,
+  defaultNodeColor: string,
+  resolvedMode: ResolvedThemeMode,
+): string {
   for (const category of cats) {
-    return getTopicColor(category, aliases);
+    return adaptGraphCategoryColor(getTopicColor(category, aliases), resolvedMode);
   }
 
-  return "#666";
+  return defaultNodeColor;
 }
 
 function computeScatteredLayout(
@@ -647,6 +655,8 @@ function computeScatteredLayout(
   width: number,
   height: number,
   aliases: Record<string, TopicAliasConfig>,
+  defaultNodeColor: string,
+  resolvedMode: ResolvedThemeMode,
 ): MiniNode[] {
   const displayed = neighbors.slice(0, 14);
   const centerX = width / 2;
@@ -658,7 +668,7 @@ function computeScatteredLayout(
     y: centerY,
     slug: "",
     title: currentTitle,
-    color: miniColor(currentCategories, aliases),
+    color: miniColor(currentCategories, aliases, defaultNodeColor, resolvedMode),
     size: 7,
     isCenter: true,
   });
@@ -674,7 +684,7 @@ function computeScatteredLayout(
       y: centerY + Math.sin(angle + jitter) * radius,
       slug: canonicalizeWikiRouteSlug(neighbor.slug),
       title: neighbor.title,
-      color: miniColor(neighbor.categories, aliases),
+      color: miniColor(neighbor.categories, aliases, defaultNodeColor, resolvedMode),
       size: Math.max(2.5, Math.min(5.5, 2.5 + Math.sqrt(neighbor.backlinkCount) * 0.6)),
       isCenter: false,
     });
@@ -701,6 +711,7 @@ function NeighborhoodGraph({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
   const layoutRef = useRef<MiniNode[]>([]);
+  const resolvedMode = useResolvedThemeMode();
   const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
 
   useEffect(() => {
@@ -708,6 +719,13 @@ function NeighborhoodGraph({
     if (!canvas) return;
 
     const draw = () => {
+      const styles = getComputedStyle(canvas);
+      const canvasColor = styles.getPropertyValue("--brand-canvas").trim();
+      const defaultNodeColor = styles.getPropertyValue("--graph-node-default").trim();
+      const edgeColor = styles.getPropertyValue("--mini-graph-edge").trim();
+      const edgeHoverColor = styles.getPropertyValue("--mini-graph-edge-hover").trim();
+      const labelColor = styles.getPropertyValue("--mini-graph-label").trim();
+      const labelMutedColor = styles.getPropertyValue("--mini-graph-label-muted").trim();
       const width = canvas.clientWidth;
       const height = canvas.clientHeight;
       if (width === 0 || height === 0) return;
@@ -726,11 +744,12 @@ function NeighborhoodGraph({
         width,
         height,
         aliases,
+        defaultNodeColor,
+        resolvedMode,
       );
       layoutRef.current = nodes;
 
-      context.fillStyle =
-        getComputedStyle(canvas).getPropertyValue("--brand-canvas").trim() || "#eef4f3";
+      context.fillStyle = canvasColor;
       context.fillRect(0, 0, width, height);
 
       const center = nodes[0];
@@ -739,7 +758,7 @@ function NeighborhoodGraph({
         context.beginPath();
         context.moveTo(center.x, center.y);
         context.lineTo(node.x, node.y);
-        context.strokeStyle = hoveredIdx === index ? "rgba(0,0,0,0.15)" : "rgba(0,0,0,0.06)";
+        context.strokeStyle = hoveredIdx === index ? edgeHoverColor : edgeColor;
         context.lineWidth = hoveredIdx === index ? 1 : 0.5;
         context.stroke();
       }
@@ -763,7 +782,7 @@ function NeighborhoodGraph({
 
         if (node.isCenter || isHovered) {
           context.font = `${node.isCenter ? "500" : "400"} ${node.isCenter ? 9 : 8}px "SF Pro Display", -apple-system, sans-serif`;
-          context.fillStyle = node.isCenter ? "rgba(0,0,0,0.7)" : "rgba(0,0,0,0.5)";
+          context.fillStyle = node.isCenter ? labelColor : labelMutedColor;
           context.textAlign = "center";
           context.fillText(
             node.title.length > 20 ? `${node.title.slice(0, 18)}...` : node.title,
@@ -778,7 +797,7 @@ function NeighborhoodGraph({
     const observer = new ResizeObserver(() => draw());
     observer.observe(canvas);
     return () => observer.disconnect();
-  }, [aliases, currentCategories, currentTitle, dpr, hoveredIdx, neighbors]);
+  }, [aliases, currentCategories, currentTitle, dpr, hoveredIdx, neighbors, resolvedMode]);
 
   const handleMouseMove = useCallback((event: MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
@@ -849,7 +868,14 @@ function NeighborhoodGraph({
               <span
                 aria-hidden="true"
                 className="h-2 w-2 shrink-0 rounded-full"
-                style={{ backgroundColor: miniColor(neighbor.categories, aliases) }}
+                style={{
+                  backgroundColor: miniColor(
+                    neighbor.categories,
+                    aliases,
+                    "var(--graph-node-default)",
+                    resolvedMode,
+                  ),
+                }}
               />
               <span className="truncate">{neighbor.title}</span>
             </button>

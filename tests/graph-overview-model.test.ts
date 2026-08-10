@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import Graph from "graphology";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 vi.mock("sigma", () => ({ default: class Sigma {} }));
 
@@ -16,6 +18,7 @@ import {
   updateGraphThemeInPlace,
 } from "../src/client/routes/graph-route";
 import {
+  adaptGraphCategoryColor,
   createGraphNeuralActivationIndex,
   getGraphNeuralDirectEdges,
   getGraphNeuralIndexedDirectEdges,
@@ -431,7 +434,7 @@ describe("graph overview model", () => {
       label: "#15202d",
     };
 
-    applyGraphThemeColors(graph, { design: { color: "#85b9c9" } }, colors);
+    applyGraphThemeColors(graph, { design: { color: "#85b9c9" } }, colors, "light");
 
     expect(graph.getNodeAttribute("neutral", "color")).toBe("#234566");
     expect(graph.getNodeAttribute("neutral", "originalColor")).toBe("#234566");
@@ -470,7 +473,7 @@ describe("graph overview model", () => {
     };
 
     expect(() =>
-      applyGraphThemeColors(graph, { design: { color: "#85b9c9" } }, colors),
+      applyGraphThemeColors(graph, { design: { color: "#85b9c9" } }, colors, "light"),
     ).not.toThrow();
     expect(graph.getNodeAttribute("mixed", "color")).toBe("#5d8091");
   });
@@ -478,7 +481,7 @@ describe("graph overview model", () => {
   it("reapplies provider theme colors in place without touching layout or camera state", () => {
     const graph = new Graph();
     graph.addNode("note", {
-      categories: [],
+      categories: ["design"],
       color: "#000000",
       originalColor: "#000000",
       x: 0.25,
@@ -516,18 +519,23 @@ describe("graph overview model", () => {
       label: "#251f34",
     };
 
-    updateGraphThemeInPlace(graph, sigma, {}, initialColors);
+    const aliases = { design: { color: "#85b9c9" } };
+    updateGraphThemeInPlace(graph, sigma, aliases, initialColors, "light");
     sigma.setSettings.mockClear();
     sigma.refresh.mockClear();
 
-    updateGraphThemeInPlace(graph, sigma, {}, colors);
+    const sameGraph = graph;
+    const sameSigma = sigma;
+    updateGraphThemeInPlace(graph, sigma, aliases, colors, "dark");
 
     expect(graph.getNodeAttributes("note")).toMatchObject({
-      color: "#433567",
-      originalColor: "#433567",
+      color: "#a2cad6",
+      originalColor: "#a2cad6",
       x: 0.25,
       y: 0.75,
     });
+    expect(graph).toBe(sameGraph);
+    expect(sigma).toBe(sameSigma);
     expect(sigma.setSettings).toHaveBeenCalledOnce();
     expect(sigma.setSettings).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -615,6 +623,21 @@ describe("graph overview model", () => {
   it("deepens pastel category colors while preserving custom non-hex values", () => {
     expect(strengthenGraphColor("#85b9c9")).toBe("#5d8091");
     expect(strengthenGraphColor("oklch(60% 0.2 200)")).toBe("oklch(60% 0.2 200)");
+    expect(adaptGraphCategoryColor("#85b9c9", "light")).toBe("#5d8091");
+    expect(adaptGraphCategoryColor("#85b9c9", "dark")).toBe("#a2cad6");
+    expect(adaptGraphCategoryColor("oklch(60% 0.2 200)", "dark")).toBe(
+      "oklch(60% 0.2 200)",
+    );
+  });
+
+  it("keeps theme mode changes on the lightweight graph appearance path", () => {
+    const source = readFileSync(
+      fileURLToPath(new URL("../src/client/routes/graph-route.tsx", import.meta.url)),
+      "utf8",
+    );
+
+    expect(source).toContain("}, [config.categories.aliases, data]);");
+    expect(source).toContain("}, [colorTheme, resolvedMode, config.categories.aliases]);");
   });
 
   it("keeps full titles searchable while truncating only their canvas presentation", () => {

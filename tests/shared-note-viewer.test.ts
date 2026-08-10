@@ -69,6 +69,21 @@ const ambiguousWikiLink: WikiLinkAmbiguityData = {
 };
 
 describe("shared note viewer behavioral helpers", () => {
+  it("draws the reader neighborhood canvas from resolved graph theme tokens", () => {
+    const source = readFileSync(
+      fileURLToPath(new URL("../src/components/note-viewer.tsx", import.meta.url)),
+      "utf8",
+    );
+
+    expect(source).toContain("useResolvedThemeMode()");
+    expect(source).toContain('getPropertyValue("--mini-graph-edge")');
+    expect(source).toContain('getPropertyValue("--mini-graph-edge-hover")');
+    expect(source).toContain('getPropertyValue("--mini-graph-label")');
+    expect(source).toContain('getPropertyValue("--mini-graph-label-muted")');
+    expect(source).not.toContain('"rgba(0,0,0,0.15)"');
+    expect(source).not.toContain('"rgba(0,0,0,0.7)"');
+  });
+
   it("intercepts an ordinary self-targeted wiki click", () => {
     expect(
       shouldInterceptWikiLinkClick({

@@ -59,13 +59,14 @@ import {
   shouldCollapseGraphDetailPanelOnSearchInteraction,
   shouldResetGraphCameraAfterDetailClose,
   mixGraphColors,
-  strengthenGraphColor,
+  adaptGraphCategoryColor,
   truncateGraphLabel,
   type GraphConnectionGroups,
   type GraphLayoutRequest,
   type GraphLayoutResult,
   type GraphNeuralSignalFrame,
 } from "@/client/graph-overview-model";
+import type { ResolvedThemeMode } from "@/client/theme-mode";
 import { getTopicColor, type TopicAliasConfig } from "@/lib/wiki-config";
 import type { GraphData, GraphNode } from "@/lib/wiki-shared";
 import { fetchJson, isSetupRequiredResponse } from "../api";
@@ -153,10 +154,11 @@ function animateGraphNodeFocus(sigma: SigmaLib, slug: string, duration: number) 
 function getCategoryColor(
   categories: string[],
   aliases: Record<string, TopicAliasConfig>,
+  resolvedMode: ResolvedThemeMode,
   fallbackColor = "var(--graph-node-default)",
 ): string {
   for (const cat of categories) {
-    return strengthenGraphColor(getTopicColor(cat, aliases));
+    return adaptGraphCategoryColor(getTopicColor(cat, aliases), resolvedMode);
   }
   return fallbackColor;
 }
@@ -165,6 +167,7 @@ export function applyGraphThemeColors(
   graph: Graph,
   aliases: Record<string, TopicAliasConfig>,
   colors: GraphThemeColors,
+  resolvedMode: ResolvedThemeMode,
 ) {
   graph.forEachNode((node, attributes) => {
     const categories = Array.isArray(attributes.categories)
@@ -172,7 +175,7 @@ export function applyGraphThemeColors(
           (category: unknown): category is string => typeof category === "string",
         )
       : [];
-    const color = getCategoryColor(categories, aliases, colors.nodeDefault);
+    const color = getCategoryColor(categories, aliases, resolvedMode, colors.nodeDefault);
     graph.mergeNodeAttributes(node, { color, originalColor: color });
   });
   graph.forEachEdge((edge) => graph.mergeEdgeAttributes(edge, { color: colors.edgeDefault }));
@@ -349,8 +352,9 @@ export function updateGraphThemeInPlace(
   sigma: GraphThemeRenderer,
   aliases: Record<string, TopicAliasConfig>,
   colors: GraphThemeColors,
+  resolvedMode: ResolvedThemeMode,
 ) {
-  applyGraphThemeColors(graph, aliases, colors);
+  applyGraphThemeColors(graph, aliases, colors, resolvedMode);
   sigma.setSettings({
     defaultDrawNodeLabel: createGraphLabelDrawer(colors),
     labelColor: { color: colors.label },
@@ -366,6 +370,7 @@ function buildGraph(
   data: GraphData,
   aliases: Record<string, TopicAliasConfig>,
   colors: GraphThemeColors,
+  resolvedMode: ResolvedThemeMode,
 ): Graph {
   const graph = new Graph();
   const positions = getDeterministicGraphPositions(data.nodes);
@@ -379,8 +384,8 @@ function buildGraph(
       compactLabel: truncateGraphLabel(node.title, 24),
       fullLabel: node.title,
       size,
-      color: getCategoryColor(node.categories, aliases, colors.nodeDefault),
-      originalColor: getCategoryColor(node.categories, aliases, colors.nodeDefault),
+      color: getCategoryColor(node.categories, aliases, resolvedMode, colors.nodeDefault),
+      originalColor: getCategoryColor(node.categories, aliases, resolvedMode, colors.nodeDefault),
       x: position.x,
       y: position.y,
       forceLabel: false,
@@ -878,6 +883,7 @@ function InfoPanel({
   onHoverNeighbor,
   onNavigate,
   aliases,
+  resolvedMode,
 }: {
   node: GraphNode;
   connections: GraphConnectionGroups;
@@ -889,10 +895,11 @@ function InfoPanel({
   onHoverNeighbor: (slug: string | null) => void;
   onNavigate: (slug: string) => void;
   aliases: Record<string, TopicAliasConfig>;
+  resolvedMode: ResolvedThemeMode;
 }) {
   const previousPanelHeightRef = useRef<number | null>(null);
   const panelHeightAnimationRef = useRef<Animation | null>(null);
-  const catColor = getCategoryColor(node.categories, aliases);
+  const catColor = getCategoryColor(node.categories, aliases, resolvedMode);
   const connectedSlugs = new Set([
     ...connections.outgoing.map(({ node: connectedNode }) => connectedNode.slug),
     ...connections.incoming.map(({ node: connectedNode }) => connectedNode.slug),
@@ -1085,7 +1092,13 @@ function InfoPanel({
               >
                 <span
                   className="h-1.5 w-1.5 shrink-0 rounded-full"
-                  style={{ backgroundColor: getCategoryColor(connectedNode.categories, aliases) }}
+                  style={{
+                    backgroundColor: getCategoryColor(
+                      connectedNode.categories,
+                      aliases,
+                      resolvedMode,
+                    ),
+                  }}
                   aria-hidden="true"
                 />
                 <span className="min-w-0 flex-1 truncate text-[0.85rem] font-medium text-[var(--graph-foreground)]">
@@ -1129,7 +1142,13 @@ function InfoPanel({
               >
                 <span
                   className="h-1.5 w-1.5 shrink-0 rounded-full"
-                  style={{ backgroundColor: getCategoryColor(connectedNode.categories, aliases) }}
+                  style={{
+                    backgroundColor: getCategoryColor(
+                      connectedNode.categories,
+                      aliases,
+                      resolvedMode,
+                    ),
+                  }}
                   aria-hidden="true"
                 />
                 <span className="min-w-0 flex-1 truncate text-[0.85rem] font-medium text-[var(--graph-foreground)]">
@@ -1163,13 +1182,15 @@ function NodeTooltip({
   node,
   position,
   aliases,
+  resolvedMode,
 }: {
   node: { label: string; categories: string[]; connectionCount: number; wordCount: number } | null;
   position: { x: number; y: number };
   aliases: Record<string, TopicAliasConfig>;
+  resolvedMode: ResolvedThemeMode;
 }) {
   if (!node) return null;
-  const catColor = getCategoryColor(node.categories, aliases);
+  const catColor = getCategoryColor(node.categories, aliases, resolvedMode);
 
   return (
     <div
@@ -1216,7 +1237,7 @@ export async function loader() {
 export function Component() {
   const data = useLoaderData() as GraphData;
   const config = useWikiConfig();
-  const { colorTheme } = useAppearance();
+  const { colorTheme, resolvedMode } = useAppearance();
   const navigate = useNavigate();
   const containerRef = useRef<HTMLDivElement>(null);
   const sigmaRef = useRef<SigmaLib | null>(null);
@@ -1411,7 +1432,7 @@ export function Component() {
 
     const graphTheme = getGraphThemeColors(containerRef.current);
     graphThemeRef.current = graphTheme;
-    const graph = buildGraph(data, config.categories.aliases, graphTheme);
+    const graph = buildGraph(data, config.categories.aliases, graphTheme, resolvedMode);
     const neuralActivationIndex = createGraphNeuralActivationIndex(data.edges);
     const isolationFrameRefreshOptions = getGraphIsolationFrameRefreshOptions(graph.nodes());
     graphRef.current = graph;
@@ -1785,8 +1806,8 @@ export function Component() {
 
     const colors = getGraphThemeColors(container);
     graphThemeRef.current = colors;
-    updateGraphThemeInPlace(graph, sigma, config.categories.aliases, colors);
-  }, [colorTheme, config.categories.aliases]);
+    updateGraphThemeInPlace(graph, sigma, config.categories.aliases, colors, resolvedMode);
+  }, [colorTheme, resolvedMode, config.categories.aliases]);
 
   // Tooltip tracking
   useEffect(() => {
@@ -1901,6 +1922,7 @@ export function Component() {
               node={tooltip?.node ?? null}
               position={tooltip?.position ?? { x: 0, y: 0 }}
               aliases={config.categories.aliases}
+              resolvedMode={resolvedMode}
             />
           )}
 
@@ -1917,6 +1939,7 @@ export function Component() {
               onHoverNeighbor={handleInfoNeighborHover}
               onNavigate={(slug) => navigate(`/wiki/${slug}`)}
               aliases={config.categories.aliases}
+              resolvedMode={resolvedMode}
             />
           )}
 
