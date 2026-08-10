@@ -13,6 +13,7 @@ import { describe, expect, it, vi } from "vitest";
 import { AppearanceProvider } from "../src/client/appearance-provider";
 import {
   createThemeSelectorDismissHandlers,
+  ModeOptions,
   ThemeOptions,
   ThemeSelector,
 } from "../src/components/theme-selector";
@@ -29,7 +30,7 @@ function childElements(element: ReactElement<unknown>) {
 }
 
 function themeOptionRadios(selectedTheme: "teal" | "blue" | "violet", onSelect = vi.fn()) {
-  const options = ThemeOptions({ selectedTheme, onSelect });
+  const options = ThemeOptions({ selectedTheme, resolvedMode: "light", onSelect });
   return childElements(options).map((label) => {
     const radio = childElements(label).find((child) => child.type === "input");
     if (!radio) throw new Error("Theme option is missing its radio input");
@@ -53,13 +54,23 @@ describe("ThemeSelector", () => {
         initialResolvedMode: "light",
       }, createElement(ThemeSelector)),
     );
-    expect(markup).toContain('aria-label="Choose color theme"');
+    expect(markup).toContain('aria-label="Choose appearance"');
     expect(markup).toContain('aria-expanded="false"');
+    expect(markup).toContain('aria-label="Mode"');
+    expect(markup).toContain('aria-label="Color"');
+    expect(markup).toContain("System");
+    expect(markup).toContain("Light");
+    expect(markup).toContain("Dark");
+    expect(markup).not.toContain("Choose the appearance");
   });
 
   it("renders all themes as a labeled radio group with explicit selected state", () => {
     const markup = renderToStaticMarkup(
-      createElement(ThemeOptions, { selectedTheme: "blue", onSelect: vi.fn() }),
+      createElement(ThemeOptions, {
+        selectedTheme: "blue",
+        resolvedMode: "dark",
+        onSelect: vi.fn(),
+      }),
     );
     expect(markup).toContain('role="radiogroup"');
     expect(markup).toContain("Teal");
@@ -67,6 +78,19 @@ describe("ThemeSelector", () => {
     expect(markup).toContain("Violet");
     expect(markup).toMatch(/<input(?=[^>]*value="blue")(?=[^>]*checked)[^>]*>/);
     expect(markup).toContain("Selected");
+    expect(markup).toContain("#111b2a");
+    expect(markup).toContain("#7eb5ef");
+    expect(markup).toContain("#192333");
+  });
+
+  it("renders the selected appearance mode as one of three same-name radios", () => {
+    const markup = renderToStaticMarkup(
+      createElement(ModeOptions, { selectedMode: "system", onSelect: vi.fn() }),
+    );
+
+    expect(markup).toMatch(
+      /<input(?=[^>]*name="wikios-theme-mode")(?=[^>]*value="system")(?=[^>]*checked)/u,
+    );
   });
 
   it("closes for an outside pointer press but not an inside press", () => {
@@ -122,9 +146,10 @@ describe("ThemeSelector", () => {
     ]);
   });
 
-  it("animates the selector closed after choosing a theme", async () => {
+  it("keeps the selector open while choosing appearance options", async () => {
     let state: "closed" | "open" | "closing" = "closed";
     let selectedTheme: "teal" | "blue" | "violet" = "teal";
+    let selectedMode: "system" | "light" | "dark" = "system";
     const setState = vi.fn(
       (
         next:
@@ -139,6 +164,9 @@ describe("ThemeSelector", () => {
     const selectColorTheme = vi.fn((theme: "teal" | "blue" | "violet") => {
       selectedTheme = theme;
     });
+    const selectModePreference = vi.fn((mode: "system" | "light" | "dark") => {
+      selectedMode = mode;
+    });
 
     vi.resetModules();
     vi.doMock("react", async (importOriginal) => {
@@ -152,11 +180,18 @@ describe("ThemeSelector", () => {
       };
     });
     vi.doMock("@/client/appearance-provider", () => ({
-      useAppearance: () => ({ colorTheme: selectedTheme, selectColorTheme }),
+      useAppearance: () => ({
+        colorTheme: selectedTheme,
+        modePreference: selectedMode,
+        resolvedMode: selectedMode === "system" ? "light" : selectedMode,
+        selectColorTheme,
+        selectModePreference,
+      }),
     }));
 
     try {
       const {
+        ModeOptions: StatefulModeOptions,
         ThemeOptions: StatefulThemeOptions,
         ThemeSelector: StatefulThemeSelector,
       } = await import("../src/components/theme-selector");
@@ -186,9 +221,22 @@ describe("ThemeSelector", () => {
       expect(popover.props.className).toContain("is-open");
       expect(popover.props.inert).toBe(false);
 
-      const optionsElement = childElements(popover).find(
-        (child) => child.type === StatefulThemeOptions,
+      const modeOptionsElement = childElements(popover)
+        .flatMap(childElements)
+        .find((child) => child.type === StatefulModeOptions);
+      if (!modeOptionsElement) throw new Error("Mode options are missing");
+      const modeOptions = StatefulModeOptions(
+        modeOptionsElement.props as Parameters<typeof StatefulModeOptions>[0],
       );
+      const darkRadio = childElements(modeOptions)
+        .flatMap(childElements)
+        .find((child) => child.type === "input" && child.props.value === "dark");
+      if (!darkRadio) throw new Error("Dark radio is missing");
+      (darkRadio.props.onChange as () => void)();
+
+      const optionsElement = childElements(popover)
+        .flatMap(childElements)
+        .find((child) => child.type === StatefulThemeOptions);
       if (!optionsElement) throw new Error("Theme options are missing");
       const options = StatefulThemeOptions(
         optionsElement.props as Parameters<typeof StatefulThemeOptions>[0],
@@ -204,13 +252,14 @@ describe("ThemeSelector", () => {
       const triggerAfterSelection = findTrigger(childrenAfterSelection);
       const popoverAfterSelection = findPopover(childrenAfterSelection);
       if (!triggerAfterSelection || !popoverAfterSelection) {
-        throw new Error("Closing theme selector is incomplete");
+        throw new Error("Selected theme selector is incomplete");
       }
 
+      expect(selectModePreference).toHaveBeenCalledExactlyOnceWith("dark");
       expect(selectColorTheme).toHaveBeenCalledExactlyOnceWith("violet");
-      expect(triggerAfterSelection.props["aria-expanded"]).toBe(false);
-      expect(popoverAfterSelection.props.className).toContain("is-closing");
-      expect(popoverAfterSelection.props.inert).toBe(true);
+      expect(triggerAfterSelection.props["aria-expanded"]).toBe(true);
+      expect(popoverAfterSelection.props.className).toContain("is-open");
+      expect(popoverAfterSelection.props.inert).toBe(false);
     } finally {
       vi.doUnmock("react");
       vi.doUnmock("@/client/appearance-provider");
