@@ -83,7 +83,7 @@ describe("ThemeSelector", () => {
     expect(markup).toContain("#192333");
   });
 
-  it("renders the selected appearance mode as one of three same-name radios", () => {
+  it("renders a visible non-color cue only for the selected appearance mode", () => {
     const markup = renderToStaticMarkup(
       createElement(ModeOptions, { selectedMode: "system", onSelect: vi.fn() }),
     );
@@ -91,6 +91,24 @@ describe("ThemeSelector", () => {
     expect(markup).toMatch(
       /<input(?=[^>]*name="wikios-theme-mode")(?=[^>]*value="system")(?=[^>]*checked)/u,
     );
+
+    const options = ModeOptions({ selectedMode: "dark", onSelect: vi.fn() });
+    const modes = childElements(options).map((label) => {
+      const children = childElements(label);
+      const radio = children.find((child) => child.type === "input");
+      if (!radio) throw new Error("Mode option is missing its radio input");
+      return [
+        radio.props.value,
+        radio.props.checked,
+        children.some((child) => child.props.className === "theme-mode-option-state h-4 w-4"),
+      ];
+    });
+
+    expect(modes).toEqual([
+      ["system", false, false],
+      ["light", false, false],
+      ["dark", true, true],
+    ]);
   });
 
   it("closes for an outside pointer press but not an inside press", () => {

@@ -654,6 +654,7 @@ html {
 }
 
 .theme-mode-option {
+  position: relative;
   display: flex;
   min-height: 2.75rem;
   align-items: center;
@@ -665,6 +666,12 @@ html {
   color: var(--brand-ink);
   font-size: 0.75rem;
   font-weight: 650;
+}
+
+.theme-mode-option-state {
+  position: absolute;
+  top: 0.25rem;
+  right: 0.25rem;
 }
 
 .theme-mode-option:has(input:checked) {

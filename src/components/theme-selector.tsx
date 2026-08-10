@@ -91,6 +91,7 @@ export function ModeOptions({
     <div role="radiogroup" aria-label="Mode" className="theme-mode-options">
       {THEME_MODE_OPTIONS.map((mode) => {
         const Icon = mode.icon;
+        const selected = mode.id === selectedMode;
         return (
           <label key={mode.id} className="theme-mode-option">
             <input
@@ -98,11 +99,14 @@ export function ModeOptions({
               type="radio"
               name="wikios-theme-mode"
               value={mode.id}
-              checked={mode.id === selectedMode}
+              checked={selected}
               onChange={() => onSelect(mode.id)}
             />
             <Icon aria-hidden className="h-4 w-4" />
             <span>{mode.label}</span>
+            {selected ? (
+              <Check aria-hidden className="theme-mode-option-state h-4 w-4" />
+            ) : null}
           </label>
         );
       })}
