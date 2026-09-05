@@ -4,34 +4,22 @@ import {
   type WikiOsConfig,
 } from "./wiki-config";
 import {
-  deriveCategoryNames,
-  detectPersonPage,
-  extractBacklinkReferences,
-  extractSummary,
-} from "./wiki-classification";
-import {
   getWikiEnvironmentConfig,
   resetWikiEnvironmentConfigCache,
   resolveWikiEnvironmentRuntime,
 } from "./wiki-environment";
 import {
-  deletePageByFile,
   openIndexDb,
   reconcileBacklinkTargets as reconcileDbBacklinkTargets,
   runDbMigrations,
   runStartupIntegrityCheck,
   seedCategoryRules,
-  upsertPageRecord,
   type SqliteDb,
 } from "./wiki-db";
 import {
-  isIgnoredDirectoryName,
-  normalizeRelativePath,
   quarantineCorruptIndexFiles,
-  shouldIndexRelativeFile,
 } from "./wiki-file-utils";
 import { createWikiIndexer } from "./wiki-indexer";
-import { parseWikiFrontmatter, prepareWikiMarkdown } from "./markdown";
 import { createWikiQueries, WikiLinkAmbiguityError } from "./wiki-queries";
 import {
   CACHE_VERSION,
@@ -69,10 +57,6 @@ export type {
 export {
   decodeSlugParts,
   slugPartsFromFileName,
-  slugFromFileName,
-  titleFromFileName,
-} from "./wiki-shared";
-import {
   slugFromFileName,
   titleFromFileName,
 } from "./wiki-shared";
@@ -211,43 +195,13 @@ function requireIndexDbPath() {
   return requireIndexDbPathState(wikiCache);
 }
 
-const indexer = createWikiIndexer<SqliteDb, WikiOsConfig>({
+const indexer = createWikiIndexer({
   syncRuntimeSettings,
   requireWikiRoot,
   requireIndexDbPath,
-  normalizeRelativePath,
-  isIgnoredDirectoryName,
-  shouldIndexRelativeFile,
-  getWikiEnvironmentConfig,
-  titleFromFileName,
-  slugFromFileName,
-  parseWikiFrontmatter,
-  prepareWikiMarkdown,
-  deriveCategoryNames,
-  detectPersonPage: (file, title, contentMarkdown, frontmatter, config) =>
-    detectPersonPage(
-      file,
-      title,
-      contentMarkdown,
-      frontmatter,
-      config,
-      wikiCache.personOverrides[file] ?? null,
-    ),
-  extractBacklinkReferences,
-  extractSummary,
   requireDb,
-  upsertPageRecord,
-  deletePageByFile,
-  reconcileBacklinkTargets: (db) => reconcileDbBacklinkTargets(db),
-  selectPageModifiedAt: (db, file) =>
-    (db.prepare("SELECT modified_at AS modifiedAt FROM pages WHERE file = ?").get(file) as
-      | { modifiedAt: number }
-      | undefined)?.modifiedAt,
-  listIndexedPages: (db) =>
-    db.prepare("SELECT file, modified_at AS modifiedAt FROM pages").all() as Array<{
-      file: string;
-      modifiedAt: number;
-    }>,
+  getWikiEnvironmentConfig,
+  getPersonOverride: (file) => wikiCache.personOverrides[file] ?? null,
   markRevisionChanged,
   recordSyncSuccess,
   recordSyncError,
@@ -393,37 +347,16 @@ export async function reindexWikiSnapshot() {
   return derived.stats;
 }
 
-export async function searchWiki(query: string) {
-  return queries.searchWiki(query);
-}
-
-export async function getWikiStats() {
-  return queries.getWikiStats();
-}
-
-export async function getHomepageData() {
-  return queries.getHomepageData();
-}
-
-export async function getExplorerPages() {
-  return queries.getExplorerPages();
-}
-
-export async function getGraphData() {
-  return queries.getGraphData();
-}
-
-export async function getWikiPage(slugParts: string[]) {
-  return queries.getWikiPage(slugParts);
-}
-
-export async function getWikiIndexStatus() {
-  return queries.getWikiIndexStatus();
-}
-
-export async function getWikiHealthStatus() {
-  return queries.getWikiHealthStatus();
-}
+export const {
+  searchWiki,
+  getWikiStats,
+  getHomepageData,
+  getExplorerPages,
+  getGraphData,
+  getWikiPage,
+  getWikiIndexStatus,
+  getWikiHealthStatus,
+} = queries;
 
 export async function getWikiRootPath() {
   const runtime = await syncRuntimeSettings();

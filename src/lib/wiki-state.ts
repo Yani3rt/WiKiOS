@@ -3,54 +3,13 @@ import type { FSWatcher } from "node:fs";
 import type Database from "better-sqlite3";
 
 import type { WikiRuntimeDependency } from "./wiki-environment";
-import type {
-  HomepageData,
-  PersonOverrideValue,
-  WikiStats,
-} from "./wiki-shared";
-
-export const CACHE_VERSION = 6;
+import type { PersonOverrideValue, SyncSource } from "./wiki-shared";
+import type { DerivedData } from "./wiki-queries";
+export type { SyncSource } from "./wiki-shared";
+export { DEFAULT_WIKI_INDEX_CACHE_VERSION as CACHE_VERSION } from "./wiki-db";
+import { DEFAULT_WIKI_INDEX_CACHE_VERSION as CACHE_VERSION } from "./wiki-db";
 
 type SqliteDb = Database.Database;
-
-export type SyncSource = "startup" | "watcher" | "reindex" | "periodic" | "manual";
-
-export interface ReconcileStats {
-  upserted: number;
-  deleted: number;
-}
-
-export interface WikiHealthStatus {
-  sync: {
-    lastSyncAtMs: number | null;
-    lastSyncAt: string | null;
-    lastSyncSource: SyncSource | null;
-    lastSyncError: string | null;
-    periodicReconcileMs: number | null;
-    periodicReconcileScheduled: boolean;
-    periodicReconcileInFlight: boolean;
-    pendingPaths: number;
-    pendingFullReconcile: boolean;
-    watcherActive: boolean;
-    watcherStarting: boolean;
-    watcherFlushInFlight: boolean;
-    revision: number;
-    cacheRevision: number;
-  };
-  integrity: {
-    ok: boolean | null;
-    lastCheckAt: string | null;
-    error: string | null;
-    dbReady: boolean;
-    pagesCount: number | null;
-    ftsCount: number | null;
-  };
-}
-
-export interface DerivedData {
-  stats: WikiStats;
-  homepage: HomepageData;
-}
 
 export interface WikiCacheState {
   version: number;

@@ -1,123 +1,33 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
-import type { WikiHeading } from "./wiki-shared";
-
-export interface BacklinkReference {
-  targetRaw: string;
-}
-
-export interface IndexedWikiPage {
-  file: string;
-  slug: string;
-  title: string;
-  titleLower: string;
-  markdown: string;
-  contentMarkdown: string;
-  contentLower: string;
-  wordCount: number;
-  backlinkReferences: BacklinkReference[];
-  categoryNames: string[];
-  hasCodeBlocks: boolean;
-  headings: WikiHeading[];
-  modifiedAt: number;
-  summary: string;
-  isPerson: boolean;
-}
+import { normalizeRelativePath, isIgnoredDirectoryName, shouldIndexRelativeFile } from "./wiki-file-utils";
+import { parseWikiFrontmatter, prepareWikiMarkdown } from "./markdown";
+import { deriveCategoryNames, detectPersonPage, extractBacklinkReferences, extractSummary } from "./wiki-classification";
+import { slugFromFileName, titleFromFileName, type PersonOverrideValue, type SyncSource } from "./wiki-shared";
+import { upsertPageRecord, deletePageByFile, reconcileBacklinkTargets, type IndexedWikiPageRecord, type SqliteDb } from "./wiki-db";
+import type { WikiOsConfig } from "./wiki-config";
 
 export interface ReconcileStats {
   upserted: number;
   deleted: number;
 }
 
-export type SyncSource = "startup" | "watcher" | "reindex" | "periodic" | "manual";
-
-export interface ParsedWikiFrontmatter {
-  data: Record<string, unknown>;
-  body: string;
+export interface WikiIndexerDependencies {
+  syncRuntimeSettings(): Promise<unknown>;
+  requireWikiRoot(): string;
+  requireIndexDbPath(): string;
+  requireDb(): SqliteDb;
+  getWikiEnvironmentConfig(): Promise<WikiOsConfig>;
+  getPersonOverride(file: string): PersonOverrideValue | null;
+  markRevisionChanged?(): void;
+  recordSyncSuccess?(source: SyncSource): void;
+  recordSyncError?(source: SyncSource, error: unknown): void;
 }
-
-export interface PreparedWikiMarkdown {
-  contentMarkdown: string;
-  hasCodeBlocks: boolean;
-  headings: WikiHeading[];
-}
-
-export interface WikiIndexerRuntimeDependencies {
-  syncRuntimeSettings: () => Promise<unknown>;
-  requireWikiRoot: () => string;
-  requireIndexDbPath: () => string;
-}
-
-export interface WikiIndexerPathDependencies {
-  normalizeRelativePath: (value: string) => string;
-  isIgnoredDirectoryName: (name: string) => boolean;
-  shouldIndexRelativeFile: (file: string) => boolean;
-}
-
-export interface WikiIndexerPageDependencies<TConfig = unknown>
-  extends WikiIndexerRuntimeDependencies {
-  getWikiEnvironmentConfig: () => Promise<TConfig>;
-  titleFromFileName: (file: string) => string;
-  slugFromFileName: (file: string) => string;
-  parseWikiFrontmatter: (markdown: string) => ParsedWikiFrontmatter;
-  prepareWikiMarkdown: (markdown: string) => PreparedWikiMarkdown;
-  deriveCategoryNames: (
-    file: string,
-    title: string,
-    contentMarkdown: string,
-    frontmatter: Record<string, unknown>,
-    config: TConfig,
-  ) => string[];
-  detectPersonPage: (
-    file: string,
-    title: string,
-    contentMarkdown: string,
-    frontmatter: Record<string, unknown>,
-    config: TConfig,
-  ) => boolean;
-  extractBacklinkReferences: (markdown: string) => BacklinkReference[];
-  extractSummary: (markdown: string) => string;
-}
-
-export interface WikiIndexerDbDependencies<TDb> extends WikiIndexerRuntimeDependencies {
-  requireDb: () => TDb;
-  upsertPageRecord: (db: TDb, page: IndexedWikiPage) => void;
-  deletePageByFile: (db: TDb, file: string) => boolean;
-  reconcileBacklinkTargets: (db: TDb) => void;
-  selectPageModifiedAt: (db: TDb, file: string) => number | undefined;
-  listIndexedPages: (db: TDb) => Array<{ file: string; modifiedAt: number }>;
-}
-
-export interface WikiIndexerSyncDependencies {
-  markRevisionChanged?: () => void;
-  recordSyncSuccess?: (source: SyncSource) => void;
-  recordSyncError?: (source: SyncSource, error: unknown) => void;
-}
-
-export type WikiIndexerDependencies<TDb, TConfig = unknown> = WikiIndexerPathDependencies &
-  WikiIndexerPageDependencies<TConfig> &
-  WikiIndexerDbDependencies<TDb> &
-  WikiIndexerSyncDependencies;
 
 export interface ReconcileOptions {
   forceAll?: boolean;
   source?: SyncSource | null;
-}
-
-export interface WikiIndexer<TDb, TConfig = unknown> {
-  assertWikiRootAccessible: () => Promise<void>;
-  collectMarkdownFiles: (dir: string, root: string) => Promise<string[]>;
-  loadIndexedWikiPage: (
-    file: string,
-    modifiedAtOverride?: number,
-  ) => Promise<IndexedWikiPage | null>;
-  ensureDbDirectory: () => Promise<void>;
-  pathExists: (filePath: string) => Promise<boolean>;
-  hasExistingIndexArtifacts: () => Promise<boolean>;
-  syncSinglePath: (relativePath: string) => Promise<boolean>;
-  reconcileIndexWithDisk: (options?: ReconcileOptions) => Promise<ReconcileStats>;
-  dependencies: WikiIndexerDependencies<TDb, TConfig>;
 }
 
 function isErrnoException(error: unknown): error is NodeJS.ErrnoException {
@@ -129,7 +39,7 @@ function isMissingPathError(error: unknown) {
 }
 
 export async function assertWikiRootAccessible(
-  deps: WikiIndexerRuntimeDependencies,
+  deps: WikiIndexerDependencies,
 ): Promise<void> {
   await deps.syncRuntimeSettings();
   const wikiRoot = deps.requireWikiRoot();
@@ -143,7 +53,6 @@ export async function assertWikiRootAccessible(
 export async function collectMarkdownFiles(
   dir: string,
   root: string,
-  deps: WikiIndexerPathDependencies,
 ): Promise<string[]> {
   const entries = await fs.readdir(dir, { withFileTypes: true });
   const files: string[] = [];
@@ -152,11 +61,11 @@ export async function collectMarkdownFiles(
     const fullPath = path.join(dir, entry.name);
 
     if (entry.isDirectory()) {
-      if (deps.isIgnoredDirectoryName(entry.name)) {
+      if (isIgnoredDirectoryName(entry.name)) {
         continue;
       }
 
-      files.push(...(await collectMarkdownFiles(fullPath, root, deps)));
+      files.push(...(await collectMarkdownFiles(fullPath, root)));
       continue;
     }
 
@@ -164,8 +73,8 @@ export async function collectMarkdownFiles(
       continue;
     }
 
-    const relativePath = deps.normalizeRelativePath(path.relative(root, fullPath));
-    if (deps.shouldIndexRelativeFile(relativePath)) {
+    const relativePath = normalizeRelativePath(path.relative(root, fullPath));
+    if (shouldIndexRelativeFile(relativePath)) {
       files.push(relativePath);
     }
   }
@@ -173,11 +82,11 @@ export async function collectMarkdownFiles(
   return files;
 }
 
-export async function loadIndexedWikiPage<TConfig>(
+export async function loadIndexedWikiPage(
   file: string,
-  deps: WikiIndexerPageDependencies<TConfig>,
+  deps: WikiIndexerDependencies,
   modifiedAtOverride?: number,
-): Promise<IndexedWikiPage | null> {
+): Promise<IndexedWikiPageRecord | null> {
   const wikiRoot = deps.requireWikiRoot();
   const filePath = path.join(wikiRoot, file);
 
@@ -190,40 +99,39 @@ export async function loadIndexedWikiPage<TConfig>(
     ]);
 
     const config = await deps.getWikiEnvironmentConfig();
-    const title = deps.titleFromFileName(file);
+    const title = titleFromFileName(file);
     const titleLower = title.toLowerCase();
-    const { data: frontmatter, body } = deps.parseWikiFrontmatter(markdown);
-    const prepared = deps.prepareWikiMarkdown(body);
-    const categoryNames = deps.deriveCategoryNames(
+    const { data: frontmatter, body } = parseWikiFrontmatter(markdown);
+    const prepared = prepareWikiMarkdown(body);
+    const categoryNames = deriveCategoryNames(
       file,
       title,
       prepared.contentMarkdown,
       frontmatter,
       config,
     );
-    const isPerson = deps.detectPersonPage(
+    const isPerson = detectPersonPage(
       file,
       title,
       prepared.contentMarkdown,
       frontmatter,
       config,
+      deps.getPersonOverride(file),
     );
 
     return {
       file,
-      slug: deps.slugFromFileName(file),
+      slug: slugFromFileName(file),
       title,
       titleLower,
       markdown: body,
       contentMarkdown: prepared.contentMarkdown,
       contentLower: prepared.contentMarkdown.toLowerCase(),
       wordCount: prepared.contentMarkdown.split(/\s+/).filter(Boolean).length,
-      backlinkReferences: deps.extractBacklinkReferences(body),
+      backlinkReferences: extractBacklinkReferences(body),
       categoryNames,
-      hasCodeBlocks: prepared.hasCodeBlocks,
-      headings: prepared.headings,
       modifiedAt,
-      summary: deps.extractSummary(prepared.contentMarkdown),
+      summary: extractSummary(prepared.contentMarkdown),
       isPerson,
     };
   } catch (error) {
@@ -236,7 +144,7 @@ export async function loadIndexedWikiPage<TConfig>(
 }
 
 export async function ensureDbDirectory(
-  deps: Pick<WikiIndexerRuntimeDependencies, "requireIndexDbPath">,
+  deps: Pick<WikiIndexerDependencies, "requireIndexDbPath">,
 ): Promise<void> {
   await fs.mkdir(path.dirname(deps.requireIndexDbPath()), { recursive: true });
 }
@@ -255,7 +163,7 @@ export async function pathExists(filePath: string): Promise<boolean> {
 }
 
 export async function hasExistingIndexArtifacts(
-  deps: Pick<WikiIndexerRuntimeDependencies, "requireIndexDbPath">,
+  deps: Pick<WikiIndexerDependencies, "requireIndexDbPath">,
 ): Promise<boolean> {
   const indexDbPath = deps.requireIndexDbPath();
   const paths = [indexDbPath, `${indexDbPath}-wal`, `${indexDbPath}-shm`];
@@ -269,13 +177,13 @@ export async function hasExistingIndexArtifacts(
   return false;
 }
 
-export async function syncSinglePath<TDb, TConfig>(
+export async function syncSinglePath(
   relativePath: string,
-  deps: WikiIndexerDependencies<TDb, TConfig>,
+  deps: WikiIndexerDependencies,
 ): Promise<boolean> {
   const db = deps.requireDb();
   const wikiRoot = deps.requireWikiRoot();
-  const normalizedPath = deps.normalizeRelativePath(relativePath);
+  const normalizedPath = normalizeRelativePath(relativePath);
   if (!normalizedPath) {
     return false;
   }
@@ -284,40 +192,40 @@ export async function syncSinglePath<TDb, TConfig>(
     return false;
   }
 
-  if (!deps.shouldIndexRelativeFile(normalizedPath)) {
-    return deps.deletePageByFile(db, normalizedPath);
+  if (!shouldIndexRelativeFile(normalizedPath)) {
+    return deletePageByFile(db, normalizedPath);
   }
 
   const absolutePath = path.join(wikiRoot, normalizedPath);
   try {
     const stat = await fs.stat(absolutePath);
     if (!stat.isFile()) {
-      return deps.deletePageByFile(db, normalizedPath);
+      return deletePageByFile(db, normalizedPath);
     }
 
-    const existingModifiedAt = deps.selectPageModifiedAt(db, normalizedPath);
+    const existingModifiedAt = (db.prepare("SELECT modified_at FROM pages WHERE file = ?").get(normalizedPath) as { modified_at: number } | undefined)?.modified_at;
     if (existingModifiedAt !== undefined && Math.abs(existingModifiedAt - stat.mtimeMs) < 0.5) {
       return false;
     }
 
     const page = await loadIndexedWikiPage(normalizedPath, deps, stat.mtimeMs);
     if (!page) {
-      return deps.deletePageByFile(db, normalizedPath);
+      return deletePageByFile(db, normalizedPath);
     }
 
-    deps.upsertPageRecord(db, page);
+    upsertPageRecord(db, page);
     return true;
   } catch (error) {
     if (isMissingPathError(error)) {
-      return deps.deletePageByFile(db, normalizedPath);
+      return deletePageByFile(db, normalizedPath);
     }
 
     throw error;
   }
 }
 
-export async function reconcileIndexWithDisk<TDb, TConfig>(
-  deps: WikiIndexerDependencies<TDb, TConfig>,
+export async function reconcileIndexWithDisk(
+  deps: WikiIndexerDependencies,
   options: ReconcileOptions = {},
 ): Promise<ReconcileStats> {
   const source = options.source ?? null;
@@ -326,9 +234,9 @@ export async function reconcileIndexWithDisk<TDb, TConfig>(
     await assertWikiRootAccessible(deps);
     const wikiRoot = deps.requireWikiRoot();
     const db = deps.requireDb();
-    const files = (await collectMarkdownFiles(wikiRoot, wikiRoot, deps)).sort();
+    const files = (await collectMarkdownFiles(wikiRoot, wikiRoot)).sort();
     const fileSet = new Set(files);
-    const existingRows = deps.listIndexedPages(db);
+    const existingRows = db.prepare("SELECT file, modified_at AS modifiedAt FROM pages").all() as Array<{ file: string; modifiedAt: number }>;
     const existingMap = new Map(existingRows.map((row) => [row.file, row.modifiedAt]));
 
     let upserted = 0;
@@ -352,7 +260,7 @@ export async function reconcileIndexWithDisk<TDb, TConfig>(
         continue;
       }
 
-      deps.upsertPageRecord(db, page);
+      upsertPageRecord(db, page);
       upserted += 1;
     }
 
@@ -361,12 +269,14 @@ export async function reconcileIndexWithDisk<TDb, TConfig>(
         continue;
       }
 
-      if (deps.deletePageByFile(db, existingFile)) {
+      if (deletePageByFile(db, existingFile)) {
         deleted += 1;
       }
     }
 
-    deps.reconcileBacklinkTargets(db);
+    if (upserted > 0 || deleted > 0 || options.forceAll) {
+      reconcileBacklinkTargets(db);
+    }
 
     if (upserted > 0 || deleted > 0) {
       deps.markRevisionChanged?.();
@@ -386,19 +296,12 @@ export async function reconcileIndexWithDisk<TDb, TConfig>(
   }
 }
 
-export function createWikiIndexer<TDb, TConfig>(
-  dependencies: WikiIndexerDependencies<TDb, TConfig>,
-): WikiIndexer<TDb, TConfig> {
+export function createWikiIndexer(dependencies: WikiIndexerDependencies) {
   return {
     assertWikiRootAccessible: () => assertWikiRootAccessible(dependencies),
-    collectMarkdownFiles: (dir, root) => collectMarkdownFiles(dir, root, dependencies),
-    loadIndexedWikiPage: (file, modifiedAtOverride) =>
-      loadIndexedWikiPage(file, dependencies, modifiedAtOverride),
     ensureDbDirectory: () => ensureDbDirectory(dependencies),
-    pathExists,
     hasExistingIndexArtifacts: () => hasExistingIndexArtifacts(dependencies),
-    syncSinglePath: (relativePath) => syncSinglePath(relativePath, dependencies),
-    reconcileIndexWithDisk: (options) => reconcileIndexWithDisk(dependencies, options),
-    dependencies,
+    syncSinglePath: (relativePath: string) => syncSinglePath(relativePath, dependencies),
+    reconcileIndexWithDisk: (options?: ReconcileOptions) => reconcileIndexWithDisk(dependencies, options),
   };
 }

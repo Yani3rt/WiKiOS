@@ -1,5 +1,6 @@
 import {
   Children,
+  memo,
   type ComponentPropsWithoutRef,
   isValidElement,
   useId,
@@ -33,6 +34,8 @@ import type { WikiHeading, WikiNeighbor, WikiPageData } from "@/lib/wiki-shared"
 
 const remarkPlugins = [remarkGfm];
 const rehypePlugins = [rehypeHighlight];
+const noRehypePlugins: typeof rehypePlugins = [];
+const MemoizedMarkdown = memo(ReactMarkdown);
 
 export interface NoteViewerProps {
   page: WikiPageData;
@@ -68,15 +71,6 @@ function formatDate(timestamp: number) {
     day: "numeric",
     year: "numeric",
   });
-}
-
-function estimateReadingTime(markdown: string) {
-  const words = markdown.trim().split(/\s+/).length;
-  return Math.max(1, Math.round(words / 200));
-}
-
-function wordCount(markdown: string) {
-  return markdown.trim().split(/\s+/).length;
 }
 
 function markdownNodeText(node: ReactNode): string {
@@ -551,6 +545,7 @@ function TableOfContents({
         <a
           key={h.id}
           href={`#${h.id}`}
+          aria-current={activeId === h.id ? "location" : undefined}
           onClick={(event) => handleTocHeadingClick(event, h.id, scrollContainerRef)}
           className={`toc-item block text-[13px] leading-snug transition-colors duration-150 ${
             h.level === 3 ? "pl-3" : h.level >= 4 ? "pl-6" : ""
@@ -573,58 +568,36 @@ function useActiveHeading(
   scrollContainerRef?: RefObject<HTMLElement | null>,
 ) {
   const [activeId, setActiveId] = useState<string | null>(headings[0]?.id ?? null);
-  const observer = useRef<IntersectionObserver | null>(null);
-
-  const updateActiveHeading = useCallback(() => {
+  useEffect(() => {
+    const scrollRoot = getScrollRoot(scrollContainerRef);
     const elements = headings
-      .map((heading) => document.getElementById(heading.id))
-      .filter((element): element is HTMLElement => element !== null);
-
-    if (elements.length === 0) return;
-    setActiveId(getActiveHeadingId(elements, getScrollRoot(scrollContainerRef)));
-  }, [headings, scrollContainerRef]);
-
-  const observe = useCallback(() => {
-    observer.current?.disconnect();
-
-    const elements = headings
-      .map((heading) => document.getElementById(heading.id))
-      .filter((element): element is HTMLElement => element !== null);
-
-    if (elements.length === 0) return;
-
-    observer.current = new IntersectionObserver(updateActiveHeading, {
-      root: getScrollRoot(scrollContainerRef),
+      .map((heading) => resolveHeadingTarget(heading.id, scrollRoot, document))
+      .filter((element): element is HTMLElement => element instanceof HTMLElement);
+    let frame: number | null = null;
+    const update = () => {
+      frame = null;
+      setActiveId(getActiveHeadingId(elements, scrollRoot));
+    };
+    const scheduleUpdate = () => {
+      if (frame === null) frame = requestAnimationFrame(update);
+    };
+    const observer = new IntersectionObserver(scheduleUpdate, {
+      root: scrollRoot,
       rootMargin: "-60px 0px -80% 0px",
       threshold: [0, 1],
     });
-
-    for (const element of elements) {
-      observer.current.observe(element);
-    }
-  }, [headings, scrollContainerRef, updateActiveHeading]);
-
-  useEffect(() => {
-    setActiveId(headings[0]?.id ?? null);
-    const timer = window.setTimeout(() => {
-      observe();
-      updateActiveHeading();
-    }, 100);
-
+    for (const element of elements) observer.observe(element);
+    const target = scrollRoot ?? window;
+    target.addEventListener("scroll", scheduleUpdate, { passive: true });
+    window.addEventListener("resize", scheduleUpdate);
+    update();
     return () => {
-      window.clearTimeout(timer);
-      observer.current?.disconnect();
+      observer.disconnect();
+      target.removeEventListener("scroll", scheduleUpdate);
+      window.removeEventListener("resize", scheduleUpdate);
+      if (frame !== null) cancelAnimationFrame(frame);
     };
-  }, [headings, observe, updateActiveHeading]);
-
-  useEffect(() => {
-    const scrollRoot = getScrollRoot(scrollContainerRef);
-    const target: Window | HTMLElement = scrollRoot ?? window;
-    const handleScroll = () => updateActiveHeading();
-
-    target.addEventListener("scroll", handleScroll, { passive: true });
-    return () => target.removeEventListener("scroll", handleScroll);
-  }, [scrollContainerRef, updateActiveHeading]);
+  }, [headings, scrollContainerRef]);
 
   return activeId;
 }
@@ -901,16 +874,21 @@ export function NoteViewer({
     [page.headings],
   );
   const activeId = useActiveHeading(filteredHeadings, scrollContainerRef);
-  const readTime = estimateReadingTime(page.contentMarkdown);
-  const words = wordCount(page.contentMarkdown);
-  const { mainContent, relatedLinks } = splitContentSections(page.contentMarkdown);
+  const { words, readTime, mainContent, relatedLinks } = useMemo(() => {
+    const words = page.contentMarkdown.trim().split(/\s+/).filter(Boolean).length;
+    return {
+      words,
+      readTime: Math.max(1, Math.round(words / 200)),
+      ...splitContentSections(page.contentMarkdown),
+    };
+  }, [page.contentMarkdown]);
   const peopleControlsEnabled = config.people.mode !== "off";
   const personPrimaryLabel =
     page.personOverride === "not-person" || (!page.isPerson && page.personOverride === null)
       ? "Mark as person"
       : "Mark as not person";
   const personPrimaryTarget = personPrimaryLabel === "Mark as person" ? "person" : "not-person";
-  const pageRehypePlugins = page.hasCodeBlocks ? rehypePlugins : [];
+  const pageRehypePlugins = page.hasCodeBlocks ? rehypePlugins : noRehypePlugins;
   const onNavigateNoteRef = useRef(onNavigateNote);
 
   useEffect(() => {
@@ -1173,13 +1151,13 @@ export function NoteViewer({
       <div className="note-viewer-layout relative max-w-3xl xl:grid xl:max-w-[calc(48rem+13rem+2rem)] xl:grid-cols-[minmax(0,1fr)_13rem] xl:gap-8">
         <div className="note-viewer-main min-w-0">
           <article className="prose-wiki leading-[1.8]">
-            <ReactMarkdown
+            <MemoizedMarkdown
               rehypePlugins={pageRehypePlugins}
               remarkPlugins={remarkPlugins}
               components={markdownComponents}
             >
               {mainContent}
-            </ReactMarkdown>
+            </MemoizedMarkdown>
           </article>
 
           {relatedLinks.length > 0 ? (

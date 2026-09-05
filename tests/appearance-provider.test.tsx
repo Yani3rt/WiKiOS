@@ -1,127 +1,69 @@
-import { readFileSync } from "node:fs";
-import { createElement, type DependencyList, type EffectCallback, type ReactElement } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
-import { afterEach, describe, expect, it, vi } from "vitest";
-
+// @vitest-environment jsdom
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { AppearanceProvider, useAppearance } from "../src/client/appearance-provider";
+import { ThemeSelector } from "../src/components/theme-selector";
 
+let root: Root;
+let container: HTMLDivElement;
+let media: EventTarget & { matches: boolean };
 function Probe() {
   const value = useAppearance();
-  return createElement("span", {
-    "data-color": value.colorTheme,
-    "data-preference": value.modePreference,
-    "data-resolved": value.resolvedMode,
-  });
+  return <output>{value.colorTheme}:{value.modePreference}:{value.resolvedMode}</output>;
 }
-
-describe("appearance provider", () => {
-  afterEach(() => {
-    vi.doUnmock("react");
-    vi.resetModules();
-    vi.unstubAllGlobals();
-  });
-
-  it("provides initialized color, preference, and resolved mode", () => {
-    const markup = renderToStaticMarkup(createElement(AppearanceProvider, {
-      initialColorTheme: "violet",
-      initialModePreference: "system",
-      initialResolvedMode: "dark",
-    }, createElement(Probe)));
-    expect(markup).toContain('data-color="violet"');
-    expect(markup).toContain('data-preference="system"');
-    expect(markup).toContain('data-resolved="dark"');
-  });
-
-  it("initializes both root axes before config overrides and rendering", () => {
-    const main = readFileSync(new URL("../src/client/main.tsx", import.meta.url), "utf8");
-    const colorInit = main.indexOf("initializeBrowserColorTheme()");
-    const modeInit = main.indexOf("initializeBrowserThemeMode()");
-    const chromeInit = main.indexOf("updateBrowserThemeColor(initialColorTheme");
-    const config = main.indexOf("applyThemeVariables(config)");
-    const render = main.indexOf("createRoot(rootContainer).render");
-    expect(colorInit).toBeGreaterThan(-1);
-    expect(modeInit).toBeGreaterThan(-1);
-    expect(chromeInit).toBeGreaterThan(Math.max(colorInit, modeInit));
-    expect(chromeInit).toBeLessThan(config);
-    expect(config).toBeLessThan(render);
-  });
-
-  it("applies explicit modes, follows System changes, and unsubscribes when leaving System", async () => {
-    const states: unknown[] = [];
-    const effects: Array<{
-      cleanup?: void | (() => void);
-      dependencies?: DependencyList;
-    }> = [];
-    let stateCursor = 0;
-    let effectCursor = 0;
-
-    vi.doMock("react", async () => {
-      const actual = await vi.importActual<typeof import("react")>("react");
-      return {
-        ...actual,
-        useCallback: <T,>(callback: T) => callback,
-        useMemo: <T,>(factory: () => T) => factory(),
-        useState: <T,>(initialValue: T) => {
-          const index = stateCursor++;
-          if (index === states.length) states.push(initialValue);
-          return [states[index] as T, (value: T) => { states[index] = value; }] as const;
-        },
-        useEffect: (effect: EffectCallback, dependencies?: DependencyList) => {
-          const index = effectCursor++;
-          const previous = effects[index];
-          const changed = !previous || !dependencies || !previous.dependencies
-            || dependencies.some((dependency, dependencyIndex) => !Object.is(dependency, previous.dependencies?.[dependencyIndex]));
-          if (!changed) return;
-          previous?.cleanup?.();
-          effects[index] = { cleanup: effect(), dependencies };
-        },
-      };
-    });
-
-    const root = { setAttribute: vi.fn() };
-    const themeColor = { setAttribute: vi.fn() };
-    const storage = { getItem: vi.fn(), setItem: vi.fn() };
-    let mediaListener: ((event: MediaQueryListEvent) => void) | undefined;
-    const media = {
-      matches: false,
-      addEventListener: vi.fn((_type: "change", listener: (event: MediaQueryListEvent) => void) => {
-        mediaListener = listener;
-      }),
-      removeEventListener: vi.fn(),
-    };
-    vi.stubGlobal("document", {
-      documentElement: root,
-      querySelector: vi.fn(() => themeColor),
-    });
-    vi.stubGlobal("window", { localStorage: storage, matchMedia: vi.fn(() => media) });
-
-    const { AppearanceProvider: HookAppearanceProvider } = await import("../src/client/appearance-provider");
-    const renderProvider = () => {
-      stateCursor = 0;
-      effectCursor = 0;
-      return HookAppearanceProvider({
-        initialColorTheme: "teal",
-        initialModePreference: "system",
-        initialResolvedMode: "light",
-      }) as ReactElement<{ value: {
-        selectColorTheme(theme: "teal" | "blue" | "violet"): void;
-        selectModePreference(preference: "system" | "light" | "dark"): void;
-      } }>;
-    };
-
-    const provider = renderProvider();
-    mediaListener?.({ matches: true } as MediaQueryListEvent);
-    expect(root.setAttribute).toHaveBeenCalledWith("data-mode", "dark");
-    expect(themeColor.setAttribute).toHaveBeenCalledWith("content", "#142426");
-
-    provider.props.value.selectModePreference("light");
-    expect(root.setAttribute).toHaveBeenCalledWith("data-mode", "light");
-    expect(storage.setItem).toHaveBeenCalledWith("wikios:theme-mode", "light");
-
-    provider.props.value.selectColorTheme("violet");
-    expect(themeColor.setAttribute).toHaveBeenCalledWith("content", "#f4f2fb");
-
-    renderProvider();
-    expect(media.removeEventListener).toHaveBeenCalledWith("change", mediaListener);
-  });
+beforeEach(async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  localStorage.clear();
+  media = Object.assign(new EventTarget(), { matches: false });
+  vi.stubGlobal("matchMedia", () => media);
+  container = document.createElement("div"); document.body.append(container);
+  root = createRoot(container);
+  await act(async () => root.render(
+    <AppearanceProvider initialColorTheme="teal" initialModePreference="system" initialResolvedMode="light">
+      <ThemeSelector /><Probe />
+    </AppearanceProvider>,
+  ));
+});
+afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.unstubAllGlobals(); });
+async function click(selector: string) {
+  const element = container.querySelector<HTMLElement>(selector);
+  expect(element).not.toBeNull();
+  await act(async () => element!.click());
+}
+async function systemDark(matches: boolean) {
+  media.matches = matches;
+  await act(async () => media.dispatchEvent(Object.assign(new Event("change"), { matches })));
+}
+it("applies and persists color/mode selections through the rendered selector", async () => {
+  await click("button"); await click('input[value="dark"]'); await click('input[value="violet"]');
+  expect(container.querySelector("output")?.textContent).toBe("violet:dark:dark");
+  expect(document.documentElement.dataset.mode).toBe("dark");
+  expect(document.documentElement.dataset.colorTheme).toBe("violet");
+  expect(localStorage.getItem("wikios:theme-mode")).toBe("dark");
+  expect(localStorage.getItem("wikios:color-theme")).toBe("violet");
+  expect(container.querySelector<HTMLInputElement>('input[value="dark"]')?.checked).toBe(true);
+});
+it("follows system changes only while System is selected", async () => {
+  await systemDark(true);
+  expect(container.querySelector("output")?.textContent).toBe("teal:system:dark");
+  await click("button"); await click('input[value="light"]');
+  await systemDark(false); await systemDark(true);
+  expect(container.querySelector("output")?.textContent).toBe("teal:light:light");
+  await click('input[value="system"]');
+  expect(container.querySelector("output")?.textContent).toBe("teal:system:dark");
+});
+it("closes on Escape and returns focus to its trigger", async () => {
+  await click("button"); container.querySelector<HTMLInputElement>("input")!.focus();
+  await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+  expect(container.querySelector("button")?.getAttribute("aria-expanded")).toBe("false");
+  expect(container.querySelector('[role="dialog"]')?.hasAttribute("inert")).toBe(true);
+  expect(document.activeElement).toBe(container.querySelector("button"));
+});
+it("dismisses on an outside pointer event but not an inside one", async () => {
+  await click("button");
+  await act(async () => container.querySelector("input")!.dispatchEvent(new Event("pointerdown", { bubbles: true })));
+  expect(container.querySelector("button")?.getAttribute("aria-expanded")).toBe("true");
+  await act(async () => document.body.dispatchEvent(new Event("pointerdown", { bubbles: true })));
+  expect(container.querySelector("button")?.getAttribute("aria-expanded")).toBe("false");
 });

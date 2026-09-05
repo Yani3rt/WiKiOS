@@ -8,8 +8,8 @@ tags:
 # Getting Started
 
 1. Set `WIKI_ROOT` to this sample vault or your own Obsidian folder.
-2. Run `npm install`.
-3. Run `npm run dev`.
+2. Run `pnpm install --frozen-lockfile`.
+3. Run `pnpm dev`.
 4. Open the local URL the app prints.
 
 ## Tips

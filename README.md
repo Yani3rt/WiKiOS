@@ -26,8 +26,10 @@ Originally released as WikiOS under the MIT License. [Ansub/wiki-os.git](https:/
 
 Clone and launch:
 
+Requires Node.js 20.19+ and pnpm 10.30.3 (`npm install --global pnpm@10.30.3`).
+
 ```bash
-git clone https://github.com/Yani3rt/WiKiOS.git wiki-os && cd wiki-os && npm run first-run
+git clone https://github.com/Yani3rt/WiKiOS.git wiki-os && cd wiki-os && pnpm run first-run
 ```
 
 WikiOS will open in your browser and guide you through choosing a vault. You can also use the bundled demo vault on first run.
@@ -131,13 +133,13 @@ docker run --rm -p 5211:5211 -e WIKI_ROOT=/vault -v /path/to/your/vault:/vault:r
 For normal users, use:
 
 ```bash
-npm start
+pnpm start
 ```
 
 For contributors working on WikiOS itself, use:
 
 ```bash
-npm run dev
+pnpm run dev
 ```
 
 `dev` runs a split frontend/backend setup for faster iteration.
@@ -162,13 +164,13 @@ If you started the app with `WIKIOS_FORCE_WIKI_ROOT`, vault switching is intenti
 
 ### Useful commands
 
-- `npm run first-run` installs dependencies and starts the guided first-run flow
-- `npm start` starts the app in user mode
-- `npm run dev` starts the contributor split client/server setup
-- `npm run build` builds the client and server
-- `npm run serve` runs the already-built server
-- `npm run deploy` runs the deployment helper
-- `npm run smoke-test` runs the smoke test helper
+- `pnpm run first-run` installs dependencies and starts the guided first-run flow
+- `pnpm start` starts the app in user mode
+- `pnpm run dev` starts the contributor split client/server setup
+- `pnpm run build` builds the client and server
+- `pnpm run serve` runs the already-built server
+- `pnpm run deploy` runs the deployment helper
+- `pnpm run smoke-test` runs the smoke test helper
 - `docker compose up --build` runs the app in Docker with the bundled demo vault
 
 ### Environment variables

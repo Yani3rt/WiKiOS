@@ -132,3 +132,5 @@ export function titleFromFileName(fileName: string) {
   const parts = withoutExtension.split("/");
   return parts[parts.length - 1] ?? withoutExtension;
 }
+
+export type SyncSource = "startup" | "watcher" | "reindex" | "periodic" | "manual";

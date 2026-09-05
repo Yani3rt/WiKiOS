@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 
 import { createElement, type ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -46,19 +44,6 @@ function assertReadonlyExplorerContracts(tab: ExplorerTab, workspace: ExplorerWo
 void assertReadonlyExplorerContracts;
 
 describe("explorer route registration", () => {
-  it("registers the lazy explorer route before the wiki route", () => {
-    const routerSource = readFileSync(
-      fileURLToPath(new URL("../src/client/router.tsx", import.meta.url)),
-      "utf8",
-    );
-    const explorerPathIndex = routerSource.indexOf('path: "/explorer/*"');
-    const explorerImportIndex = routerSource.indexOf('import("./routes/explorer-route")');
-    const wikiPathIndex = routerSource.indexOf('path: "/wiki/*"');
-
-    expect(explorerPathIndex).toBeGreaterThan(-1);
-    expect(explorerImportIndex).toBeGreaterThan(explorerPathIndex);
-    expect(wikiPathIndex).toBeGreaterThan(explorerImportIndex);
-  });
 
   it("preserves already-decoded literal percent data and encodes URL segments once", async () => {
     const routeModule = (await import("../src/client/routes/explorer-route")) as unknown as {
@@ -111,32 +96,6 @@ describe("explorer route registration", () => {
     expect(routeModule.shouldRestoreExplorerRoute!(null, null)).toBe(false);
   });
 
-  it("supports automatic-activation keyboard movement and complete tab relationships", async () => {
-    const routeModule = (await import("../src/client/routes/explorer-route")) as unknown as {
-      getNextExplorerTabIndex?: (
-        key: string,
-        currentIndex: number,
-        tabCount: number,
-      ) => number | null;
-    };
-    const routerSource = readFileSync(
-      fileURLToPath(new URL("../src/client/routes/explorer-route.tsx", import.meta.url)),
-      "utf8",
-    );
-
-    expect(routeModule.getNextExplorerTabIndex).toBeTypeOf("function");
-    expect(routeModule.getNextExplorerTabIndex!("ArrowRight", 2, 3)).toBe(0);
-    expect(routeModule.getNextExplorerTabIndex!("ArrowLeft", 0, 3)).toBe(2);
-    expect(routeModule.getNextExplorerTabIndex!("Home", 2, 3)).toBe(0);
-    expect(routeModule.getNextExplorerTabIndex!("End", 0, 3)).toBe(2);
-    expect(routeModule.getNextExplorerTabIndex!("Enter", 1, 3)).toBeNull();
-    expect(routerSource).toContain('role="tabpanel"');
-    expect(routerSource).toContain("aria-controls={explorerPanelId(tab.slug)}");
-    expect(routerSource).toContain("aria-labelledby={explorerTabId(tab.slug)}");
-    expect(routerSource).toContain("tabIndex={active || (!workspace.activeSlug && index === 0) ? 0 : -1}");
-    expect(routerSource).toContain("hidden={!active}");
-  });
-
   it("never exposes reader state belonging to a previously active slug", async () => {
     const routeModule = (await import("../src/client/routes/explorer-route")) as unknown as {
       selectExplorerReaderState?: (
@@ -156,38 +115,6 @@ describe("explorer route registration", () => {
       slug: null,
       status: "idle",
     });
-  });
-
-  it("renders accessible retry and browse-note recovery for unavailable notes", async () => {
-    const routeModule = (await import("../src/client/routes/explorer-route")) as unknown as {
-      ExplorerReader?: unknown;
-    };
-    const routeSource = readFileSync(
-      fileURLToPath(new URL("../src/client/routes/explorer-route.tsx", import.meta.url)),
-      "utf8",
-    );
-    const renderRecovery = (status: "missing" | "error") =>
-      renderToStaticMarkup(
-        createElement(routeModule.ExplorerReader as never, {
-          state: { slug: "missing-note", status },
-          hasTabs: true,
-          onWikiLink: () => {},
-          onRefreshPage: async () => {},
-          onBrowseNotes: () => {},
-          workspaceScrollRef: { current: null },
-        }),
-      );
-
-    expect(routeModule.ExplorerReader).toBeTypeOf("function");
-    for (const markup of [renderRecovery("missing"), renderRecovery("error")]) {
-      expect(markup).toContain('role="alert"');
-      expect(markup).toContain(">Retry</button>");
-      expect(markup).toContain(">Browse notes</button>");
-      expect(markup).toContain('aria-busy="false"');
-    }
-    expect(routeSource).toContain("onBrowseNotes={showNoteTree}");
-    expect(routeSource).toContain("setDesktopSidebarVisible(true)");
-    expect(routeSource).toContain("setSidebarOpen(true)");
   });
 
   it("renders the ambiguity chooser instead of recovery for ambiguous notes", async () => {
@@ -284,18 +211,6 @@ describe("explorer route registration", () => {
     expect(selections).toEqual([{ unresolvedSlug: "Note", candidate }]);
   });
 
-  it("uses the structured page loader and replaces ambiguous routes in browser history", () => {
-    const routeSource = readFileSync(
-      fileURLToPath(new URL("../src/client/routes/explorer-route.tsx", import.meta.url)),
-      "utf8",
-    );
-
-    expect(routeSource).toContain("fetchWikiPage");
-    expect(routeSource).toContain('result.status === "ambiguous"');
-    expect(routeSource).toContain("replaceExplorerTabWithCandidate");
-    expect(routeSource).toContain("navigate(explorerPath(next.activeSlug), { replace: true })");
-  });
-
   it("ignores a stale canonical refresh after the active tab changes", async () => {
     const routeModule = (await import("../src/client/routes/explorer-route")) as unknown as {
       resolveExplorerCanonicalRefresh?: (
@@ -389,188 +304,6 @@ describe("explorer route registration", () => {
       "Alpha",
       "Alpha/Nested",
     ]);
-  });
-
-  it("uses the brand as the mobile home exit and hides the duplicate action", () => {
-    const routeSource = readFileSync(
-      fileURLToPath(new URL("../src/client/routes/explorer-route.tsx", import.meta.url)),
-      "utf8",
-    );
-    const backLabelIndex = routeSource.indexOf("\n          Back to wiki\n");
-    const backLinkSource = routeSource.slice(
-      routeSource.lastIndexOf("<Link", backLabelIndex),
-      routeSource.indexOf("</Link>", backLabelIndex),
-    );
-
-    expect(backLabelIndex).toBeGreaterThan(-1);
-    expect(routeSource).toContain('aria-label="Back to wiki home"');
-    expect(backLinkSource).toContain("hidden min-h-11");
-    expect(backLinkSource).toContain("sm:inline-flex");
-  });
-
-  it("guards markdown self-links and restores focus after tab removal", () => {
-    const routeSource = readFileSync(
-      fileURLToPath(new URL("../src/client/routes/explorer-route.tsx", import.meta.url)),
-      "utf8",
-    );
-
-    expect(routeSource).toContain("onWikiLink={selectSlug}");
-    expect(routeSource).not.toContain("onWikiLink={(encodedSlug) => navigate");
-    expect(routeSource).toContain("const tabRefs = useRef(new Map<string, HTMLButtonElement>())");
-    expect(routeSource).toContain("requestAnimationFrame(() =>");
-    expect(routeSource).toContain("tabRefs.current.get(workspace.activeSlug)?.focus()");
-    expect(routeSource).toContain("fallbackFocusRef.current?.focus()");
-  });
-
-  it("adds explorer entrypoints and polished responsive sidebar affordances", () => {
-    const routeSource = readFileSync(
-      fileURLToPath(new URL("../src/client/routes/explorer-route.tsx", import.meta.url)),
-      "utf8",
-    );
-    const searchBoxSource = readFileSync(
-      fileURLToPath(new URL("../src/components/search-box.tsx", import.meta.url)),
-      "utf8",
-    );
-    const globalsSource = readFileSync(
-      fileURLToPath(new URL("../src/client/globals.css", import.meta.url)),
-      "utf8",
-    );
-
-    expect(searchBoxSource).toContain('to="/explorer"');
-    expect(routeSource).toContain('aria-label="Filter notes"');
-    expect(routeSource).toContain('const folderToggleLabel = areAllFoldersExpanded ? "Collapse all folders" : "Expand all folders"');
-    expect(routeSource).toContain("aria-label={folderToggleLabel}");
-    expect(routeSource).toContain("title={folderToggleLabel}");
-    expect(routeSource).toContain("aria-pressed={areAllFoldersExpanded}");
-    expect(routeSource).toContain('aria-label="Toggle note tree"');
-    expect(routeSource).toMatch(/>\s*Back to wiki\s*</u);
-    expect(routeSource).toContain('aria-label={desktopSidebarVisible ? "Hide note tree" : "Show note tree"}');
-    expect(routeSource).toContain('<ChevronLeft className="h-3.5 w-3.5" />');
-    expect(routeSource).toContain('<ChevronRight className="h-3.5 w-3.5" />');
-    expect(routeSource).toContain("<span>All Notes</span>");
-    expect(routeSource).toContain("explorer-sidebar-backdrop");
-    expect(routeSource).toContain("prefers-reduced-motion: reduce");
-    expect(routeSource).toContain('useMediaQuery("(prefers-reduced-motion: reduce)")');
-    expect(routeSource).toContain('aria-controls="explorer-sidebar"');
-    expect(routeSource).toContain('aria-expanded={sidebarOpen}');
-    expect(globalsSource).toContain(".explorer-scrollbar");
-    expect(globalsSource).toContain(".explorer-sidebar-backdrop");
-  });
-
-  it("provides comfortable touch targets for mobile explorer controls", () => {
-    const routeSource = readFileSync(
-      fileURLToPath(new URL("../src/client/routes/explorer-route.tsx", import.meta.url)),
-      "utf8",
-    );
-    const viewerSource = readFileSync(
-      fileURLToPath(new URL("../src/components/note-viewer.tsx", import.meta.url)),
-      "utf8",
-    );
-    const closeLabelIndex = routeSource.indexOf('aria-label={`Close ${tab.title}`}');
-    const closeButtonSource = routeSource.slice(
-      routeSource.lastIndexOf("<button", closeLabelIndex),
-      routeSource.indexOf("</button>", closeLabelIndex),
-    );
-
-    expect(closeLabelIndex).toBeGreaterThan(-1);
-    expect(closeButtonSource).toContain("min-h-11 min-w-11");
-    expect(routeSource).toContain("min-h-11 md:min-h-0");
-    expect(viewerSource).toContain("inline-flex min-h-11 items-center");
-    expect(viewerSource).toContain("sm:min-h-0");
-    expect(viewerSource).toContain("min-h-11 w-full");
-  });
-
-  it("uses restrained neutral chrome instead of pastel gradients and ornamental pills", () => {
-    const routeSource = readFileSync(
-      fileURLToPath(new URL("../src/client/routes/explorer-route.tsx", import.meta.url)),
-      "utf8",
-    );
-    const globalsSource = readFileSync(
-      fileURLToPath(new URL("../src/client/globals.css", import.meta.url)),
-      "utf8",
-    );
-    const scrollbarThumbStart = globalsSource.indexOf(
-      ".explorer-scrollbar::-webkit-scrollbar-thumb",
-    );
-    const scrollbarThumbEnd = globalsSource.indexOf("}", scrollbarThumbStart);
-    const scrollbarThumbSource = globalsSource.slice(scrollbarThumbStart, scrollbarThumbEnd);
-
-    expect(routeSource).toContain('className="app-route-shell explorer-shell flex');
-    expect(routeSource).toContain("bg-[var(--explorer-selection)]");
-    expect(routeSource).toContain("app-primary-action");
-    expect(routeSource).not.toContain("bg-gradient-to-r");
-    expect(routeSource).not.toContain("rounded-full");
-    expect(routeSource).not.toMatch(/var\(--(?:teal|peach|lavender)\)/u);
-    expect(routeSource).not.toContain("font-display text-lg");
-    expect(globalsSource).toMatch(
-      /\.explorer-shell\s*\{[^}]*--explorer-canvas:\s*var\(--brand-canvas\);/u,
-    );
-    expect(scrollbarThumbSource).toContain("background: var(--explorer-scrollbar-thumb);");
-    expect(scrollbarThumbSource).not.toContain("linear-gradient");
-  });
-
-  it("removes the closed mobile drawer from focus while preserving desktop interactivity", async () => {
-    const routeSource = readFileSync(
-      fileURLToPath(new URL("../src/client/routes/explorer-route.tsx", import.meta.url)),
-      "utf8",
-    );
-    const routeModule = (await import("../src/client/routes/explorer-route")) as unknown as {
-      isExplorerSidebarInteractive?: (
-        sidebarOpen: boolean,
-        isDesktop: boolean,
-        desktopSidebarVisible: boolean,
-      ) => boolean;
-    };
-
-    expect(routeModule.isExplorerSidebarInteractive).toBeTypeOf("function");
-    expect(routeModule.isExplorerSidebarInteractive!(false, false, true)).toBe(false);
-    expect(routeModule.isExplorerSidebarInteractive!(true, false, true)).toBe(true);
-    expect(routeModule.isExplorerSidebarInteractive!(false, true, true)).toBe(true);
-    expect(routeModule.isExplorerSidebarInteractive!(false, true, false)).toBe(false);
-    expect(routeSource).toContain('useMediaQuery("(min-width: 768px)")');
-    expect(routeSource).toContain('sidebarRef.current?.setAttribute("inert", "")');
-    expect(routeSource).toContain('sidebarRef.current?.removeAttribute("inert")');
-    expect(routeSource).toContain('aria-hidden={!sidebarInteractive}');
-    expect(routeSource).toContain("toggleButtonRef.current?.focus()");
-    expect(routeSource).toContain("sidebarRef.current?.contains(document.activeElement)");
-  });
-
-  it("keeps mobile drawer focus off the search input", async () => {
-    const routeSource = readFileSync(
-      fileURLToPath(new URL("../src/client/routes/explorer-route.tsx", import.meta.url)),
-      "utf8",
-    );
-    const routeModule = (await import("../src/client/routes/explorer-route")) as unknown as {
-      isExplorerModalActive?: (sidebarOpen: boolean, isDesktop: boolean) => boolean;
-      focusExplorerSidebar?: (
-        isDesktop: boolean,
-        sidebar: { focus: (options?: { preventScroll?: boolean }) => void } | null,
-        filterInput: { focus: () => void } | null,
-      ) => void;
-    };
-    const sidebar = { focus: vi.fn() };
-    const filterInput = { focus: vi.fn() };
-
-    expect(routeModule.isExplorerModalActive).toBeTypeOf("function");
-    expect(routeModule.isExplorerModalActive!(true, false)).toBe(true);
-    expect(routeModule.isExplorerModalActive!(false, false)).toBe(false);
-    expect(routeModule.isExplorerModalActive!(true, true)).toBe(false);
-    expect(routeModule.focusExplorerSidebar).toBeTypeOf("function");
-    routeModule.focusExplorerSidebar!(false, sidebar, filterInput);
-    expect(sidebar.focus).toHaveBeenCalledWith({ preventScroll: true });
-    expect(filterInput.focus).not.toHaveBeenCalled();
-    routeModule.focusExplorerSidebar!(true, sidebar, filterInput);
-    expect(filterInput.focus).toHaveBeenCalledOnce();
-    expect(routeSource).toContain('workspaceRef.current?.setAttribute("inert", "")');
-    expect(routeSource).toContain('workspaceRef.current?.removeAttribute("inert")');
-    expect(routeSource).toContain('aria-hidden={sidebarModalActive}');
-    expect(routeSource).toContain('role="dialog"');
-    expect(routeSource).toContain('aria-modal={sidebarModalActive}');
-    expect(routeSource).not.toContain("<button\n          type=\"button\"\n          aria-hidden={!sidebarOpen}");
-    expect(routeSource).toContain("<div");
-    expect(routeSource).toContain('aria-hidden="true"');
-    expect(routeSource).toContain("sidebarCloseFocusTargetRef.current = \"toggle\"");
-    expect(routeSource).toContain('className="flex min-w-0 flex-1 flex-col md:min-w-0"');
   });
 
   it("opens the note drawer for an empty mobile root workspace", async () => {

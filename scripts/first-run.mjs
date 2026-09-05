@@ -19,7 +19,7 @@ function parseFlags(argv) {
 
 function runCommand(args, extraEnv = {}) {
   return new Promise((resolve, reject) => {
-    const command = npmExecPath ? nodeExecPath : (process.platform === "win32" ? "npm.cmd" : "npm");
+    const command = npmExecPath ? nodeExecPath : (process.platform === "win32" ? "pnpm.cmd" : "pnpm");
     const commandArgs = npmExecPath ? [npmExecPath, ...args] : args;
 
     const child = spawn(command, commandArgs, {
@@ -44,7 +44,7 @@ async function main() {
   const flags = parseFlags(process.argv.slice(2));
 
   if (!flags.skipInstall) {
-    await runCommand(["install", "--prefer-offline"]);
+    await runCommand(["install", "--frozen-lockfile", "--prefer-offline"]);
   }
 
   if (!flags.skipStart) {

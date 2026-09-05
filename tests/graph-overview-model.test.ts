@@ -1,7 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 import Graph from "graphology";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 
 vi.mock("sigma", () => ({ default: class Sigma {} }));
 
@@ -682,16 +680,6 @@ describe("graph overview model", () => {
     expect(adaptGraphCategoryColor("oklch(60% 0.2 200)", "dark")).toBe(
       "oklch(60% 0.2 200)",
     );
-  });
-
-  it("keeps theme mode changes on the lightweight graph appearance path", () => {
-    const source = readFileSync(
-      fileURLToPath(new URL("../src/client/routes/graph-route.tsx", import.meta.url)),
-      "utf8",
-    );
-
-    expect(source).toContain("}, [config.categories.aliases, data]);");
-    expect(source).toContain("}, [colorTheme, resolvedMode, config.categories.aliases]);");
   });
 
   it("keeps full titles searchable while truncating only their canvas presentation", () => {

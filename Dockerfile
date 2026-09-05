@@ -8,12 +8,13 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends python3 make g++ \
   && rm -rf /var/lib/apt/lists/*
 
-COPY package*.json ./
-RUN npm ci
+RUN npm install --global pnpm@10.30.3
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
 
 COPY . .
-RUN npm run build \
-  && npm prune --omit=dev
+RUN pnpm run build \
+  && pnpm prune --prod
 
 FROM node:20-bookworm-slim AS runtime
 
@@ -30,7 +31,7 @@ LABEL org.opencontainers.image.title="WikiOS"
 RUN mkdir -p /app /data \
   && chown -R node:node /app /data
 
-COPY --from=build /app/package*.json ./
+COPY --from=build /app/package.json ./
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/dist-server ./dist-server

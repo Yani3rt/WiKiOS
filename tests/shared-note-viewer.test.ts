@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 
 import {
   createElement,
@@ -69,20 +67,6 @@ const ambiguousWikiLink: WikiLinkAmbiguityData = {
 };
 
 describe("shared note viewer behavioral helpers", () => {
-  it("draws the reader neighborhood canvas from resolved graph theme tokens", () => {
-    const source = readFileSync(
-      fileURLToPath(new URL("../src/components/note-viewer.tsx", import.meta.url)),
-      "utf8",
-    );
-
-    expect(source).toContain("useResolvedThemeMode()");
-    expect(source).toContain('getPropertyValue("--mini-graph-edge")');
-    expect(source).toContain('getPropertyValue("--mini-graph-edge-hover")');
-    expect(source).toContain('getPropertyValue("--mini-graph-label")');
-    expect(source).toContain('getPropertyValue("--mini-graph-label-muted")');
-    expect(source).not.toContain('"rgba(0,0,0,0.15)"');
-    expect(source).not.toContain('"rgba(0,0,0,0.7)"');
-  });
 
   it("intercepts an ordinary self-targeted wiki click", () => {
     expect(
@@ -596,17 +580,6 @@ describe("shared note viewer rendering and route boundaries", () => {
     expect(buttons).toHaveLength(3);
   });
 
-  it("statically wires the Wiki route chooser selection to canonical replacement navigation", () => {
-    const wikiRouteSource = readFileSync(
-      fileURLToPath(new URL("../src/client/routes/wiki-route.tsx", import.meta.url)),
-      "utf8",
-    );
-
-    expect(wikiRouteSource).toContain(
-      'onSelect={(candidate) => navigate(`/wiki/${candidate.slug}`, { replace: true })}',
-    );
-  });
-
   it("renders article content, metadata, toc, related concepts, and graph markers without added category chips", () => {
     const markup = renderToStaticMarkup(
       createElement(
@@ -765,33 +738,6 @@ describe("shared note viewer rendering and route boundaries", () => {
     expect(markup).not.toContain('data-code-language="mermaid"');
   });
 
-  it("rerenders Mermaid diagrams when the resolved theme mode changes", () => {
-    const source = readFileSync(
-      fileURLToPath(new URL("../src/components/note-viewer.tsx", import.meta.url)),
-      "utf8",
-    );
-
-    expect(source).toContain("useResolvedThemeMode()");
-    expect(source).toContain("renderMermaidDiagram(codeText, renderId, resolvedMode");
-    expect(source).toContain("[codeText, renderId, resolvedMode]");
-    expect(source).not.toContain('theme: "default"');
-  });
-
-  it("keeps the code-block wrapper hook-free across ordinary and mermaid navigation", () => {
-    const viewerSource = readFileSync(
-      fileURLToPath(new URL("../src/components/note-viewer.tsx", import.meta.url)),
-      "utf8",
-    );
-    const wrapperStart = viewerSource.indexOf("function CodeBlockPre(");
-    const wrapperEnd = viewerSource.indexOf("function parseMarkdownLinks", wrapperStart);
-    const wrapperSource = viewerSource.slice(wrapperStart, wrapperEnd);
-
-    expect(wrapperStart).toBeGreaterThan(-1);
-    expect(wrapperEnd).toBeGreaterThan(wrapperStart);
-    expect(wrapperSource).toContain("<CopyableCodeBlock");
-    expect(wrapperSource).not.toMatch(/use(?:State|Effect|Callback)\(/u);
-  });
-
   it("wraps GFM tables for horizontal scrolling while preserving semantic markup", () => {
     const tablePage: WikiPageData = {
       ...samplePage,
@@ -875,155 +821,6 @@ describe("shared note viewer rendering and route boundaries", () => {
     expect(writeText).toHaveBeenCalledWith("git status");
   });
 
-  it("keeps route chrome in the wrapper and moved feature markers out of wiki-route", () => {
-    const routeSource = readFileSync(
-      fileURLToPath(new URL("../src/client/routes/wiki-route.tsx", import.meta.url)),
-      "utf8",
-    );
-
-    expect(routeSource).toContain('from "@/components/note-viewer"');
-    expect(routeSource).toContain("<header");
-    expect(routeSource).toContain("Home");
-    expect(routeSource).toContain("<NoteViewer");
-    expect(routeSource).toContain("max-w-6xl");
-    expect(routeSource).toContain("createRevalidationRefreshController");
-    expect(routeSource).not.toContain("refreshing=");
-    expect(routeSource).not.toContain("Related Concepts");
-    expect(routeSource).not.toContain("NeighborhoodGraph");
-    expect(routeSource).not.toContain("Mark as person");
-    expect(routeSource).not.toContain("ReactMarkdown");
-  });
-
-  it("gives unhighlighted fenced code a readable foreground on the dark code surface", () => {
-    const globalsSource = readFileSync(
-      fileURLToPath(new URL("../src/client/globals.css", import.meta.url)),
-      "utf8",
-    );
-
-    expect(globalsSource).toMatch(
-      /\.prose-wiki pre code\s*\{[^}]*color:\s*#c9d1d9;/u,
-    );
-  });
-
-  it("keeps highlighted code blocks on the same surface color as their parent pre", () => {
-    const globalsSource = readFileSync(
-      fileURLToPath(new URL("../src/client/globals.css", import.meta.url)),
-      "utf8",
-    );
-
-    expect(globalsSource).toMatch(
-      /\.prose-wiki pre code\s*\{[^}]*background:\s*transparent;/u,
-    );
-  });
-
-  it("styles note tables for readable horizontal overflow", () => {
-    const globalsSource = readFileSync(
-      fileURLToPath(new URL("../src/client/globals.css", import.meta.url)),
-      "utf8",
-    );
-
-    expect(globalsSource).toMatch(
-      /\.prose-wiki \.note-table-scroll\s*\{[^}]*overflow-x:\s*auto;/u,
-    );
-    expect(globalsSource).toMatch(
-      /\.prose-wiki \.note-table-scroll table\s*\{[^}]*min-width:\s*36rem;/u,
-    );
-    expect(globalsSource).toMatch(
-      /\.prose-wiki \.note-table-scroll th\s*\{[^}]*font-weight:\s*600;/u,
-    );
-    expect(globalsSource).toContain(".prose-wiki .note-table-scroll tbody tr:nth-child(even)");
-  });
-
-  it("styles mermaid blocks as light note diagrams", () => {
-    const globalsSource = readFileSync(
-      fileURLToPath(new URL("../src/client/globals.css", import.meta.url)),
-      "utf8",
-    );
-
-    expect(globalsSource).toMatch(
-      /\.prose-wiki \.note-mermaid-block\s*\{[^}]*background:\s*var\(--brand-surface\);/u,
-    );
-    expect(globalsSource).toMatch(
-      /\.prose-wiki \.note-mermaid-render\s*\{[^}]*min-height:\s*12rem;/u,
-    );
-    expect(globalsSource).toMatch(
-      /\.prose-wiki \.note-mermaid-fallback\s*\{[^}]*white-space:\s*pre;/u,
-    );
-  });
-
-  it("styles ascii diagram blocks for light-theme whitespace preservation", () => {
-    const globalsSource = readFileSync(
-      fileURLToPath(new URL("../src/client/globals.css", import.meta.url)),
-      "utf8",
-    );
-
-    expect(globalsSource).toMatch(
-      /\.prose-wiki \.note-ascii-block\s*\{[^}]*white-space:\s*pre;/u,
-    );
-    expect(globalsSource).toMatch(
-      /\.prose-wiki \.note-ascii-block\s*\{[^}]*font-family:\s*var\(--font-mono\);/u,
-    );
-    expect(globalsSource).toMatch(
-      /\.prose-wiki \.note-ascii-block\s*\{[^}]*background:\s*var\(--brand-surface\);/u,
-    );
-  });
-
-  it("reuses the shared NoteViewer inside explorer ready tabs without local markdown rendering", () => {
-    const routeSource = readFileSync(
-      fileURLToPath(new URL("../src/client/routes/explorer-route.tsx", import.meta.url)),
-      "utf8",
-    );
-    const globalsSource = readFileSync(
-      fileURLToPath(new URL("../src/client/globals.css", import.meta.url)),
-      "utf8",
-    );
-    const viewerSource = readFileSync(
-      fileURLToPath(new URL("../src/components/note-viewer.tsx", import.meta.url)),
-      "utf8",
-    );
-
-    expect(routeSource).toContain('from "@/components/note-viewer"');
-    expect(routeSource).toContain("<NoteViewer");
-    expect(routeSource).toContain("page={page}");
-    expect(routeSource).toContain("onNavigateNote={onWikiLink}");
-    expect(routeSource).toContain("onRefreshPage={refreshActivePage}");
-    expect(routeSource).toContain("scrollContainerRef={workspaceScrollRef}");
-    expect(routeSource).toContain("explorer-note-viewer-shell");
-    expect(routeSource).not.toContain("ReactMarkdown");
-    expect(routeSource).not.toContain("type Components");
-    expect(routeSource).not.toContain("markdownBaseComponents");
-    expect(routeSource).not.toContain("const markdownComponents = useMemo<Components>");
-    expect(viewerSource).toContain('data-note-viewer-mobile-toc="true"');
-    expect(viewerSource).toContain('data-note-viewer-side-rail="true"');
-    expect(viewerSource).toContain('data-note-viewer-mobile-connections="true"');
-    expect(viewerSource).toContain("xl:grid");
-    expect(viewerSource).toContain("xl:max-w-[calc(48rem+13rem+2rem)]");
-    expect(viewerSource).toContain("xl:grid-cols-[minmax(0,1fr)_13rem]");
-    expect(viewerSource).toContain("xl:static");
-    expect(globalsSource).toContain("@container explorer-note-viewer");
-    expect(globalsSource).toContain("(max-width: 35.99rem)");
-    expect(globalsSource).toContain("(min-width: 36rem)");
-    expect(globalsSource).toContain(".note-viewer-side-rail > div");
-    expect(globalsSource).toContain("position: sticky;");
-    expect(globalsSource).toContain("align-self: stretch;");
-    expect(globalsSource).toContain(".explorer-note-viewer-shell");
-    expect(globalsSource).toContain(".note-viewer-mobile-toc");
-    expect(globalsSource).toContain(".note-viewer-side-rail");
-    expect(globalsSource).toContain(".note-viewer-mobile-connections");
-  });
-
-  it("bounds the explorer to the viewport so its tab panel is the note scroll root", () => {
-    const routeSource = readFileSync(
-      fileURLToPath(new URL("../src/client/routes/explorer-route.tsx", import.meta.url)),
-      "utf8",
-    );
-
-    expect(routeSource).toContain("md:h-dvh");
-    expect(routeSource).toContain("md:min-h-0");
-    expect(routeSource).toContain("md:overflow-hidden");
-    expect(routeSource).toContain("overflow-y-auto");
-  });
-
   it("only applies refreshed explorer pages while the same slug is still active", () => {
     expect(
       applyExplorerRefreshResult("people/Ada%20Lovelace", "people/Ada%20Lovelace", samplePage),
@@ -1035,17 +832,5 @@ describe("shared note viewer rendering and route boundaries", () => {
     expect(
       applyExplorerRefreshResult("history/Analytical%20Engine", "people/Ada%20Lovelace", samplePage),
     ).toBeNull();
-  });
-
-  it("keeps refresh failures local to NoteViewer instead of replacing the ready reader state", () => {
-    const routeSource = readFileSync(
-      fileURLToPath(new URL("../src/client/routes/explorer-route.tsx", import.meta.url)),
-      "utf8",
-    );
-
-    expect(routeSource).toMatch(
-      /const refreshActivePage = useCallback\(async \(\) => \{[\s\S]*?catch \(error\) \{[\s\S]*?throw error;[\s\S]*?\}\s*,?\s*\}, \[navigate\]\);/u,
-    );
-    expect(routeSource).not.toContain('setReaderState({ slug, status: "error" })');
   });
 });

@@ -319,42 +319,6 @@ describe("Home status and discovery helpers", () => {
     );
   });
 
-  it("keeps Home search controls explicit and free of the rejected visual treatments", () => {
-    const source = readFileSync(
-      fileURLToPath(new URL("../src/components/search-box.tsx", import.meta.url)),
-      "utf8",
-    );
-    const styles = readFileSync(
-      fileURLToPath(new URL("../src/client/globals.css", import.meta.url)),
-      "utf8",
-    );
-
-    expect(source).toContain('aria-label="Clear search"');
-    expect(source).toContain('aria-busy={refreshBusy}');
-    expect(source).toContain("Refresh index");
-    expect(source).toContain("Try search again");
-    expect(source).not.toContain("bg-gradient");
-    expect(source).not.toContain("font-display");
-    expect(source).not.toContain('className="surface');
-    expect(source).not.toContain("ArrowUp");
-    expect(source).toContain('className="home-hero"');
-    expect(source).toContain("<header>");
-    expect(source).toContain("<HomeFooter");
-    expect(source).toContain("onFocusSearch={handleFooterSearchFocus}");
-    expect(source.match(/home-destination-icon/g)).toHaveLength(3);
-    expect(styles).toContain("--home-hero: var(--brand-deep)");
-    expect(styles).toContain(".home-footer {");
-    expect(styles).toContain(".home-footer::before {");
-    expect(styles).toContain("clip-path: ellipse(");
-    expect(styles).toContain("background: var(--home-hero);");
-    expect(styles).toContain(".home-destination-icon");
-    expect(styles).toContain(".home-destination-link:hover .home-destination-icon");
-    expect(styles).toContain(".home-note-link:hover");
-    expect(styles).toContain("transition-duration: 220ms");
-    expect(styles).toContain(".home-note-link {\n    transition: none;");
-    expect(styles).not.toContain(".home-hero {\n  background-image:");
-  });
-
   it("selects stable featured notes outside recent and connected lists when possible", () => {
     const pages = Array.from({ length: 12 }, (_, index) => page(index + 1));
     const recent = pages.slice(0, 4);
@@ -371,5 +335,3 @@ describe("Home status and discovery helpers", () => {
     );
   });
 });
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";

@@ -29,7 +29,7 @@ import {
 
 type SqliteDb = Database.Database;
 
-export type SyncSource = "startup" | "watcher" | "reindex" | "periodic" | "manual";
+import type { SyncSource } from "./wiki-shared";
 
 export interface WikiHealthStatus {
   sync: {
@@ -109,7 +109,6 @@ export interface WikiQueryDependencies {
 
 export interface WikiQueries {
   getDerivedData(): Promise<DerivedData>;
-  canonicalSlugFromRouteParts(slugParts: string[]): Promise<string>;
   searchWiki(query: string): Promise<SearchResult[]>;
   getWikiStats(): Promise<WikiStats>;
   getHomepageData(): Promise<HomepageData>;
@@ -209,7 +208,7 @@ export function normalizeSearchTerms(query: string) {
     return [];
   }
 
-  return trimmed.split(/\s+/).filter(Boolean);
+  return [...new Set(trimmed.split(/\s+/).filter(Boolean))];
 }
 
 async function prepareRead(deps: WikiQueryDependencies) {
@@ -250,7 +249,8 @@ export async function getDerivedData(deps: WikiQueryDependencies): Promise<Deriv
     return cache.derivedCache;
   }
 
-  const [config, db] = await Promise.all([deps.getConfig(), Promise.resolve(deps.getDb())]);
+  const config = await deps.getConfig();
+  const db = deps.getDb();
   const totals = db
     .prepare(`
       SELECT
@@ -386,7 +386,7 @@ export async function getDerivedData(deps: WikiQueryDependencies): Promise<Deriv
   return derivedData;
 }
 
-export async function canonicalSlugFromRouteParts(slugParts: string[]) {
+function canonicalSlugFromRouteParts(slugParts: string[]) {
   const decodedParts = decodeSlugParts(slugParts);
   if (decodedParts.length === 0) {
     throw new Error("Invalid wiki slug");
@@ -415,27 +415,21 @@ export async function searchWiki(
   const db = deps.getDb();
   const ftsQuery = buildFtsQuery(terms);
 
-  let candidates: SearchCandidate[] = [];
-
-  try {
-    candidates = db
-      .prepare(`
-        SELECT
-          p.file AS file,
-          p.title AS title,
-          p.title_lower AS titleLower,
-          p.content_lower AS contentLower,
-          p.markdown AS markdown
-        FROM pages_fts f
-        JOIN pages p ON p.file = f.file
-        WHERE pages_fts MATCH ?
-        ORDER BY bm25(pages_fts)
-        LIMIT 80
-      `)
-      .all(ftsQuery) as SearchCandidate[];
-  } catch {
-    return [];
-  }
+  const candidates = db
+    .prepare(`
+      SELECT
+        p.file AS file,
+        p.title AS title,
+        p.title_lower AS titleLower,
+        p.content_lower AS contentLower,
+        p.markdown AS markdown
+      FROM pages_fts f
+      JOIN pages p ON p.file = f.file
+      WHERE pages_fts MATCH ?
+      ORDER BY bm25(pages_fts)
+      LIMIT 80
+    `)
+    .all(ftsQuery) as SearchCandidate[];
 
   const results: SearchResult[] = [];
 
@@ -499,7 +493,8 @@ export async function getExplorerPages(deps: WikiQueryDependencies): Promise<Exp
 export async function getGraphData(deps: WikiQueryDependencies): Promise<GraphData> {
   await prepareRead(deps);
 
-  const [config, db] = await Promise.all([deps.getConfig(), Promise.resolve(deps.getDb())]);
+  const config = await deps.getConfig();
+  const db = deps.getDb();
   const nodes = db
     .prepare(`
       SELECT slug, title, summary, backlink_count AS backlinkCount, word_count AS wordCount, category_names_json AS categoryNamesJson
@@ -556,13 +551,25 @@ export async function getGraphData(deps: WikiQueryDependencies): Promise<GraphDa
   };
 }
 
+const linkIndexes = new WeakMap<SqliteDb, { revision: number; index: WikiLinkIndex }>();
+
+function getLinkIndex(db: SqliteDb, revision: number): WikiLinkIndex {
+  const cached = linkIndexes.get(db);
+  if (cached?.revision === revision) return cached.index;
+  const index = buildWikiLinkIndex(
+    db.prepare("SELECT file, slug, title FROM pages").all() as WikiLinkCandidate[],
+  );
+  linkIndexes.set(db, { revision, index });
+  return index;
+}
+
 export async function getWikiPage(
   deps: WikiQueryDependencies,
   slugParts: string[],
 ): Promise<WikiPageData> {
   await prepareRead(deps);
 
-  const canonicalSlug = await canonicalSlugFromRouteParts(slugParts);
+  const canonicalSlug = canonicalSlugFromRouteParts(slugParts);
   const target = decodeSlugParts(slugParts).join("/");
   const db = deps.getDb();
   const selectPage = db
@@ -580,21 +587,14 @@ export async function getWikiPage(
     `);
 
   let row: WikiPageRow | undefined;
-  let linkIndex: WikiLinkIndex;
+  const linkIndex = getLinkIndex(db, deps.getCacheState().revision);
 
   if (target.includes("/")) {
     row = selectPage.get(canonicalSlug) as WikiPageRow | undefined;
     if (!row) {
       throw new Error("Wiki page not found");
     }
-
-    linkIndex = buildWikiLinkIndex(
-      db.prepare("SELECT file, slug, title FROM pages").all() as WikiLinkCandidate[],
-    );
   } else {
-    linkIndex = buildWikiLinkIndex(
-      db.prepare("SELECT file, slug, title FROM pages").all() as WikiLinkCandidate[],
-    );
     const resolution = resolveWikiLinkTarget(target, null, linkIndex);
 
     if (resolution.status === "ambiguous") {
@@ -761,7 +761,6 @@ export async function getWikiHealthStatus(
 export function createWikiQueries(deps: WikiQueryDependencies): WikiQueries {
   return {
     getDerivedData: () => getDerivedData(deps),
-    canonicalSlugFromRouteParts,
     searchWiki: (query) => searchWiki(deps, query),
     getWikiStats: () => getWikiStats(deps),
     getHomepageData: () => getHomepageData(deps),

@@ -26,8 +26,6 @@ function createPage(
     wordCount: 0,
     backlinkReferences,
     categoryNames: [],
-    hasCodeBlocks: false,
-    headings: [],
     modifiedAt: 0,
     summary: "",
     isPerson: false,

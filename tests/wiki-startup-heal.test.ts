@@ -58,15 +58,19 @@ describe("wiki startup self-heal", () => {
       (globalThis as any)[cacheKey]?.db?.close();
       const rebuiltDb = new Database(indexDbPath, { readonly: true });
       const userVersion = rebuiltDb.pragma("user_version", { simple: true });
+      const columns = rebuiltDb.prepare("PRAGMA table_info(pages)").all() as { name: string }[];
+      for (const name of ["content_markdown", "has_code_blocks", "headings_json", "kind"]) {
+        expect(columns.map(column => column.name)).not.toContain(name);
+      }
       rebuiltDb.close();
 
-      expect(userVersion).toBe(6);
+      expect(userVersion).toBe(7);
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
   });
 
-  it("cache: version-5 index rebuilds as version 6", async () => {
+  it("cache: previous cache is rebuilt with the lean schema", async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "wiki-ui-self-heal-"));
     const wikiRoot = path.join(tempDir, "vault");
     const indexDbPath = path.join(tempDir, "index.sqlite");
@@ -75,7 +79,14 @@ describe("wiki startup self-heal", () => {
       await mkdir(wikiRoot, { recursive: true });
       await writeFile(path.join(wikiRoot, "Alpha.md"), "# Alpha\n");
       const staleDb = new Database(indexDbPath);
-      runDbMigrations(staleDb, { cacheVersion: 5 });
+      runDbMigrations(staleDb, { cacheVersion: 6 });
+      staleDb.exec(`
+        ALTER TABLE pages ADD COLUMN content_markdown TEXT;
+        ALTER TABLE pages ADD COLUMN has_code_blocks INTEGER;
+        ALTER TABLE pages ADD COLUMN headings_json TEXT;
+        ALTER TABLE pages ADD COLUMN kind TEXT;
+        CREATE INDEX idx_pages_kind ON pages(kind);
+      `);
       staleDb.close();
 
       const wiki = await loadWikiModule(wikiRoot, indexDbPath);
@@ -86,10 +97,14 @@ describe("wiki startup self-heal", () => {
       (globalThis as any)[cacheKey]?.db?.close();
       const rebuiltDb = new Database(indexDbPath, { readonly: true });
       const userVersion = rebuiltDb.pragma("user_version", { simple: true });
+      const columns = rebuiltDb.prepare("PRAGMA table_info(pages)").all() as { name: string }[];
+      for (const name of ["content_markdown", "has_code_blocks", "headings_json", "kind"]) {
+        expect(columns.map(column => column.name)).not.toContain(name);
+      }
       rebuiltDb.close();
 
       expect(homepage.totalPages).toBe(1);
-      expect(userVersion).toBe(6);
+      expect(userVersion).toBe(7);
       expect(
         tempFiles.some((fileName) => fileName.startsWith("index.sqlite.corrupt-")),
       ).toBe(true);

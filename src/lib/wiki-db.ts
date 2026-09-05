@@ -1,13 +1,12 @@
 import Database from "better-sqlite3";
 
-import type { WikiHeading } from "./wiki-shared";
 import {
   buildWikiLinkIndex,
   resolveWikiLinkTarget,
   type WikiLinkCandidate,
 } from "./wiki-link-resolver";
 
-export const DEFAULT_WIKI_INDEX_CACHE_VERSION = 6;
+export const DEFAULT_WIKI_INDEX_CACHE_VERSION = 7;
 export const REQUIRED_INDEX_TABLES = ["pages", "backlinks", "categories", "pages_fts"] as const;
 
 export type SqliteDb = Database.Database;
@@ -27,8 +26,6 @@ export interface IndexedWikiPageRecord {
   wordCount: number;
   backlinkReferences: BacklinkReferenceRecord[];
   categoryNames: string[];
-  hasCodeBlocks: boolean;
-  headings: WikiHeading[];
   modifiedAt: number;
   summary: string;
   isPerson: boolean;
@@ -122,15 +119,11 @@ export function runDbMigrations(db: SqliteDb, options: WikiDbMigrationOptions = 
       title TEXT NOT NULL,
       title_lower TEXT NOT NULL,
       markdown TEXT NOT NULL,
-      content_markdown TEXT NOT NULL,
       content_lower TEXT NOT NULL,
       word_count INTEGER NOT NULL,
-      has_code_blocks INTEGER NOT NULL CHECK (has_code_blocks IN (0, 1)),
-      headings_json TEXT NOT NULL,
       modified_at REAL NOT NULL,
       summary TEXT NOT NULL,
       is_person INTEGER NOT NULL CHECK (is_person IN (0, 1)),
-      kind TEXT NOT NULL CHECK (kind IN ('page', 'source', 'raw')),
       category_names_json TEXT NOT NULL,
       backlink_count INTEGER NOT NULL DEFAULT 0
     );
@@ -145,7 +138,6 @@ export function runDbMigrations(db: SqliteDb, options: WikiDbMigrationOptions = 
       PRIMARY KEY (source_file, target_raw)
     );
 
-    CREATE INDEX IF NOT EXISTS idx_pages_kind ON pages(kind);
     CREATE INDEX IF NOT EXISTS idx_pages_modified ON pages(modified_at DESC);
     CREATE INDEX IF NOT EXISTS idx_pages_backlink ON pages(backlink_count DESC, modified_at DESC);
     CREATE INDEX IF NOT EXISTS idx_backlinks_target_slug ON backlinks(target_slug);
@@ -261,31 +253,23 @@ export function upsertPageRecord(db: SqliteDb, page: IndexedWikiPageRecord) {
         title,
         title_lower,
         markdown,
-        content_markdown,
         content_lower,
         word_count,
-        has_code_blocks,
-        headings_json,
         modified_at,
         summary,
         is_person,
-        kind,
         category_names_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'page', ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(file) DO UPDATE SET
         slug = excluded.slug,
         title = excluded.title,
         title_lower = excluded.title_lower,
         markdown = excluded.markdown,
-        content_markdown = excluded.content_markdown,
         content_lower = excluded.content_lower,
         word_count = excluded.word_count,
-        has_code_blocks = excluded.has_code_blocks,
-        headings_json = excluded.headings_json,
         modified_at = excluded.modified_at,
         summary = excluded.summary,
         is_person = excluded.is_person,
-        kind = 'page',
         category_names_json = excluded.category_names_json
     `).run(
       page.file,
@@ -293,11 +277,8 @@ export function upsertPageRecord(db: SqliteDb, page: IndexedWikiPageRecord) {
       page.title,
       page.titleLower,
       page.markdown,
-      page.contentMarkdown,
       page.contentLower,
       page.wordCount,
-      page.hasCodeBlocks ? 1 : 0,
-      JSON.stringify(page.headings),
       page.modifiedAt,
       page.summary,
       page.isPerson ? 1 : 0,
@@ -378,7 +359,6 @@ export function reconcileBacklinkTargets(db: SqliteDb) {
       );
     }
 
-    db.prepare("UPDATE pages SET backlink_count = 0").run();
     db.prepare(`
       UPDATE pages
       SET backlink_count = (

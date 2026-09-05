@@ -11,7 +11,7 @@ const nodeExecPath = process.env.npm_node_execpath ?? process.execPath;
 
 function runCommand(args, extraEnv = {}) {
   return new Promise((resolve, reject) => {
-    const command = npmExecPath ? nodeExecPath : (process.platform === "win32" ? "npm.cmd" : "npm");
+    const command = npmExecPath ? nodeExecPath : (process.platform === "win32" ? "pnpm.cmd" : "pnpm");
     const commandArgs = npmExecPath ? [npmExecPath, ...args] : args;
 
     const child = spawn(command, commandArgs, {

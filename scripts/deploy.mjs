@@ -53,7 +53,7 @@ function parseFlags(argv) {
   };
 }
 
-function npmCommand() {
+function pnpmCommand() {
   if (process.env.npm_execpath) {
     return {
       command: process.env.npm_node_execpath ?? process.execPath,
@@ -62,7 +62,7 @@ function npmCommand() {
   }
 
   return {
-    command: process.platform === "win32" ? "npm.cmd" : "npm",
+    command: process.platform === "win32" ? "pnpm.cmd" : "pnpm",
     args: [],
   };
 }
@@ -116,9 +116,9 @@ function run(command, args, options = {}) {
   });
 }
 
-async function runNpm(args, options = {}) {
-  const npm = npmCommand();
-  return run(npm.command, [...npm.args, ...args], { ...options, shell: npm.args.length === 0 && process.platform === "win32" });
+async function runPnpm(args, options = {}) {
+  const pnpm = pnpmCommand();
+  return run(pnpm.command, [...pnpm.args, ...args], { ...options, shell: pnpm.args.length === 0 && process.platform === "win32" });
 }
 
 async function waitForHealth() {
@@ -175,19 +175,19 @@ async function main() {
   if (!skipInstall) {
     await log("Installing dependencies...");
     try {
-      const output = await runNpm(["install", "--prefer-offline"]);
+      const output = await runPnpm(["install", "--frozen-lockfile", "--prefer-offline"]);
       const lines = output.trim().split(/\r?\n/).filter(Boolean);
       await appendFile(deployLog, `${lines.slice(-3).join("\n")}${lines.length ? "\n" : ""}`, "utf8");
     } catch (error) {
-      await fail(`npm install failed\n${errorMessage(error, "npm install failed")}`);
+      await fail(`pnpm install failed\n${errorMessage(error, "pnpm install failed")}`);
     }
   } else {
-    await log("Skipping npm install (--skip-install)");
+    await log("Skipping pnpm install (--skip-install)");
   }
 
   await log("Building app...");
   try {
-    const output = await runNpm(["run", "build"]);
+    const output = await runPnpm(["run", "build"]);
     const lines = output.trim().split(/\r?\n/).filter(Boolean);
     await appendFile(deployLog, `${lines.slice(-8).join("\n")}${lines.length ? "\n" : ""}`, "utf8");
   } catch (error) {
