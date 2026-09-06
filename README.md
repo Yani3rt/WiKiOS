@@ -8,13 +8,13 @@ Originally released as WikiOS under the MIT License. [Ansub/wiki-os.git](https:/
 
 ### Notes workspace
 
-![WikiOS tabbed notes workspace with navigation and reading tools](images/Home.png)
+![WikiOS tabbed notes workspace with folder navigation, pinned notes, and connections](images/Home.png)
 
 ### Knowledge graph
 
 ![WikiOS 2D neural graph with topic colors and a clickable legend](images/graph.png)
 
-Screenshots show a demonstration vault.
+The graph screenshot shows a demonstration vault.
 
 ## What it does
 
