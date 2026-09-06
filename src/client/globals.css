@@ -2066,8 +2066,7 @@ html {
   .workspace-reader {padding:24px 20px 40px;}
   .workspace-reader h1 {font-size:30px;letter-spacing:-.6px;overflow-wrap:anywhere;}
   .workspace-pins button {min-height:44px;}
-  .workspace-search {min-height:44px;}
-  .workspace-search kbd {display:none;}
+  .workspace-sidebar-top > :is(.workspace-search, .workspace-nav) {display:none;}
   .workspace-tree input {font-size:16px;}
   .workspace-sidebar-footer > a {min-height:44px;}
   .workspace-note-options summary {min-height:44px;min-width:44px;justify-content:center;}
