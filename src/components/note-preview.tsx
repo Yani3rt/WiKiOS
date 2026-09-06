@@ -13,6 +13,7 @@ export function previewExcerpt(markdown: string) {
 }
 
 const PREVIEW_DWELL_MS = 750;
+const PREVIEW_SWITCH_MS = 150;
 
 type Target = {slug:string; element:HTMLElement; touch:boolean; x:number; y:number};
 type Preview = {slug:string; page?:WikiPageData; message?:string};
@@ -23,6 +24,14 @@ export function NotePreview({rootRef, onOpen, activeSlug}: {
   const panel=useRef<HTMLDivElement>(null);
   const openRef=useRef(onOpen); openRef.current=onOpen;
   const [target,setTarget]=useState<Target|null>(null);
+  const [retainedTarget,setRetainedTarget]=useState<Target|null>(null);
+  // Retain only the visual shell while exiting; interactions and requests end immediately.
+  useEffect(()=>{
+    if (target) {setRetainedTarget(target);return;}
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {setRetainedTarget(null);return;}
+    const timeout=setTimeout(()=>setRetainedTarget(null),140);
+    return ()=>clearTimeout(timeout);
+  },[target]);
   const targetRef=useRef(target);targetRef.current=target;
   const [result,setResult]=useState<Preview|null>(null);
   const [retry,setRetry]=useState(0);
@@ -32,6 +41,7 @@ export function NotePreview({rootRef, onOpen, activeSlug}: {
   useEffect(()=>{
     const root=rootRef.current;if (!root) return;
     let timer:ReturnType<typeof setTimeout>|undefined;
+    let pendingFocus:HTMLElement|null=null;
     const cancel=()=>clearTimeout(timer);
     function resolve(node:EventTarget|null): {element:HTMLElement;slug:string}|null {
       if (!(node instanceof Element)) return null;
@@ -45,30 +55,43 @@ export function NotePreview({rootRef, onOpen, activeSlug}: {
       return slug && slug!==activeSlug ? {element,slug}:null;
     }
     function show(found:{element:HTMLElement;slug:string},touch:boolean) {
+      pendingFocus=null;
       const rect=found.element.getBoundingClientRect();
-      setTarget({...found,touch,x:Math.max(12,Math.min(rect.left,innerWidth-352)),y:Math.max(12,Math.min(rect.bottom+8,innerHeight-320))});
+      const drawer=found.element.closest('#explorer-sidebar')?.getBoundingClientRect();
+      const besideDrawer=drawer && drawer.right+352<=innerWidth;
+      setTarget({...found,touch,x:Math.max(12,Math.min(besideDrawer?drawer.right+8:rect.left,innerWidth-352)),y:Math.max(12,Math.min(besideDrawer?rect.top+rect.height/2-160:rect.bottom+8,innerHeight-320))});
     }
     const hover=(event:PointerEvent)=>{
-      if (panel.current?.contains(event.target as Node)) {cancel();return;}
+      if (panel.current?.contains(event.target as Node)) {if (!pendingFocus) cancel();return;}
       if (event.pointerType==='touch' || window.matchMedia('(hover: none)').matches) return;
       const found=resolve(event.target); if (!found || found.element.contains(event.relatedTarget as Node|null)) return;
-      cancel();timer=setTimeout(()=>show(found,false),PREVIEW_DWELL_MS);
+      if (pendingFocus && pendingFocus!==found.element && targetRef.current?.element===found.element) return;
+      pendingFocus=null;
+      cancel();
+      if (targetRef.current?.element===found.element) return;
+      timer=setTimeout(()=>show(found,false),targetRef.current?PREVIEW_SWITCH_MS:PREVIEW_DWELL_MS);
     };
     const leave=(event:PointerEvent)=>{
+      if (pendingFocus===document.activeElement) return;
       if (panel.current?.contains(event.relatedTarget as Node|null)) {cancel();return;}
       const found=resolve(event.target);
       // pointerout bubbles between the icon, label and row: only a real row exit counts.
-      if (!found || found.element.contains(event.relatedTarget as Node|null)) return;
+      if (found?.element.contains(event.relatedTarget as Node|null)) return;
+      if (!found && !panel.current?.contains(event.target as Node)) return;
       cancel();timer=setTimeout(()=>setTarget(null),180);
     };
     const focus=(event:FocusEvent)=>{
       if (suppressFocus.current) return;
       const found=resolve(event.target);if (!found) return;
-      cancel();timer=setTimeout(()=>show(found,false),PREVIEW_DWELL_MS);
+      pendingFocus=found.element;
+      cancel();
+      if (targetRef.current?.element===found.element) return;
+      timer=setTimeout(()=>show(found,false),targetRef.current?PREVIEW_SWITCH_MS:PREVIEW_DWELL_MS);
     };
     const blur=(event:FocusEvent)=>{
-      if (panel.current?.contains(event.relatedTarget as Node|null)) return;
-      cancel(); if (resolve(event.target)) setTarget(null);
+      pendingFocus=null;
+      if (panel.current?.contains(event.relatedTarget as Node|null) || resolve(event.relatedTarget)) {cancel();return;}
+      cancel(); if (resolve(event.target) || panel.current?.contains(event.target as Node)) setTarget(null);
     };
     const click=(event:MouseEvent)=>{
       const found=resolve(event.target);if (!found || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || event.button!==0) return;
@@ -107,13 +130,28 @@ export function NotePreview({rootRef, onOpen, activeSlug}: {
     return ()=>{controller.abort();target.element.removeAttribute('aria-describedby');};
   },[target,id,retry]);
   useEffect(()=>{if (target?.touch) panel.current?.querySelector<HTMLButtonElement>('button')?.focus();},[target]);
-  if (!target) return null;
-  const current=result?.slug===target.slug ? result:null;
-  return <div ref={panel} id={id} role="dialog" aria-label="Note preview" className={`note-peek ${target.touch?'note-peek-touch':''}`} style={target.touch?undefined:{left:target.x,top:target.y,maxHeight:innerHeight-target.y-12}}
-    onPointerLeave={event=>{if (!target.element.contains(event.relatedTarget as Node|null)) setTarget(null);}}
-    onBlur={event=>{if (!event.currentTarget.contains(event.relatedTarget)) setTarget(null);}}>
-    <header><span><FileText size={14}/>Note preview</span><button aria-label="Close note preview" onClick={()=>{setTarget(null);suppressFocus.current=true;target.element.focus({preventScroll:true});suppressFocus.current=false;}}><X size={16}/></button></header>
-    {current?.page ? <><h2>{current.page.title}</h2><p className="note-peek-excerpt">{previewExcerpt(current.page.contentMarkdown)}</p>{current.page.modifiedAt>0 && <time dateTime={new Date(current.page.modifiedAt).toISOString()}>Updated {new Date(current.page.modifiedAt).toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'})}</time>}</> : <p role="status" className="note-peek-excerpt">{current?.message??'Loading preview…'} {current?.message==='Preview unavailable.' && <button onClick={()=>setRetry(value=>value+1)}>Retry</button>}</p>}
-    <button className="note-peek-open" onClick={()=>{setTarget(null);openRef.current(target.slug);}}>Open in tab<ArrowUpRight size={15}/></button>
+  const visibleTarget=target??retainedTarget;
+  const current=result?.slug===visibleTarget?.slug ? result:null;
+  const previousContent=useRef<Preview|null>(null);
+  const [outgoing,setOutgoing]=useState<Preview|null>(null);
+  useEffect(()=>{
+    setOutgoing(window.matchMedia('(prefers-reduced-motion: reduce)').matches?null:previousContent.current);
+    previousContent.current=current;
+    const timeout=setTimeout(()=>setOutgoing(null),160);
+    return ()=>clearTimeout(timeout);
+  },[current]);
+  if (!visibleTarget) return null;
+  const exiting=!target;
+  return <div ref={panel} id={exiting?undefined:id} role={exiting?undefined:"dialog"} aria-hidden={exiting || undefined} inert={exiting} aria-label="Note preview" className={`note-peek ${visibleTarget.touch?'note-peek-touch':''} ${exiting?'note-peek-exiting':''}`} style={visibleTarget.touch?undefined:{left:0,top:0,translate:`${visibleTarget.x}px ${visibleTarget.y}px`,maxHeight:innerHeight-visibleTarget.y-12}}>
+    <header><span><FileText size={14}/>Note preview</span><button aria-label="Close note preview" onClick={()=>{setTarget(null);suppressFocus.current=true;visibleTarget.element.focus({preventScroll:true});suppressFocus.current=false;}}><X size={16}/></button></header>
+    <div className="note-peek-content">
+      {outgoing && <div className="note-peek-content-out" aria-hidden="true" inert><PreviewText preview={outgoing}/></div>}
+      <div className="note-peek-content-in" key={`${visibleTarget.slug}:${current?.page?'ready':current?.message??'loading'}`}><PreviewText preview={current} onRetry={()=>setRetry(value=>value+1)}/></div>
+    </div>
+    <button className="note-peek-open" onClick={()=>{setTarget(null);openRef.current(visibleTarget.slug);}}>Open in tab<ArrowUpRight size={15}/></button>
   </div>;
+}
+
+function PreviewText({preview,onRetry}: {preview:Preview|null;onRetry?:()=>void}) {
+  return <>{preview?.page ? <><h2>{preview.page.title}</h2><p className="note-peek-excerpt">{previewExcerpt(preview.page.contentMarkdown)}</p>{preview.page.modifiedAt>0 && <time dateTime={new Date(preview.page.modifiedAt).toISOString()}>Updated {new Date(preview.page.modifiedAt).toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'})}</time>}</> : <p role="status" className="note-peek-excerpt">{preview?.message??'Loading preview…'} {preview?.message==='Preview unavailable.' && <button onClick={()=>onRetry?.()}>Retry</button>}</p>}</>;
 }

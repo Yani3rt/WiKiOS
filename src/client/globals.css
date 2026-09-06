@@ -1999,3 +1999,37 @@ html {
   .graph-shell .graph-toolbar button + button { border-left: 0; border-top: 1px solid var(--graph-border); }
   .graph-shell .graph-toolbar-stack--panel-open { bottom: calc(var(--graph-toolbar-panel-offset, 12px) + max(12px, env(safe-area-inset-bottom))); }
 }
+
+@keyframes note-peek-arrive {
+  from {opacity:0;transform:translateY(8px) scale(.985);}
+  to {opacity:1;transform:translateY(0) scale(1);}
+}
+@keyframes note-peek-depart {
+  from {opacity:1;transform:translateY(0) scale(1);}
+  to {opacity:0;transform:translateY(4px) scale(.99);}
+}
+.note-peek-exiting {pointer-events:none;}
+@media (prefers-reduced-motion:no-preference) {
+  .note-peek {transform-origin:50% 100%;animation:note-peek-arrive 220ms cubic-bezier(.22,1,.36,1) both;}
+  .note-peek-exiting {animation:note-peek-depart 140ms ease-out both;}
+  .note-peek-open svg {transition:transform 180ms cubic-bezier(.22,1,.36,1);}
+  .note-peek-open:hover svg, .note-peek-open:focus-visible svg {transform:translate(2px,-2px);}
+}
+@media (prefers-reduced-motion:reduce) {
+  .note-peek, .note-peek-open svg {animation:none;transition:none;transform:none;}
+}
+
+.note-peek-content {display:grid;}
+.note-peek-content > div {grid-area:1 / 1;min-width:0;}
+.note-peek-content-out {pointer-events:none;}
+@keyframes note-peek-content-in {from {opacity:0;} to {opacity:1;}}
+@keyframes note-peek-content-out {from {opacity:1;} to {opacity:0;}}
+@media (prefers-reduced-motion:no-preference) {
+  .note-peek:not(.note-peek-touch) {transition:translate 240ms cubic-bezier(.22,1,.36,1);}
+  .note-peek-content-in {animation:note-peek-content-in 160ms ease-out both;}
+  .note-peek-content-out {animation:note-peek-content-out 160ms ease-out both;}
+}
+@media (prefers-reduced-motion:reduce) {
+  .note-peek-content-in, .note-peek-content-out {animation:none;}
+  .note-peek-content-out {display:none;}
+}

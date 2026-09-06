@@ -79,3 +79,80 @@ it('keeps the preview open when crossing the gap into its controls', async () =>
   await act(async () => vi.advanceTimersByTimeAsync(200));
   expect(container.querySelector('[role="dialog"]')).not.toBeNull();
 });
+
+it('keeps only an inert visual card during the short exit, then removes it', async () => {
+  await focus();
+  await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Close note preview"]')!.click());
+  const leaving = container.querySelector('.note-peek');
+  expect(leaving).not.toBeNull();
+  expect(leaving?.getAttribute('aria-hidden')).toBe('true');
+  expect(leaving?.hasAttribute('inert')).toBe(true);
+  expect(container.querySelector('[role="dialog"]')).toBeNull();
+  await act(async () => vi.advanceTimersByTimeAsync(141));
+  expect(container.querySelector('.note-peek')).toBeNull();
+});
+it('removes the card immediately for reduced motion', async () => {
+  vi.stubGlobal('matchMedia', (query: string) => ({matches: query === '(prefers-reduced-motion: reduce)'}));
+  await focus();
+  await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Close note preview"]')!.click());
+  expect(container.querySelector('.note-peek')).toBeNull();
+});
+it('does not let an old exit timer remove a newly opened preview', async () => {
+  vi.stubGlobal('matchMedia', (query: string) => ({matches: query === '(hover: none)'}));
+  const note = container.querySelector<HTMLButtonElement>('[data-note-slug]')!;
+  await act(async () => note.click());
+  await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Close note preview"]')!.click());
+  await act(async () => vi.advanceTimersByTimeAsync(70));
+  await act(async () => note.click());
+  await act(async () => vi.advanceTimersByTimeAsync(150));
+  expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+  expect(container.querySelector('.note-peek')?.hasAttribute('inert')).toBe(false);
+});
+
+it('reuses the open card and switches to another note after 150ms', async () => {
+  container.querySelector('a')!.getBoundingClientRect = () => ({left:100,top:180,bottom:220} as DOMRect);
+  await focus();
+  const card = container.querySelector('[role="dialog"]');
+  const first = container.querySelector('[data-note-slug]')!;
+  const next = container.querySelector('a')!;
+  await pointer(first, 'pointerout', next);
+  await pointer(next, 'pointerover', first);
+  await act(async () => vi.advanceTimersByTimeAsync(149));
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  expect(container.querySelector('[role="dialog"]')).toBe(card);
+  await act(async () => vi.advanceTimersByTimeAsync(2));
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+  expect(fetchMock.mock.calls[1][0]).toBe('/api/wiki/Notes/Other%252520note');
+  expect((card as HTMLElement).style.translate).toBe('100px 228px');
+  expect(container.querySelector('[role="dialog"]')).toBe(card);
+});
+it('keeps the card alive when keyboard focus moves between notes', async () => {
+  await focus();
+  const card = container.querySelector('[role="dialog"]');
+  await act(async () => container.querySelector<HTMLAnchorElement>('a')!.focus());
+  expect(container.querySelector('[role="dialog"]')).toBe(card);
+  await act(async () => vi.advanceTimersByTimeAsync(151));
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+});
+
+it('does not switch while briefly passing over another note', async () => {
+  await focus();
+  const first = container.querySelector('[data-note-slug]')!;
+  const next = container.querySelector('a')!;
+  await pointer(first, 'pointerout', next);
+  await pointer(next, 'pointerover', first);
+  await act(async () => vi.advanceTimersByTimeAsync(100));
+  await pointer(next, 'pointerout', first);
+  await pointer(first, 'pointerover', next);
+  await act(async () => vi.advanceTimersByTimeAsync(200));
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+});
+it('does not cancel keyboard switching when scrolling re-enters the previous hovered row', async () => {
+  await focus();
+  const first = container.querySelector('[data-note-slug]')!;
+  await act(async () => container.querySelector<HTMLAnchorElement>('a')!.focus());
+  await pointer(first, 'pointerover');
+  await act(async () => vi.advanceTimersByTimeAsync(151));
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+});
