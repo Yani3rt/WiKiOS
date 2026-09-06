@@ -46,3 +46,22 @@ yarn-error.log*
 
 # isolated implementation worktrees
 .worktrees/
+
+# local planning, design tooling, and generated review artifacts
+/docs/
+/.impeccable/
+/output/
+/PRODUCT.md
+/DESIGN.md
+/design-qa.md
+/.codex/
+/.playwright-mcp/
+/playwright-report/
+/test-results/
+/.pnpm-store/
+
+# local vault runtime data
+/.wiki-os/
+/*.sqlite
+/*.sqlite-shm
+/*.sqlite-wal

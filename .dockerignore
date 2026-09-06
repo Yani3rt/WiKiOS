@@ -11,3 +11,20 @@ coverage
 *.tsbuildinfo
 .wiki-os
 docker-compose.override.yml
+
+# local planning, design tooling, and generated review artifacts
+docs
+.impeccable
+output
+PRODUCT.md
+DESIGN.md
+design-qa.md
+.agents
+.codex
+.claude
+.worktrees
+.playwright-cli
+.playwright-mcp
+playwright-report
+test-results
+.pnpm-store
