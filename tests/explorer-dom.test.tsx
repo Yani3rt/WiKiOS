@@ -15,6 +15,8 @@ let vaultId: string;
 const pages = ["Alpha", "Beta"].map(title => ({ title, slug: title, file: `${title}.md`, modifiedAt: 1, firstSeenAt: 2 }));
 beforeEach(async () => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  HTMLDialogElement.prototype.showModal = function() { this.setAttribute("open", ""); };
+  HTMLDialogElement.prototype.close = function() { this.removeAttribute("open"); this.dispatchEvent(new Event("close")); };
   vi.stubGlobal("matchMedia", () => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
   vi.stubGlobal("IntersectionObserver", class { observe() {} disconnect() {} });
   vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { callback(0); return 0; });
@@ -51,7 +53,7 @@ it("activates tabs with the keyboard and renders the selected note in its labell
   expect(document.activeElement).toBe(selected);
 });
 it("keeps the closed mobile drawer inert and restores trigger focus on Escape", async () => {
-  const toggle = container.querySelector<HTMLButtonElement>('[aria-label="Toggle note tree"]')!;
+  const toggle = container.querySelector<HTMLButtonElement>('[aria-label="Notes: toggle note tree"]')!;
   const nav = container.querySelector('[aria-label="Notes"]')!;
   expect(nav.closest("[inert]")).not.toBeNull();
   await act(async () => toggle.click());
@@ -85,7 +87,7 @@ it("restores reading position when switching back to a note", async () => {
 
 it("returns from Activity to the reader on URL and history navigation", async () => {
   const openActivity = async () => {
-    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Toggle note tree"]')!.click());
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Notes: toggle note tree"]')!.click());
     await act(async () => Array.from(container.querySelectorAll<HTMLButtonElement>(".workspace-nav button")).find(button => button.textContent === "Activity")!.click());
     expect(container.querySelector(".workspace-activity")).not.toBeNull();
   };
@@ -101,13 +103,13 @@ it("returns from Activity to the reader on URL and history navigation", async ()
 });
 
 it("contains keyboard focus in mobile connections and restores its trigger on Escape", async () => {
-  const toggle = container.querySelector<HTMLButtonElement>('[aria-label="Toggle connections"]')!;
-  expect(toggle.getAttribute("aria-expanded")).toBe("false");
+  const toggle = container.querySelector<HTMLButtonElement>('button[aria-label="More note actions"]')!;
   await act(async () => toggle.click());
+  await act(async () => Array.from(container.querySelectorAll<HTMLButtonElement>("dialog[open] > button")).find(button => button.textContent === "Connections")!.click());
   const dialog = container.querySelector<HTMLElement>('[role="dialog"][aria-label="Note connections"]')!;
   expect(dialog).not.toBeNull();
   expect(dialog.getAttribute("aria-modal")).toBe("true");
-  expect(toggle.getAttribute("aria-expanded")).toBe("true");
+
   expect(container.querySelector(".workspace-reading-column")?.hasAttribute("inert")).toBe(true);
   const close = dialog.querySelector<HTMLButtonElement>('[aria-label="Close connections"]')!;
   const last = dialog.querySelector<HTMLAnchorElement>(".workspace-graph-link")!;
@@ -117,7 +119,7 @@ it("contains keyboard focus in mobile connections and restores its trigger on Es
   await act(async () => last.dispatchEvent(new KeyboardEvent("keydown", {key:"Tab", bubbles:true})));
   expect(document.activeElement).toBe(close);
   await act(async () => close.dispatchEvent(new KeyboardEvent("keydown", {key:"Escape", bubbles:true})));
-  expect(toggle.getAttribute("aria-expanded")).toBe("false");
+
   expect(container.querySelector('[role="dialog"][aria-label="Note connections"]')).toBeNull();
   expect(container.querySelector(".workspace-reading-column")?.hasAttribute("inert")).toBe(false);
   expect(document.activeElement).toBe(toggle);
@@ -165,16 +167,18 @@ it("links vault controls to change mode and labels search as a palette action", 
 });
 
 it("toggles focus mode without changing saved layout and restores focus on Escape", async () => {
-  const button = container.querySelector<HTMLButtonElement>('[aria-label="Enter focus mode"]')!;
-  expect(button).not.toBeNull();
+  const more = container.querySelector<HTMLButtonElement>('button[aria-label="More note actions"]')!;
+  await act(async () => more.click());
+  const button = Array.from(container.querySelectorAll<HTMLButtonElement>('dialog[open] > button')).find(button => button.textContent === 'Focus mode')!;
   const before = readWorkspacePreferences(vaultId).connectionsOpen;
   await act(async () => button.click());
+  expect(document.activeElement).toBe(container.querySelector('.workspace-exit-focus'));
   expect(container.querySelector('main')?.classList.contains('workspace-focused')).toBe(true);
   expect(container.querySelector('#explorer-sidebar')?.getAttribute('aria-hidden')).toBe('true');
   await act(async () => window.dispatchEvent(new KeyboardEvent('keydown', {key:'Escape'})));
   expect(container.querySelector('main')?.classList.contains('workspace-focused')).toBe(false);
   expect(readWorkspacePreferences(vaultId).connectionsOpen).toBe(before);
-  expect(document.activeElement).toBe(button);
+  expect(document.activeElement).toBe(container.querySelector('button[aria-label="More note actions"]'));
 });
 it("does not offer Find in note on phones", () => {
   expect(container.querySelector('[aria-label="Find in note"]')).toBeNull();
@@ -192,10 +196,74 @@ it("offers Find at tablet width and removes it when resizing to phone width", as
   expect(event.defaultPrevented).toBe(false);
 });
 it('opens a tapped drawer note in its workspace tab without a preview on mobile', async () => {
-  await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Toggle note tree"]')!.click());
+  await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Notes: toggle note tree"]')!.click());
   const note = container.querySelector<HTMLButtonElement>('[data-note-slug="Beta"]')!;
   await act(async () => {note.focus();note.click();});
   expect(router.state.location.pathname).toBe('/explorer/Beta');
   expect(container.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe('Beta');
   expect(container.querySelector('[aria-label="Note preview"]')).toBeNull();
+});
+
+it('provides bottom navigation with direct Activity and Notes access', async () => {
+  const nav = container.querySelector<HTMLElement>('[aria-label="Mobile navigation"]');
+  expect(nav).not.toBeNull();
+  expect(nav!.querySelector('a')?.getAttribute('href')).toBe('/graph');
+  const activity = Array.from(nav!.querySelectorAll('button')).find(button => button.textContent === 'Activity')!;
+  await act(async () => activity.click());
+  expect(container.querySelector('.workspace-activity')).not.toBeNull();
+  expect(activity.getAttribute('aria-current')).toBe('page');
+  const notes = nav!.querySelector<HTMLButtonElement>('[aria-label="Notes: toggle note tree"]')!;
+  await act(async () => notes.click());
+  expect(notes.getAttribute('aria-expanded')).toBe('true');
+  expect(container.querySelector('.workspace-activity')).toBeNull();
+  await act(async () => document.dispatchEvent(new KeyboardEvent('keydown', {key:'Escape', bubbles:true})));
+  expect(document.activeElement).toBe(notes);
+});
+
+it('opens a mobile note actions sheet and pins the note', async () => {
+  const more = container.querySelector<HTMLButtonElement>('button[aria-label="More note actions"]');
+  expect(more).not.toBeNull();
+  await act(async () => more!.click());
+  const sheet = container.querySelector<HTMLDialogElement>('dialog[aria-label="Note actions"]')!;
+  expect(sheet.hasAttribute('open')).toBe(true);
+  const pin = Array.from(sheet.querySelectorAll('button')).find(button => button.textContent === 'Pin note')!;
+  await act(async () => pin.click());
+  expect(container.querySelector('.workspace-pins')?.textContent).toContain('Alpha');
+  expect(sheet.hasAttribute('open')).toBe(false);
+});
+
+it('toolbar arrows follow open-tab order rather than browser history', async () => {
+  await act(async () => router.navigate('/explorer/Gamma'));
+  await act(async () => router.navigate('/explorer/Beta'));
+  // New tabs open at the left: Gamma, Alpha, Beta. Browser Back would go to Gamma.
+  const previous = container.querySelector<HTMLButtonElement>('[aria-label="Previous open note"]');
+  const next = container.querySelector<HTMLButtonElement>('[aria-label="Next open note"]');
+  expect(previous).not.toBeNull();
+  expect(next!.disabled).toBe(true);
+  await act(async () => previous!.click());
+  expect(router.state.location.pathname).toBe('/explorer/Alpha');
+  expect(container.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe('Alpha');
+  expect(next!.disabled).toBe(false);
+  await act(async () => previous!.click());
+  expect(router.state.location.pathname).toBe('/explorer/Gamma');
+  expect(previous!.disabled).toBe(true);
+  await act(async () => next!.click());
+  expect(router.state.location.pathname).toBe('/explorer/Alpha');
+  expect(container.querySelectorAll('[role="tab"]')).toHaveLength(3);
+});
+
+it('disables both open-note arrows when only one tab remains', async () => {
+  const close = container.querySelector<HTMLButtonElement>('[aria-label="Close Beta"]');
+  expect(close).not.toBeNull();
+  await act(async () => close!.click());
+  expect(container.querySelector<HTMLButtonElement>('[aria-label="Previous open note"]')?.disabled).toBe(true);
+  expect(container.querySelector<HTMLButtonElement>('[aria-label="Next open note"]')?.disabled).toBe(true);
+});
+
+it('keeps the selected tab visible when navigating with mobile arrows', async () => {
+  const scroll = vi.spyOn(HTMLElement.prototype, 'scrollIntoView');
+  await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Next open note"]')!.click());
+  expect(scroll).toHaveBeenCalledWith({block:'nearest',inline:'nearest',behavior:'auto'});
+  expect(scroll.mock.contexts.at(-1)).toBe(container.querySelector('[role="tab"][aria-selected="true"]'));
+  scroll.mockRestore();
 });

@@ -39,6 +39,7 @@ import {
   useOutletContext,
 } from "react-router-dom";
 import { Link } from "react-router-dom";
+import { MobileWorkspaceNav } from "@/components/mobile-workspace-nav";
 import { FindInNote } from "@/components/find-in-note";
 import { NotePreview } from "@/components/note-preview";
 import { VaultSwitcher } from "@/components/vault-switcher";
@@ -599,6 +600,14 @@ export function ExplorerTabs({
   const previousTabCount = useRef(workspace.tabs.length);
 
   useEffect(() => {
+    if (workspace.activeSlug) {
+      tabRefs.current.get(workspace.activeSlug)?.scrollIntoView({
+        block: "nearest", inline: "nearest", behavior: "auto",
+      });
+    }
+  }, [workspace.activeSlug]);
+
+  useEffect(() => {
     const removedTabs = workspace.tabs.length < previousTabCount.current;
     previousTabCount.current = workspace.tabs.length;
     if (!removedTabs) return;
@@ -890,17 +899,21 @@ function ExplorerWorkspaceView({data}: {data: WikiActivity}) {
     if (focusScrollRef.current !== null) {
       workspaceScrollRef.current?.scrollTo({top: focusScrollRef.current, behavior: "auto"});
       focusScrollRef.current = null;
+      const target = isDesktopSidebar ? focusToggleRef.current : focusMode
+        ? previewRootRef.current?.querySelector<HTMLButtonElement>(".workspace-exit-focus")
+        : connectionsToggleRef.current;
+      target?.focus({preventScroll:true});
     }
-  }, [focusMode]);
+  }, [focusMode, isDesktopSidebar]);
   useEffect(() => {
     if (!focusMode) return;
     const escape = (event: globalThis.KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented || document.querySelector('[aria-modal="true"]')) return;
-      event.preventDefault(); toggleFocus(); focusToggleRef.current?.focus();
+      event.preventDefault(); toggleFocus();
     };
     window.addEventListener("keydown", escape);
     return () => window.removeEventListener("keydown", escape);
-  }, [focusMode, toggleFocus]);
+  }, [focusMode, toggleFocus, isDesktopSidebar]);
 
   useEffect(() => setHydrated(true), []);
 
@@ -1191,14 +1204,17 @@ function ExplorerWorkspaceView({data}: {data: WikiActivity}) {
       setSidebarOpen(true);
     }
   }, [isDesktopSidebar]);
+  const activeTabIndex = workspace.tabs.findIndex(tab => tab.slug === workspace.activeSlug);
+  const previousTab = activeTabIndex > 0 ? workspace.tabs[activeTabIndex - 1] : undefined;
+  const nextTab = activeTabIndex >= 0 ? workspace.tabs[activeTabIndex + 1] : undefined;
   const visibleReaderState = selectExplorerReaderState(
     workspace.activeSlug,
     readerState,
   );
 
   return (
-    <main ref={previewRootRef} className={`app-route-shell explorer-shell continuous-workspace ${focusMode ? "workspace-focused" : ""} flex h-dvh min-h-0 flex-col overflow-hidden bg-[var(--explorer-canvas)] text-[var(--foreground)]`}>
-      <ExplorerHeader
+    <main ref={previewRootRef} data-view={view} data-has-tabs={workspace.tabs.length > 0} className={`app-route-shell explorer-shell continuous-workspace ${focusMode ? "workspace-focused" : ""} flex h-dvh min-h-0 flex-col overflow-hidden bg-[var(--explorer-canvas)] text-[var(--foreground)]`}>
+      {isDesktopSidebar && <ExplorerHeader
         backgroundInert={connectionsModal || sidebarModalActive}
         sidebarOpen={sidebarOpen}
         desktopSidebarVisible={desktopSidebarVisible}
@@ -1208,7 +1224,7 @@ function ExplorerWorkspaceView({data}: {data: WikiActivity}) {
           setSidebarOpen((open) => !open);
         }}
         onToggleDesktopSidebar={() => setDesktopSidebarVisible((visible) => !visible)}
-      />
+      />}
       <div className="flex min-h-0 flex-1">
         <div
           aria-hidden="true"
@@ -1272,13 +1288,16 @@ function ExplorerWorkspaceView({data}: {data: WikiActivity}) {
           />
           </div>
           <div className="workspace-toolbar" inert={connectionsModal}>
-            <div className="workspace-history"><button className="workspace-icon" aria-label="Go back" onClick={() => navigate(-1)}><ArrowLeft size={16}/></button><button className="workspace-icon" aria-label="Go forward" onClick={() => navigate(1)}><ArrowRight size={16}/></button></div>
+            <div className="workspace-tab-navigation" role="group" aria-label="Open note navigation">
+              <button type="button" className="workspace-icon" aria-label="Previous open note" title={previousTab ? `Previous open note: ${previousTab.title}` : "Previous open note"} disabled={!previousTab} onClick={() => { if (previousTab) transitionAndNavigate(current => activateExplorerTab(current, previousTab.slug)); }}><ArrowLeft size={16}/></button>
+              <button type="button" className="workspace-icon" aria-label="Next open note" title={nextTab ? `Next open note: ${nextTab.title}` : "Next open note"} disabled={!nextTab} onClick={() => { if (nextTab) transitionAndNavigate(current => activateExplorerTab(current, nextTab.slug)); }}><ArrowRight size={16}/></button>
+            </div>
             <div className="workspace-breadcrumb">{view === "activity" ? "Activity" : workspace.activeSlug?.split("/").map((part, index) => <span key={index}>{index > 0 && <ChevronRight size={12}/>}<span>{part}</span></span>) ?? "Notes"}</div>
             {visibleReaderState.status === "ready" && view === "notes" && <>
               {isDesktopSidebar && <FindInNote key={visibleReaderState.page.fileName} readerRef={workspaceScrollRef} noteKey={`${visibleReaderState.page.fileName}:${visibleReaderState.page.modifiedAt}`}/>}
               <button ref={focusToggleRef} className="workspace-icon" aria-label={focusMode ? "Exit focus mode" : "Enter focus mode"} aria-pressed={focusMode} onClick={toggleFocus}>{focusMode ? <Minimize2 size={17}/> : <Maximize2 size={17}/>}</button>
             </>}
-            {!focusMode && workspace.activeSlug && view === "notes" && <><button className="workspace-icon" aria-label={preferences.pinnedSlugs.includes(workspace.activeSlug) ? "Unpin note" : "Pin note"} aria-pressed={preferences.pinnedSlugs.includes(workspace.activeSlug)} onClick={() => setPreferences(current => ({...current, pinnedSlugs: togglePin(current.pinnedSlugs, workspace.activeSlug!)}))}><Pin size={16}/></button><button ref={connectionsToggleRef} className="workspace-icon" aria-label="Toggle connections" aria-expanded={isConnectionsDesktop ? preferences.connectionsOpen : mobileConnections} onClick={() => {if (window.matchMedia("(min-width: 1100px)").matches) setPreferences(current => ({...current, connectionsOpen: !current.connectionsOpen})); else setMobileConnections(open => !open);}}><PanelRight size={18}/></button></>}
+            {!focusMode && workspace.activeSlug && view === "notes" && <><button className="workspace-icon" aria-label={preferences.pinnedSlugs.includes(workspace.activeSlug) ? "Unpin note" : "Pin note"} aria-pressed={preferences.pinnedSlugs.includes(workspace.activeSlug)} onClick={() => setPreferences(current => ({...current, pinnedSlugs: togglePin(current.pinnedSlugs, workspace.activeSlug!)}))}><Pin size={16}/></button><button ref={isDesktopSidebar ? connectionsToggleRef : undefined} className="workspace-icon" aria-label="Toggle connections" aria-expanded={isConnectionsDesktop ? preferences.connectionsOpen : mobileConnections} onClick={() => {if (window.matchMedia("(min-width: 1100px)").matches) setPreferences(current => ({...current, connectionsOpen: !current.connectionsOpen})); else setMobileConnections(open => !open);}}><PanelRight size={18}/></button></>}
           </div>
           <div className="workspace-content">
           <div className="workspace-reading-column" inert={connectionsModal} hidden={view === "activity"}>
@@ -1337,6 +1356,23 @@ function ExplorerWorkspaceView({data}: {data: WikiActivity}) {
           </div>
         </section>
       </div>
+      {!isDesktopSidebar && <MobileWorkspaceNav
+        view={view}
+        sidebarOpen={sidebarOpen}
+        inert={sidebarModalActive || connectionsModal}
+        hasNote={Boolean(workspace.activeSlug)}
+        noteReady={visibleReaderState.status === "ready"}
+        pinned={Boolean(workspace.activeSlug && preferences.pinnedSlugs.includes(workspace.activeSlug))}
+        focusMode={focusMode}
+        notesRef={toggleButtonRef}
+        moreRef={connectionsToggleRef}
+        onNotes={() => { setView("notes"); sidebarCloseFocusTargetRef.current = "toggle"; setSidebarOpen(true); }}
+        onSearch={() => shell?.openCommandPalette()}
+        onActivity={() => { setView("activity"); setSidebarOpen(false); setMobileConnections(false); }}
+        onPin={() => { if (workspace.activeSlug) setPreferences(current => ({...current, pinnedSlugs: togglePin(current.pinnedSlugs, workspace.activeSlug!)})); }}
+        onConnections={() => setMobileConnections(true)}
+        onFocus={toggleFocus}
+      />}
       <NotePreview rootRef={previewRootRef} onOpen={selectSlug} activeSlug={workspace.activeSlug}/>
     </main>
   );

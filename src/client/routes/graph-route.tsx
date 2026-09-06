@@ -1,3 +1,4 @@
+import { GraphSearch } from "@/components/graph-search";
 import { focusVisibility, focusColor } from "../graph-focus-transition";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, redirect, useLoaderData, useNavigate } from "react-router-dom";
@@ -8,7 +9,6 @@ import {
   ChevronDown,
   ChevronUp,
   House,
-  ListTree,
   Minus,
   Plus,
   Scan,
@@ -39,6 +39,7 @@ import {
   setGraphNeuralRendererAnimationState,
   type NeuralEdgeDisplayData,
 } from "@/client/graph-neural-edge-program";
+import { graphTopologyKey, graphViewCache, type GraphViewState } from "@/client/graph-view-state";
 import { useWikiConfig } from "@/client/wiki-config";
 import {
   getCollisionAwareGraphLabelPlacements,
@@ -49,7 +50,6 @@ import {
   getGraphDetailHeightAnimation,
   getGraphDetailPanelToggleState,
   getGraphEdgeSize,
-  getGraphIndexNodes,
   getGraphLayoutIterations,
   getGraphLinkedNodePulseScale,
   getGraphNeuralIndexedDirectEdges,
@@ -58,13 +58,9 @@ import {
   getGraphNodeSize,
   getGraphToolbarPanelOffset,
   getGraphViewportSettings,
-  getNextGraphIndex,
   getPersistentLabelSlugs,
   GRAPH_INDEX_INITIAL_VISIBLE_COUNT,
-  GRAPH_INDEX_LOAD_MORE_COUNT,
   GRAPH_MOVEMENT_RENDERING_SETTINGS,
-  shouldCloseGraphNodeIndexAfterSelection,
-  shouldCloseGraphNodeIndexOnDetailExpand,
   shouldCollapseGraphDetailPanelOnSearchInteraction,
   shouldResetGraphCameraAfterDetailClose,
   mixGraphColors,
@@ -617,282 +613,6 @@ function GraphViewportControls({
   );
 }
 
-/* ── Search ── */
-
-function GraphSearch({
-  nodes,
-  onSelect,
-  onCompactSearchInteraction,
-  detailPanelCollapsed,
-  selectedSlug,
-  browseButtonRef,
-}: {
-  nodes: GraphNode[];
-  onSelect: (slug: string) => void;
-  onCompactSearchInteraction: () => void;
-  detailPanelCollapsed: boolean;
-  selectedSlug: string | null;
-  browseButtonRef: React.RefObject<HTMLButtonElement | null>;
-}) {
-  const [query, setQuery] = useState("");
-  const [indexOpen, setIndexOpen] = useState(false);
-  const [indexClosing, setIndexClosing] = useState(false);
-  const [rovingSlug, setRovingSlug] = useState<string | null>(null);
-  const [visibleResultCount, setVisibleResultCount] = useState(
-    GRAPH_INDEX_INITIAL_VISIBLE_COUNT,
-  );
-  const itemRefs = useRef(new Map<string, HTMLButtonElement>());
-  const closeTimerRef = useRef<number | null>(null);
-  const previousDetailPanelCollapsedRef = useRef(detailPanelCollapsed);
-  const results = useMemo(() => getGraphIndexNodes(nodes, query), [nodes, query]);
-  const visibleResults = useMemo(
-    () => results.slice(0, visibleResultCount),
-    [results, visibleResultCount],
-  );
-  const panelOpen = indexOpen || query.trim().length > 0;
-
-  useEffect(
-    () => () => {
-      if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
-    },
-    [],
-  );
-
-  useEffect(() => {
-    if (visibleResults.length === 0) {
-      setRovingSlug(null);
-    } else if (!rovingSlug || !visibleResults.some((node) => node.slug === rovingSlug)) {
-      setRovingSlug(visibleResults[0].slug);
-    }
-  }, [visibleResults, rovingSlug]);
-
-  const focusResult = (index: number) => {
-    const result = visibleResults[index];
-    if (!result) return;
-    setRovingSlug(result.slug);
-    requestAnimationFrame(() => itemRefs.current.get(result.slug)?.focus());
-  };
-
-  const handleResultKeyDown = (event: React.KeyboardEvent, currentIndex: number) => {
-    const nextIndex = getNextGraphIndex(currentIndex, event.key, visibleResults.length);
-    if (nextIndex === null) return;
-    event.preventDefault();
-    focusResult(nextIndex);
-  };
-
-  const cancelPendingClose = useCallback(() => {
-    if (closeTimerRef.current !== null) {
-      window.clearTimeout(closeTimerRef.current);
-      closeTimerRef.current = null;
-    }
-    setIndexClosing(false);
-  }, []);
-
-  const closeIndex = useCallback((returnFocus: boolean) => {
-    cancelPendingClose();
-    setQuery("");
-    setVisibleResultCount(GRAPH_INDEX_INITIAL_VISIBLE_COUNT);
-
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      setIndexOpen(false);
-      if (returnFocus) requestAnimationFrame(() => browseButtonRef.current?.focus());
-      return;
-    }
-
-    setIndexOpen(true);
-    setIndexClosing(true);
-    closeTimerRef.current = window.setTimeout(() => {
-      closeTimerRef.current = null;
-      setIndexOpen(false);
-      setIndexClosing(false);
-      if (returnFocus) requestAnimationFrame(() => browseButtonRef.current?.focus());
-    }, 160);
-  }, [browseButtonRef, cancelPendingClose]);
-
-  useEffect(() => {
-    const wasCollapsed = previousDetailPanelCollapsedRef.current;
-    previousDetailPanelCollapsedRef.current = detailPanelCollapsed;
-
-    if (
-      panelOpen &&
-      shouldCloseGraphNodeIndexOnDetailExpand(
-        window.innerWidth,
-        wasCollapsed,
-        detailPanelCollapsed,
-      )
-    ) {
-      closeIndex(false);
-    }
-  }, [closeIndex, detailPanelCollapsed, panelOpen]);
-
-  const handleSelect = (slug: string, returnFocusAfterClose = false) => {
-    onSelect(slug);
-    setRovingSlug(slug);
-
-    if (shouldCloseGraphNodeIndexAfterSelection(window.innerWidth)) {
-      closeIndex(returnFocusAfterClose);
-    } else {
-      cancelPendingClose();
-      setQuery("");
-      setVisibleResultCount(GRAPH_INDEX_INITIAL_VISIBLE_COUNT);
-      setIndexOpen(true);
-    }
-  };
-
-  return (
-    <div className="graph-search absolute left-4 right-4 z-10 sm:left-6 sm:right-auto sm:w-80">
-      <div id="graph-search-controls" className="flex gap-2">
-        <input
-          type="search"
-          value={query}
-          onFocus={onCompactSearchInteraction}
-          onChange={(event) => {
-            cancelPendingClose();
-            setQuery(event.target.value);
-            setVisibleResultCount(GRAPH_INDEX_INITIAL_VISIBLE_COUNT);
-          }}
-          onKeyDown={(event) => {
-            if (event.key === "ArrowDown" && panelOpen && visibleResults.length > 0) {
-              event.preventDefault();
-              focusResult(0);
-            }
-          }}
-          placeholder="Find a concept..."
-          aria-label="Find a concept"
-          aria-controls="graph-node-index"
-          aria-expanded={panelOpen}
-          className="graph-surface min-w-0 flex-1 rounded-lg px-4 py-2.5 text-sm text-[var(--graph-foreground)] outline-none placeholder:text-[var(--graph-muted)]"
-        />
-        <button
-          ref={browseButtonRef}
-          type="button"
-          onClick={() => {
-            if (panelOpen) {
-              closeIndex(true);
-            } else {
-              cancelPendingClose();
-              onCompactSearchInteraction();
-              setVisibleResultCount(GRAPH_INDEX_INITIAL_VISIBLE_COUNT);
-              setIndexOpen(true);
-            }
-          }}
-          className="graph-surface order-last grid h-11 w-11 shrink-0 place-items-center rounded-lg text-[var(--graph-muted)] transition-colors hover:bg-[var(--graph-control-hover)] hover:text-[var(--graph-foreground)]"
-          aria-label={panelOpen ? "Close node index" : "Browse nodes"}
-          aria-controls="graph-node-index"
-          aria-expanded={panelOpen}
-        >
-          <ListTree aria-hidden="true" className="h-4 w-4" />
-        </button>
-      </div>
-
-      {panelOpen && (
-        <section
-          id="graph-node-index"
-          className={`graph-node-index-panel graph-surface-raised mt-2 overflow-hidden rounded-xl ${
-            indexClosing ? "graph-node-index-panel--closing" : ""
-          }`}
-          data-state={indexClosing ? "closing" : "open"}
-          aria-labelledby="graph-node-index-title"
-        >
-          <div className="flex min-h-11 items-center justify-between border-b border-[var(--graph-border)] px-3 py-2">
-            <div className="min-w-0">
-              <h2 id="graph-node-index-title" className="text-sm font-semibold text-[var(--graph-foreground)]">
-                {query.trim() ? "Matching notes" : "All notes"}
-              </h2>
-              <p className="text-xs text-[var(--graph-muted)]">
-                {results.length} {results.length === 1 ? "result" : "results"}
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => closeIndex(true)}
-              className="grid h-11 w-11 shrink-0 place-items-center rounded-lg text-[var(--graph-muted)] transition-colors hover:bg-[var(--graph-control-hover)] hover:text-[var(--graph-foreground)]"
-              aria-label="Close node index"
-            >
-              <X aria-hidden="true" className="h-4 w-4" />
-            </button>
-          </div>
-
-          <p className="sr-only">Use the arrow keys to move between notes and Enter to select.</p>
-          {results.length > 0 ? (
-            <ul className="graph-node-index-list max-h-[14.25rem] sm:max-h-[min(62vh,34rem)] overflow-y-auto py-1">
-              {visibleResults.map((node, index) => {
-                const connectionCount = node.neighbors.length;
-                return (
-                  <li key={node.slug}>
-                    <button
-                      ref={(element) => {
-                        if (element) itemRefs.current.set(node.slug, element);
-                        else itemRefs.current.delete(node.slug);
-                      }}
-                      type="button"
-                      tabIndex={rovingSlug === node.slug ? 0 : -1}
-                      onFocus={() => setRovingSlug(node.slug)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          handleSelect(node.slug, true);
-                          return;
-                        }
-                        handleResultKeyDown(event, index);
-                      }}
-                      onClick={() => handleSelect(node.slug)}
-                      aria-current={selectedSlug === node.slug ? "true" : undefined}
-                      aria-label={`${node.title}, ${connectionCount} ${
-                        connectionCount === 1 ? "connection" : "connections"
-                      }`}
-                      className="flex min-h-11 w-full items-center justify-between gap-3 px-3 py-2 text-left transition-colors hover:bg-[var(--graph-control-hover)] focus-visible:bg-[var(--graph-control-hover)] aria-[current=true]:bg-[var(--graph-control-hover)]"
-                    >
-                      <span className="min-w-0 break-words text-sm font-medium text-[var(--graph-foreground)]">
-                        {node.title}
-                      </span>
-                      <span className="shrink-0 text-xs tabular-nums text-[var(--graph-muted)]">
-                        {connectionCount}
-                      </span>
-                    </button>
-                  </li>
-                );
-              })}
-              {visibleResults.length < results.length && (
-                <li className="border-t border-[var(--graph-border)]">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setVisibleResultCount((count) =>
-                        Math.min(results.length, count + GRAPH_INDEX_LOAD_MORE_COUNT),
-                      )
-                    }
-                    className="flex min-h-11 w-full items-center justify-between px-3 py-2 text-sm font-semibold text-[var(--graph-foreground)] transition-colors hover:bg-[var(--graph-control-hover)] focus-visible:bg-[var(--graph-control-hover)]"
-                    aria-label={`Load ${Math.min(
-                      GRAPH_INDEX_LOAD_MORE_COUNT,
-                      results.length - visibleResults.length,
-                    )} more notes`}
-                  >
-                    <span>Load more</span>
-                    <span className="text-xs font-normal tabular-nums text-[var(--graph-muted)]">
-                      {visibleResults.length} of {results.length}
-                    </span>
-                  </button>
-                </li>
-              )}
-            </ul>
-          ) : (
-            <p className="px-4 py-5 text-sm text-[var(--graph-muted)]">
-              No notes match “{query.trim()}”. Try a title, path, or category.
-            </p>
-          )}
-
-          {!query.trim() && nodes.length > results.length && (
-            <p className="border-t border-[var(--graph-border)] px-3 py-2 text-xs text-[var(--graph-muted)]">
-              Showing the first {results.length} notes. Search to narrow the full vault.
-            </p>
-          )}
-        </section>
-      )}
-    </div>
-  );
-}
-
 /* ── Info panel (shown when a node is focused) ── */
 
 function InfoPanel({
@@ -1248,9 +968,13 @@ export function Component() {
 }
 
 function GraphView({ data }: { data: ColoredGraphData }) {
+  const topology = useMemo(() => graphTopologyKey(data), [data]);
+  const [savedView] = useState(() => graphViewCache.read(data.vaultId, topology));
+  const restoringCameraRef = useRef(Boolean(savedView));
+  const [search, setSearch] = useState<GraphViewState["search"]>(() => savedView?.search ?? {query:"", indexOpen:false, visibleResultCount:GRAPH_INDEX_INITIAL_VISIBLE_COUNT});
   const topics = useMemo(() => [...new Set(Object.values(data.colorSources).flatMap(source => source.topics))].sort((a, b) => a.localeCompare(b)), [data.colorSources]);
   const [colorPreferences, setColorPreferences] = useState(() => readGraphColorPreferences(data.vaultId, topics));
-  const [activeGroup, setActiveGroup] = useState<string | null>(null);
+  const [activeGroup, setActiveGroup] = useState<string | null>(savedView?.activeGroup ?? null);
   const colorGroups = useMemo(() => buildGraphColorGroups(data.colorSources, colorPreferences), [data.colorSources, colorPreferences]);
   const colorGroupsRef = useRef(colorGroups);
   const activeGroupRef = useRef(activeGroup);
@@ -1265,7 +989,7 @@ function GraphView({ data }: { data: ColoredGraphData }) {
   const navigate = useNavigate();
   const containerRef = useRef<HTMLDivElement>(null);
   const finishEntranceRef = useRef<(() => void) | null>(null);
-  const entranceShownRef = useRef(false);
+  const entranceShownRef = useRef(Boolean(savedView));
   const sigmaRef = useRef<SigmaLib | null>(null);
   const graphRef = useRef<Graph | null>(null);
   const graphThemeRef = useRef<GraphThemeColors | null>(null);
@@ -1274,18 +998,22 @@ function GraphView({ data }: { data: ColoredGraphData }) {
   const neuralSelectionCallbackRef = useRef<((slug: string) => void) | null>(null);
   const neuralFallbackWarningShownRef = useRef(false);
   const hoveredRef = useRef<string | null>(null);
-  const focusedRef = useRef<string | null>(null);
+  const focusedRef = useRef<string | null>(savedView?.focusedSlug ?? null);
   const linkedHoverRef = useRef<string | null>(null);
   const linkedPulseScaleRef = useRef(1);
   const linkedPulseFrameRef = useRef<number | null>(null);
   const focusIsolationCallbackRef = useRef<((slug: string | null) => void) | null>(null);
   const mobileFocusTimerRef = useRef<number | null>(null);
   const labelLayoutCallbackRef = useRef<(() => void) | null>(null);
-  const browseButtonRef = useRef<HTMLButtonElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const detailPanelRef = useRef<HTMLElement>(null);
-  const [focusedSlug, setFocusedSlug] = useState<string | null>(null);
+  const [focusedSlug, setFocusedSlug] = useState<string | null>(savedView?.focusedSlug ?? null);
   const [detailPanelHeight, setDetailPanelHeight] = useState(0);
-  const [detailPanelCollapsed, setDetailPanelCollapsed] = useState(false);
+  const [detailPanelCollapsed, setDetailPanelCollapsed] = useState(savedView?.detailPanelCollapsed ?? false);
+  const viewStateRef = useRef({focusedSlug, detailPanelCollapsed, activeGroup, search});
+  useLayoutEffect(() => {
+    viewStateRef.current = {focusedSlug, detailPanelCollapsed, activeGroup, search};
+  }, [focusedSlug, detailPanelCollapsed, activeGroup, search]);
   const [tooltip, setTooltip] = useState<{
     node: { label: string; color: string; categories: string[]; connectionCount: number; wordCount: number };
     position: { x: number; y: number };
@@ -1322,7 +1050,7 @@ function GraphView({ data }: { data: ColoredGraphData }) {
   }, [focusedNode]);
 
   useEffect(() => {
-    if (!focusedSlug || detailPanelHeight <= 0 || window.innerWidth >= 640) return;
+    if (restoringCameraRef.current || !focusedSlug || detailPanelHeight <= 0 || window.innerWidth >= 640) return;
 
     if (mobileFocusTimerRef.current !== null) {
       window.clearTimeout(mobileFocusTimerRef.current);
@@ -1380,7 +1108,7 @@ function GraphView({ data }: { data: ColoredGraphData }) {
         .animatedReset({ duration: getGraphMotionDuration(220) })
         .then(() => labelLayoutCallbackRef.current?.());
     }
-    requestAnimationFrame(() => browseButtonRef.current?.focus());
+    requestAnimationFrame(() => searchInputRef.current?.focus());
   }, []);
 
   const handleInfoNeighborClick = useCallback((slug: string) => {
@@ -1457,6 +1185,14 @@ function GraphView({ data }: { data: ColoredGraphData }) {
     const graphTheme = getGraphThemeColors(containerRef.current);
     graphThemeRef.current = graphTheme;
     const graph = buildGraph(data, config.categories.aliases, graphTheme, resolvedMode);
+    const restored = graphViewCache.read(data.vaultId, topology);
+    let layoutReady = restored?.layoutReady ?? false;
+    if (restored) {
+      for (const node of graph.nodes()) {
+        const position = restored.positions[node];
+        if (position) graph.mergeNodeAttributes(node, position);
+      }
+    }
     const neuralActivationIndex = createGraphNeuralActivationIndex(data.edges);
     const nodeVisibility = new Map(graph.nodes().map(node => [node, 1]));
     const edgeVisibility = new Map(graph.edges().map(edge => [edge, 1]));
@@ -1684,6 +1420,7 @@ function GraphView({ data }: { data: ColoredGraphData }) {
     const neuralEnabled = runtime.neuralEnabled;
     const neuralController = runtime.neuralController;
     sigmaRef.current = sigma;
+    if (restored) sigma.getCamera().setState(restored.camera);
     neuralControllerRef.current = neuralController;
     neuralSnapshotRef.current = neuralController?.getSnapshot() ?? null;
     const activateNeural = (slug: string, mode: "hover" | "selection") => {
@@ -1733,8 +1470,16 @@ function GraphView({ data }: { data: ColoredGraphData }) {
     };
     focusIsolationCallbackRef.current = animateFocusIsolation;
     if (focusedRef.current) {
-      animateFocusIsolation(focusedRef.current);
-      neuralSelectionCallbackRef.current(focusedRef.current);
+      // Restore isolation before replaying effects: partial repaints cannot run
+      // until Sigma has indexed the restored arrow/hidden edge membership.
+      const selected = focusedRef.current;
+      const visible = new Set([selected, ...graph.neighbors(selected)]);
+      for (const node of nodeVisibility.keys()) nodeVisibility.set(node, visible.has(node) ? 1 : 0);
+      for (const edge of edgeVisibility.keys()) {
+        edgeVisibility.set(edge, graph.source(edge) === selected || graph.target(edge) === selected ? 1 : 0);
+      }
+      sigma.refresh();
+      neuralSelectionCallbackRef.current(selected);
     }
     let labelLayoutFrame: number | null = null;
     const schedulePersistentLabelLayout = () => {
@@ -1769,13 +1514,15 @@ function GraphView({ data }: { data: ColoredGraphData }) {
     motionQuery.addEventListener("change", onMotionChange);
     // Never leave the graph waiting indefinitely for a layout worker.
     const entranceFallback = window.setTimeout(() => entrance.start(motionQuery.matches || entranceShownRef.current), 1000);
-    const layoutWorker = startGraphLayoutWorker(graph, () => {
+    const layoutWorker = layoutReady ? null : startGraphLayoutWorker(graph, () => {
+      layoutReady = true;
       window.clearTimeout(entranceFallback);
       entrance.start(motionQuery.matches || entranceShownRef.current);
       sigma.refresh();
       schedulePersistentLabelLayout();
     });
     if (!layoutWorker) {
+      layoutReady = true;
       window.clearTimeout(entranceFallback);
       entrance.start(motionQuery.matches || entranceShownRef.current);
     }
@@ -1839,6 +1586,14 @@ function GraphView({ data }: { data: ColoredGraphData }) {
     });
 
     return () => {
+      graphViewCache.save(data.vaultId, topology, {
+        ...viewStateRef.current,
+        layoutReady,
+        camera: sigma.getCamera().getState(),
+        positions: Object.fromEntries(graph.nodes().map(node => [node, {
+          x: graph.getNodeAttribute(node, "x"), y: graph.getNodeAttribute(node, "y"),
+        }])),
+      });
       entrance.destroy();
       finishEntranceRef.current = null;
       window.clearTimeout(entranceFallback);
@@ -1859,7 +1614,7 @@ function GraphView({ data }: { data: ColoredGraphData }) {
       graphRef.current = null;
       graphThemeRef.current = null;
     };
-  }, [config.categories.aliases, data]);
+  }, [config.categories.aliases, data, topology]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -1922,14 +1677,14 @@ function GraphView({ data }: { data: ColoredGraphData }) {
     <main
       className="app-route-shell graph-shell fixed inset-0"
       aria-label="Knowledge graph"
-      onPointerDownCapture={() => finishEntranceRef.current?.()}
-      onKeyDownCapture={() => finishEntranceRef.current?.()}
-      onWheelCapture={() => finishEntranceRef.current?.()}
+      onPointerDownCapture={() => { restoringCameraRef.current = false; finishEntranceRef.current?.(); }}
+      onKeyDownCapture={() => { restoringCameraRef.current = false; finishEntranceRef.current?.(); }}
+      onWheelCapture={() => { restoringCameraRef.current = false; finishEntranceRef.current?.(); }}
       aria-describedby="graph-instructions"
     >
       <p id="graph-instructions" className="sr-only">
         Explore {data.nodes.length} notes and {data.edges.length} connections. Use Find a
-        concept or Browse nodes for keyboard-accessible navigation. Selecting a note isolates its
+        concept to browse or search notes with the keyboard. Selecting a note isolates its
         direct links and separates notes it links to from notes that link back to it.
       </p>
       <div className="sr-only" aria-live="polite" aria-atomic="true">
@@ -1976,11 +1731,13 @@ function GraphView({ data }: { data: ColoredGraphData }) {
         {data.nodes.length > 0 ? (
           <GraphSearch
             nodes={data.nodes}
+            search={search}
+            setSearch={setSearch}
             onSelect={handleSearchSelect}
             onCompactSearchInteraction={handleCompactSearchInteraction}
             detailPanelCollapsed={detailPanelCollapsed}
             selectedSlug={focusedSlug}
-            browseButtonRef={browseButtonRef}
+            searchInputRef={searchInputRef}
           />
         ) : null}
       </header>

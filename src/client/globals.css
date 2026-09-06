@@ -1807,7 +1807,7 @@ html {
 .workspace-tabbar [title="Close other tabs"] {display:none;}
 .workspace-reopen-nav {align-self:center;margin:0 8px;}
 .workspace-toolbar {display:flex;align-items:center;gap:9px;padding:9px 22px;min-height:54px;flex-shrink:0;border-bottom:1px solid var(--explorer-border);}
-.workspace-history {display:flex;gap:2px;}
+.workspace-tab-navigation {display:flex;gap:2px;}
 .workspace-breadcrumb {display:flex;align-items:center;flex:1;min-width:0;font-size:12px;color:var(--explorer-muted-foreground);overflow:hidden;white-space:nowrap;}
 .workspace-breadcrumb > span {display:flex;align-items:center;gap:8px;min-width:0;margin-right:8px;}
 .workspace-breadcrumb > span:last-child {color:var(--foreground);}
@@ -1863,7 +1863,7 @@ html {
   .desktop-tree-toggle {display:none;}
   .workspace-icon {width:44px;height:44px;}
   .workspace-toolbar {padding:3px 10px;gap:0;min-height:50px;}
-  .workspace-history {display:none;}
+  .workspace-tab-navigation {display:flex;flex-shrink:0;margin-right:8px;}
   .workspace-breadcrumb {padding-left:8px;}
   .workspace-reader {padding:31px 23px 50px;}
   .workspace-reader h1 {font-size:35px;}
@@ -2031,3 +2031,85 @@ html {
   .note-peek-content-in, .note-peek-content-out {animation:none;}
   .note-peek-content-out {display:none;}
 }
+
+/* Phone navigation occupies its own layout row, never the reading canvas. */
+.workspace-bottom-nav {display:none;}
+.workspace-actions-sheet {
+  position:fixed; inset:auto 0 0; margin:0 auto; width:100%; max-width:36rem;
+  max-height:calc(100dvh - max(1rem, env(safe-area-inset-top)));
+  overflow-y:auto; overscroll-behavior:contain;
+  padding:12px max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+  border:0; border-radius:16px 16px 0 0;
+  background:var(--explorer-surface); color:var(--foreground);
+}
+.workspace-actions-sheet::backdrop {background:rgb(0 0 0 / .45);}
+.workspace-actions-sheet header {display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;}
+.workspace-actions-sheet h2 {font-size:17px;font-weight:600;}
+.workspace-actions-sheet button {display:flex;align-items:center;gap:14px;min-height:48px;padding:10px 12px;border-radius:8px;font-size:16px;}
+.workspace-actions-sheet header button {justify-content:center;min-width:48px;}
+.workspace-actions-sheet > button {width:100%;text-align:left;}
+.workspace-actions-sheet button:active {background:var(--explorer-selection);}
+.workspace-bottom-nav :is(button,a):focus-visible,
+.workspace-actions-sheet button:focus-visible {outline:2px solid var(--explorer-accent);outline-offset:-3px;}
+@media (max-width:767px) {
+  .continuous-workspace {padding-top:env(safe-area-inset-top);}
+  .workspace-bottom-nav {
+    display:flex; flex-shrink:0; align-items:stretch; gap:2px;
+    padding:6px max(8px, env(safe-area-inset-right)) max(6px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+    border-top:1px solid var(--explorer-border);background:var(--explorer-surface);
+  }
+  .workspace-bottom-nav :is(button,a) {
+    display:flex;flex:1;flex-direction:column;align-items:center;justify-content:center;
+    min-width:44px;min-height:52px;gap:4px;border-radius:8px;
+    color:var(--explorer-muted-foreground);font-size:12px;line-height:1.2;
+  }
+  .workspace-bottom-nav [aria-current="page"] {background:var(--explorer-selection);color:var(--explorer-accent);font-weight:600;}
+  .workspace-bottom-nav :is(button,a):active {background:var(--explorer-selection);}
+  .workspace-bottom-nav .workspace-exit-focus {flex-direction:row;gap:10px;font-size:14px;min-height:44px;}
+  .workspace-toolbar {min-height:44px;padding:0 12px;}
+  .workspace-toolbar > .workspace-icon {display:none;}
+  .workspace-breadcrumb {min-height:36px;padding-left:0;font-size:13px;}
+  .workspace-tabbar:has([role="tablist"]:empty) {display:none;}
+  .workspace-tabbar [role="tablist"] button:not([role="tab"]) {min-width:44px;min-height:44px;}
+  .workspace-reopen-nav {display:none;}
+  .workspace-reader {padding:24px 20px 40px;}
+  .workspace-reader h1 {font-size:30px;letter-spacing:-.6px;overflow-wrap:anywhere;}
+  .workspace-pins button {min-height:44px;}
+  .workspace-search {min-height:44px;}
+  .workspace-search kbd {display:none;}
+  .workspace-tree input {font-size:16px;}
+  .workspace-sidebar-footer > a {min-height:44px;}
+  .workspace-note-options summary {min-height:44px;min-width:44px;justify-content:center;}
+  .workspace-note-options > div button {min-height:44px;}
+  .connection-mode button {min-height:44px;}
+  .connection-toc .toc a {display:flex;align-items:center;min-height:44px;}
+  .workspace-connections-container {padding-bottom:env(safe-area-inset-bottom);}
+}
+@media (prefers-reduced-motion:no-preference) {
+  .workspace-actions-sheet[open] {animation:workspace-sheet-enter .18s ease-out;}
+  @keyframes workspace-sheet-enter {from {transform:translateY(24px);opacity:0;} to {transform:translateY(0);opacity:1;}}
+}
+@media (max-width:767px) {
+  .continuous-workspace[data-view="activity"] .workspace-tabbar,
+  .continuous-workspace[data-view="activity"] .workspace-toolbar,
+  .continuous-workspace[data-has-tabs="false"] .workspace-tabbar {display:none;}
+  .workspace-activity {padding-top:24px;}
+  .activity-tabs {overflow-x:auto;}
+  .activity-tabs button {flex-shrink:0;min-height:44px;}
+}
+
+/* Focused graph screen: a direct exit without competing with bottom cards. */
+.graph-home-link {display:inline-flex;align-items:center;justify-content:center;gap:6px;flex-shrink:0;min-height:44px;padding:0 10px;border-radius:8px;font-size:14px;color:var(--graph-foreground);}
+.graph-home-link:focus-visible {outline:2px solid var(--graph-foreground);outline-offset:3px;}
+@media (max-width:639px) {
+  #graph-search-controls input {padding-left:10px;padding-right:10px;font-size:16px;}
+}
+@media (min-width:640px) { .graph-home-link {display:none;} }
+
+/* Search owns browsing; its dismiss layer prevents taps reaching graph nodes. */
+.graph-shell .app-route-header:has(.graph-node-index-panel) {z-index:30;}
+.graph-search-dismiss {position:fixed;inset:0;z-index:-1;}
+.graph-search input:focus-visible {outline:2px solid var(--graph-foreground);outline-offset:2px;}
+.graph-search:focus {outline:none;}
+
+.workspace-tab-navigation button:disabled {opacity:.35;cursor:default;pointer-events:none;}
