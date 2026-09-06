@@ -152,7 +152,7 @@ describe("graph neural animation controller", () => {
     });
 
     scheduler.runNextFrame(GRAPH_NEURAL_TIMING.hoverIntentMs + 50);
-    expect(controller.getSnapshot().activeNodeScale).toBeCloseTo(1.04);
+    expect(controller.getSnapshot().activeNodeScale).toBe(1);
     expect(controller.getSnapshot().edges.get("active->out")?.edgeIntensity).toBe(0);
 
     scheduler.runNextFrame(GRAPH_NEURAL_TIMING.hoverIntentMs + 160);

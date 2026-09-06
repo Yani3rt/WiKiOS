@@ -157,7 +157,7 @@ void main(void) {
     (1.0 - step(1.0, primaryRaw)) *
     (1.0 - staticMode);
   float primaryVisibility = 1.0 - smoothstep(0.9, 1.0, primaryProgress);
-  float primaryDelta = (v_pathPosition - primaryProgress) / 0.045;
+  float primaryDelta = (v_pathPosition - primaryProgress) / 0.085;
   float primaryHead =
     exp(-(primaryDelta * primaryDelta)) * primaryActive * primaryVisibility;
   float primaryTail =
@@ -165,19 +165,6 @@ void main(void) {
     (1.0 - step(primaryProgress, v_pathPosition)) *
     primaryActive *
     primaryVisibility;
-  float echoRaw =
-    (u_elapsedMs - travelStart - ${GRAPH_NEURAL_TIMING.echoDelayMs.toFixed(1)}) /
-    travelMs;
-  float echoProgress = clamp(echoRaw, 0.0, 1.0);
-  float echoActive =
-    selectionMode *
-    step(0.0, echoRaw) *
-    (1.0 - step(1.0, echoRaw)) *
-    (1.0 - staticMode);
-  float echoVisibility = 1.0 - smoothstep(0.9, 1.0, echoProgress);
-  float echoDelta = (v_pathPosition - echoProgress) / 0.055;
-  float echoHead =
-    exp(-(echoDelta * echoDelta)) * echoActive * echoVisibility * 0.55;
   float ignitionProgress = clamp(
     (u_elapsedMs - ${GRAPH_NEURAL_TIMING.chargeMs.toFixed(1)}) /
       ${GRAPH_NEURAL_TIMING.ignitionMs.toFixed(1)},
@@ -196,14 +183,14 @@ void main(void) {
   edgeIntensity -= hoverSettle * 0.25;
   edgeIntensity = mix(edgeIntensity, 1.0, staticMode);
   ignitionProgress = mix(ignitionProgress, 1.0, staticMode);
-  float filament = 0.28 * ignitionProgress + 0.32 * edgeIntensity;
-  float energy = max(primaryHead, max(primaryTail * 0.62, echoHead));
+  float filament = mix(0.72 + 0.28 * edgeIntensity, 0.76, selectionMode);
+  float energy = max(primaryHead * mix(0.24, 0.85, selectionMode), primaryTail * mix(0.12, 0.36, selectionMode));
   float alpha =
     edgeMask *
-    clamp(filament + energy, 0.0, 1.0) *
-    v_color.a *
-    clamp(u_releaseOpacity, 0.0, 1.0);
-  gl_FragColor = vec4(v_color.rgb * alpha, alpha);
+    mix(1.0, clamp(filament + energy * 0.28 * selectionMode, 0.0, 1.0), clamp(u_releaseOpacity, 0.0, 1.0)) *
+    v_color.a;
+  vec3 shimmerColor = mix(v_color.rgb, vec3(1.0), energy * 0.6 * u_releaseOpacity);
+  gl_FragColor = vec4(shimmerColor * alpha, alpha);
   #endif
 }
 `;
@@ -324,3 +311,75 @@ export class NeuralEdgeProgram extends EdgeProgram<NeuralEdgeUniform> {
     gl.uniform1f(uniformLocations.u_reducedMotion, animationState?.reducedMotion ? 1 : 0);
   }
 }
+
+// A separate small quad rides the same per-edge clock as the filament.
+export const NEURAL_ARROW_VERTEX_SHADER = /* glsl */ `
+attribute vec2 a_positionStart;
+attribute vec2 a_positionEnd;
+attribute vec2 a_normal;
+attribute vec4 a_color;
+attribute float a_delayMs;
+attribute float a_positionCoef;
+attribute float a_normalCoef;
+uniform mat3 u_matrix;
+uniform float u_sizeRatio;
+uniform float u_correctionRatio;
+uniform float u_minEdgeThickness;
+uniform float u_elapsedMs;
+uniform float u_releaseOpacity;
+uniform float u_reducedMotion;
+varying vec4 v_color;
+varying vec2 v_arrow;
+void main() {
+  float travelStart = ${GRAPH_NEURAL_TIMING.chargeMs.toFixed(1)} + ${GRAPH_NEURAL_TIMING.ignitionMs.toFixed(1)} + a_delayMs;
+  float progress = clamp((u_elapsedMs - travelStart) / ${GRAPH_NEURAL_TIMING.selectionTravelMs.toFixed(1)}, 0.0, 1.0);
+  float opacity = smoothstep(0.0, 0.10, progress) * (1.0 - smoothstep(0.78, 1.0, progress));
+  if (u_reducedMotion > 0.5) {
+    progress = 0.90;
+    opacity = 1.0;
+  }
+  float normalLength = length(a_normal);
+  vec2 normal = a_normal / max(normalLength, 0.00001);
+  vec2 direction = vec2(normal.y, -normal.x);
+  float thickness = max(normalLength, u_minEdgeThickness * u_sizeRatio) * u_correctionRatio / u_sizeRatio;
+  vec2 center = mix(a_positionStart, a_positionEnd, progress);
+  vec2 position = center + direction * (a_positionCoef - 1.0) * thickness * 10.0
+    + normal * a_normalCoef * thickness * 3.0;
+  gl_Position = vec4((u_matrix * vec3(position, 1.0)).xy, 0.0, 1.0);
+  v_arrow = vec2(a_positionCoef, a_normalCoef);
+  v_color = a_color;
+  v_color.a *= opacity * u_releaseOpacity * (255.0 / 254.0);
+}
+`;
+
+export const NEURAL_ARROW_FRAGMENT_SHADER = /* glsl */ `
+precision mediump float;
+varying vec4 v_color;
+varying vec2 v_arrow;
+void main() {
+  #ifdef PICKING_MODE
+    discard;
+  #else
+    float width = max(0.001, 1.0 - v_arrow.x);
+    float mask = 1.0 - smoothstep(max(0.0, width - 0.14), width, abs(v_arrow.y));
+    float alpha = mask * v_color.a;
+    gl_FragColor = vec4(v_color.rgb * alpha, alpha);
+  #endif
+}
+`;
+
+export class TravelingArrowHeadProgram extends NeuralEdgeProgram {
+  getDefinition() {
+    return {
+      ...super.getDefinition(),
+      VERTEX_SHADER_SOURCE: NEURAL_ARROW_VERTEX_SHADER,
+      FRAGMENT_SHADER_SOURCE: NEURAL_ARROW_FRAGMENT_SHADER,
+    };
+  }
+}
+
+export const NeuralArrowEdgeProgram = typeof document === "undefined"
+  ? NeuralEdgeProgram
+  : await import("sigma/rendering").then(({ createEdgeCompoundProgram }) =>
+      createEdgeCompoundProgram([NeuralEdgeProgram, TravelingArrowHeadProgram]),
+    );

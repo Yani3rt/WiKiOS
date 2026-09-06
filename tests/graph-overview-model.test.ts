@@ -4,7 +4,7 @@ import Graph from "graphology";
 vi.mock("sigma", () => ({ default: class Sigma {} }));
 
 import type { GraphNode } from "../src/lib/wiki-shared";
-import { NeuralEdgeProgram } from "../src/client/graph-neural-edge-program";
+import { NeuralEdgeProgram, NeuralArrowEdgeProgram } from "../src/client/graph-neural-edge-program";
 import {
   applyGraphThemeColors,
   cleanupFailedGraphRendererContainer,
@@ -65,13 +65,22 @@ function node(overrides: Partial<GraphNode> & Pick<GraphNode, "slug">): GraphNod
 
 describe("graph overview model", () => {
   it("registers the neural edge program only while the enhancement is enabled", () => {
-    expect(getGraphEdgeProgramClasses(true)).toEqual({ neural: NeuralEdgeProgram });
+    expect(getGraphEdgeProgramClasses(true)).toEqual({ neural: NeuralEdgeProgram, neuralArrow: NeuralArrowEdgeProgram });
     expect(getGraphEdgeProgramClasses(false)).toEqual({});
   });
 
   it("keeps neural reducers disabled when the renderer has no neural edge program", () => {
     expect(hasGraphNeuralEdgeProgram(getGraphEdgeProgramClasses(true))).toBe(true);
     expect(hasGraphNeuralEdgeProgram(getGraphEdgeProgramClasses(false))).toBe(false);
+  });
+
+  it("preserves arrowheads throughout an animated selection", () => {
+    for (const elapsed of [0, 600, 2000]) {
+      expect(getGraphNeuralEdgeDisplayAttributes(
+        getGraphNeuralSignalFrame(elapsed, 0, "selection", false),
+        "#aabbcc", true, 0, true,
+      )?.type).toBe("neuralArrow");
+    }
   });
 
   it("maps neural signal frames to Sigma display attributes", () => {
@@ -338,7 +347,8 @@ describe("graph overview model", () => {
     expect(transmitting.echoProgress).toBeNull();
 
     const selection = getGraphNeuralSignalFrame(850, 0, "selection", false);
-    expect(selection.echoProgress).not.toBeNull();
+    expect(selection.echoProgress).toBeNull();
+    expect(selection.activeNodeScale).toBeLessThanOrEqual(1.02);
 
     expect(getGraphNeuralSignalFrame(0, 0, "selection", true)).toMatchObject({
       phase: "selected",
@@ -347,6 +357,16 @@ describe("graph overview model", () => {
       edgeIntensity: 1,
       complete: true,
     });
+  });
+
+  it("keeps hovered and connected node sizes steady throughout the hover signal", () => {
+    for (const delay of [0, 50, 100]) {
+      for (let elapsed = 0; elapsed <= 1200; elapsed += 10) {
+        const frame = getGraphNeuralSignalFrame(elapsed, delay, "hover", false);
+        expect(frame.activeNodeScale).toBe(1);
+        expect(frame.arrivalScale).toBe(1);
+      }
+    }
   });
 
   it("ramps charge and ignition continuously and settles selection without an intensity snap", () => {
@@ -364,7 +384,7 @@ describe("graph overview model", () => {
       releaseOpacity: 1,
     });
     expect(midCharge.chargeProgress).toBeCloseTo(0.5);
-    expect(midCharge.activeNodeScale).toBeCloseTo(1.04);
+    expect(midCharge.activeNodeScale).toBe(1);
     expect(chargeBoundary).toMatchObject({ chargeProgress: 1, ignitionProgress: 0 });
     expect(midIgnition.ignitionProgress).toBeCloseTo(0.5);
     expect(midIgnition.edgeIntensity).toBeCloseTo(0.35);
@@ -375,7 +395,7 @@ describe("graph overview model", () => {
     });
 
     const selectionEnd =
-      100 + 120 + 620 + 180;
+      100 + 120 + 1400;
     const beforeSelectionEnd = getGraphNeuralSignalFrame(
       selectionEnd - 0.001,
       0,
@@ -590,8 +610,10 @@ describe("graph overview model", () => {
       },
     );
 
-    expect(hoverFillStyles).toContain(colors.surface);
-    expect(hoverContext.fill).toHaveBeenCalledOnce();
+    expect(hoverFillStyles).not.toContain(colors.surface);
+    expect(hoverContext.fill).not.toHaveBeenCalled();
+    expect(hoverContext.arc).not.toHaveBeenCalled();
+    expect(hoverContext.shadowColor).not.toBe("#000");
     expect(hoverContext.strokeStyle).toBe(colors.background);
     expect(hoverContext.fillStyle).toBe(colors.label);
     expect(hoverContext.strokeText).toHaveBeenCalledWith("Research Queue", 117, 84);

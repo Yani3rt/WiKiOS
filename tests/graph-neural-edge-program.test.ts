@@ -5,6 +5,8 @@ import {
   NeuralEdgeProgram,
   NEURAL_EDGE_FRAGMENT_SHADER,
   NEURAL_EDGE_VERTEX_SHADER,
+  NEURAL_ARROW_VERTEX_SHADER,
+  NEURAL_ARROW_FRAGMENT_SHADER,
   setGraphNeuralRendererAnimationState,
 } from "../src/client/graph-neural-edge-program";
 
@@ -27,6 +29,7 @@ describe("neural edge WebGL program", () => {
     expect(NEURAL_EDGE_FRAGMENT_SHADER).toContain(
       "gl_FragColor = vec4(v_color.rgb * alpha, alpha)",
     );
+    expect(NEURAL_EDGE_FRAGMENT_SHADER).toContain("vec4(shimmerColor * alpha, alpha)");
     expect(NEURAL_EDGE_FRAGMENT_SHADER).not.toContain(
       "gl_FragColor = vec4(v_color.rgb, alpha)",
     );
@@ -34,7 +37,7 @@ describe("neural edge WebGL program", () => {
 
   it("squares Gaussian deltas without WebGL 1-undefined negative-base pow", () => {
     expect(NEURAL_EDGE_FRAGMENT_SHADER).toContain("primaryDelta * primaryDelta");
-    expect(NEURAL_EDGE_FRAGMENT_SHADER).toContain("echoDelta * echoDelta");
+    expect(NEURAL_EDGE_FRAGMENT_SHADER).not.toContain("echoHead");
     expect(NEURAL_EDGE_FRAGMENT_SHADER).not.toContain("pow(");
   });
 
@@ -80,5 +83,19 @@ describe("neural edge WebGL program", () => {
     clearGraphNeuralRendererAnimationState(firstRenderer);
     expect(getGraphNeuralRendererAnimationState(firstRenderer)).toBeNull();
     expect(getGraphNeuralRendererAnimationState(secondRenderer)?.elapsedMs).toBe(640);
+  });
+});
+
+describe('traveling arrowheads', () => {
+  it('shares the signal clock and interpolates source to target without looping', () => {
+    expect(NEURAL_ARROW_VERTEX_SHADER).toContain('u_elapsedMs - travelStart');
+    expect(NEURAL_ARROW_VERTEX_SHADER).toContain('mix(a_positionStart, a_positionEnd, progress)');
+    expect(NEURAL_ARROW_VERTEX_SHADER).not.toContain('mod(');
+  });
+  it('fades at arrival, preserves reduced-motion direction, and leaves picking to the line', () => {
+    expect(NEURAL_ARROW_VERTEX_SHADER).toContain('1.0 - smoothstep(0.78, 1.0, progress)');
+    expect(NEURAL_ARROW_VERTEX_SHADER).toContain('u_reducedMotion > 0.5');
+    expect(NEURAL_ARROW_FRAGMENT_SHADER).toContain('discard;');
+    expect(NEURAL_ARROW_FRAGMENT_SHADER).toContain('v_color.rgb * alpha');
   });
 });

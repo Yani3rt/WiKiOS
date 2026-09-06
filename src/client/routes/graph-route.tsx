@@ -1,3 +1,4 @@
+import { focusVisibility, focusColor } from "../graph-focus-transition";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, redirect, useLoaderData, useNavigate } from "react-router-dom";
 import Graph from "graphology";
@@ -34,6 +35,7 @@ import {
 import {
   clearGraphNeuralRendererAnimationState,
   NeuralEdgeProgram,
+  NeuralArrowEdgeProgram,
   setGraphNeuralRendererAnimationState,
   type NeuralEdgeDisplayData,
 } from "@/client/graph-neural-edge-program";
@@ -46,10 +48,8 @@ import {
   getGraphConnectionGroups,
   getGraphDetailHeightAnimation,
   getGraphDetailPanelToggleState,
-  getGraphDisconnectedNodeTransition,
   getGraphEdgeSize,
   getGraphIndexNodes,
-  getGraphIsolationFrameRefreshOptions,
   getGraphLayoutIterations,
   getGraphLinkedNodePulseScale,
   getGraphNeuralIndexedDirectEdges,
@@ -221,53 +221,9 @@ function createGraphLabelDrawer(colors: GraphThemeColors): NodeLabelDrawingFunct
 }
 
 function createGraphHoverDrawer(colors: GraphThemeColors): NodeHoverDrawingFunction {
-  const drawLabel = createGraphLabelDrawer(colors);
-
-  return (context, data, settings) => {
-    const padding = 2;
-    const labelSize = settings.labelSize;
-    const radius = Math.max(data.size, labelSize / 2) + padding;
-
-    context.save();
-    context.font = `${settings.labelWeight} ${labelSize}px ${settings.labelFont}`;
-    context.fillStyle = colors.surface;
-    context.shadowOffsetX = 0;
-    context.shadowOffsetY = 0;
-    context.shadowBlur = 8;
-    context.shadowColor = "#000";
-    context.beginPath();
-
-    if (typeof data.label === "string") {
-      const boxWidth = Math.round(context.measureText(data.label).width + 5);
-      const boxHeight = Math.round(labelSize + 2 * padding);
-      const angleRadian = Math.asin(boxHeight / 2 / radius);
-      const xDelta = Math.sqrt(Math.abs(radius ** 2 - (boxHeight / 2) ** 2));
-
-      if (data.labelPlacement === "left") {
-        context.moveTo(data.x - xDelta, data.y + boxHeight / 2);
-        context.lineTo(data.x - radius - boxWidth, data.y + boxHeight / 2);
-        context.lineTo(data.x - radius - boxWidth, data.y - boxHeight / 2);
-        context.lineTo(data.x - xDelta, data.y - boxHeight / 2);
-        context.arc(data.x, data.y, radius, Math.PI + angleRadian, Math.PI - angleRadian, true);
-      } else {
-        context.moveTo(data.x + xDelta, data.y + boxHeight / 2);
-        context.lineTo(data.x + radius + boxWidth, data.y + boxHeight / 2);
-        context.lineTo(data.x + radius + boxWidth, data.y - boxHeight / 2);
-        context.lineTo(data.x + xDelta, data.y - boxHeight / 2);
-        context.arc(data.x, data.y, radius, angleRadian, -angleRadian);
-      }
-    } else {
-      context.arc(data.x, data.y, radius, 0, Math.PI * 2);
-    }
-
-    context.closePath();
-    context.fill();
-    context.shadowOffsetX = 0;
-    context.shadowOffsetY = 0;
-    context.shadowBlur = 0;
-    drawLabel(context, data, settings);
-    context.restore();
-  };
+  // Sigma uses this layer for both hovered and highlighted (selected) nodes.
+  // The node program owns the glow; an opaque canvas disk here masks it.
+  return createGraphLabelDrawer(colors);
 }
 
 interface GraphThemeRenderer {
@@ -278,7 +234,7 @@ interface GraphThemeRenderer {
 export function getGraphEdgeProgramClasses(
   neuralEnabled: boolean,
 ): Record<string, EdgeProgramType> {
-  return neuralEnabled ? { neural: NeuralEdgeProgram } : {};
+  return neuralEnabled ? { neural: NeuralEdgeProgram, neuralArrow: NeuralArrowEdgeProgram } : {};
 }
 
 export function hasGraphNeuralEdgeProgram(
@@ -292,13 +248,14 @@ export function getGraphNeuralEdgeDisplayAttributes(
   color: string,
   neuralEnabled = true,
   delayMs = 0,
+  directional = false,
 ): Pick<
   NeuralEdgeDisplayData,
   "type" | "color" | "neuralDelayMs"
 > | null {
   if (!neuralEnabled) return null;
   return {
-    type: "neural",
+    type: directional ? "neuralArrow" : "neural",
     color,
     neuralDelayMs: delayMs,
   };
@@ -1324,8 +1281,6 @@ function GraphView({ data }: { data: ColoredGraphData }) {
   const linkedHoverRef = useRef<string | null>(null);
   const linkedPulseScaleRef = useRef(1);
   const linkedPulseFrameRef = useRef<number | null>(null);
-  const isolatedFocusRef = useRef<string | null>(null);
-  const isolationProgressRef = useRef(0);
   const focusIsolationCallbackRef = useRef<((slug: string | null) => void) | null>(null);
   const mobileFocusTimerRef = useRef<number | null>(null);
   const labelLayoutCallbackRef = useRef<(() => void) | null>(null);
@@ -1506,7 +1461,19 @@ function GraphView({ data }: { data: ColoredGraphData }) {
     graphThemeRef.current = graphTheme;
     const graph = buildGraph(data, config.categories.aliases, graphTheme, resolvedMode);
     const neuralActivationIndex = createGraphNeuralActivationIndex(data.edges);
-    const isolationFrameRefreshOptions = getGraphIsolationFrameRefreshOptions(graph.nodes());
+    const nodeVisibility = new Map(graph.nodes().map(node => [node, 1]));
+    const edgeVisibility = new Map(graph.edges().map(edge => [edge, 1]));
+    const isolationFrameRefreshOptions = {
+      partialGraph: { nodes: graph.nodes(), edges: graph.edges() },
+      skipIndexation: true,
+      schedule: true,
+    };
+    const focusLinkColor = (slug: string) => {
+      const colors = graphThemeRef.current ?? graphTheme;
+      const assignment = colorGroupsRef.current.assignments.get(slug);
+      const topic = assignment ? adaptGraphCategoryColor(assignment.color, resolvedModeRef.current) : colors.nodeDefault;
+      return mixGraphColors(colors.edgeDefault, topic, 0.78);
+    };
     graphRef.current = graph;
     const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
     let entranceElapsed = motionQuery.matches || entranceShownRef.current ? GRAPH_ENTRANCE_MS : 0;
@@ -1549,25 +1516,14 @@ function GraphView({ data }: { data: ColoredGraphData }) {
           const src = graph.source(edge);
           const tgt = graph.target(edge);
 
-          if (focused) {
-            if (src === focused) {
-              res.color = colors.edgeOutgoing;
-              res.size = Math.max(2.1, res.size ?? 1);
-              res.type = "arrow";
-            } else if (tgt === focused) {
-              res.color = colors.edgeIncoming;
-              res.size = Math.max(2.1, res.size ?? 1);
-              res.type = "arrow";
-            } else {
-              res.hidden = true;
-            }
-          } else if (hovered) {
+          if (focused && (src === focused || tgt === focused)) {
+            res.color = focusLinkColor(focused);
+            res.size = focused ? 1.45 : 1.15;
+            res.type = "arrow";
+          } else if (hovered && !focused) {
             if (src === hovered || tgt === hovered) {
-              res.color = colors.edgeOutgoing;
-              res.size = Math.max(1.8, res.size ?? 1);
-            } else {
-              res.color = colors.edgeMuted;
-              res.size = Math.max(0.8, (res.size ?? 1) * 0.7);
+              res.color = focusLinkColor(hovered);
+              res.size = focused ? 1.45 : 1.15;
             }
           }
 
@@ -1577,16 +1533,17 @@ function GraphView({ data }: { data: ColoredGraphData }) {
             : undefined;
           if (neuralFrame && neuralSnapshot?.activeSlug) {
             const neuralColor =
-              src === neuralSnapshot.activeSlug ? colors.edgeOutgoing : colors.edgeIncoming;
+              focusLinkColor(neuralSnapshot.activeSlug);
             const neuralAttributes = getGraphNeuralEdgeDisplayAttributes(
               neuralFrame,
               neuralColor,
               rendererNeuralEnabled,
               neuralSnapshot.edgeDelays.get(edge) ?? 0,
+              Boolean(focused),
             );
             if (neuralAttributes) {
               Object.assign(res, neuralAttributes);
-              res.size = Math.max(2.5, res.size ?? 1);
+              res.size = focused ? 1.45 : 1.15;
             }
           }
 
@@ -1605,11 +1562,14 @@ function GraphView({ data }: { data: ColoredGraphData }) {
               res.color = mixGraphColors(colors.background, res.color, Math.max(0, Math.min(1, (entranceElapsed - delay - 200) / 600)));
             }
           }
+          const visibility = edgeVisibility.get(edge) ?? 1;
+          res.color = mixGraphColors(colors.background, res.color, visibility);
+          res.hidden = visibility <= 0;
           return res;
         },
         nodeReducer(node, data) {
           const colors = graphThemeRef.current ?? graphTheme;
-          const focused = isolatedFocusRef.current;
+          const focused = focusedRef.current;
           const hovered = hoveredRef.current;
           const linkedHover = linkedHoverRef.current;
           const active = focused ?? hovered;
@@ -1634,31 +1594,16 @@ function GraphView({ data }: { data: ColoredGraphData }) {
             if (isActive) {
               res.highlighted = true;
               res.zIndex = 2;
-              res.size = (res.size ?? 4) * 1.3;
+              if (focused) res.size = (res.size ?? 4) * 1.12;
             } else if (isNeighbor) {
               res.zIndex = 1;
               if (focused) {
                 res.forceLabel = true;
-                res.size = (res.size ?? 4) * 1.08;
+                res.size = (res.size ?? 4) * 1.02;
               }
             } else {
               res.zIndex = 0;
-              if (focused) {
-                const transition = getGraphDisconnectedNodeTransition(
-                  isolationProgressRef.current,
-                );
-                res.color = mixGraphColors(
-                  groupColor,
-                  colors.background,
-                  transition.colorMix,
-                );
-                res.size = (res.size ?? 4) * transition.sizeScale;
-                res.hidden = transition.hidden;
-                res.label = "";
-                res.forceLabel = false;
-              } else {
-                res.color = colors.nodeMuted;
-              }
+              if (!focused) res.color = colors.nodeMuted;
             }
           }
 
@@ -1687,6 +1632,12 @@ function GraphView({ data }: { data: ColoredGraphData }) {
             res.entranceLabelOpacity = frame.label;
           }
 
+          const visibility = nodeVisibility.get(node) ?? 1;
+          res.color = focusColor(res.color, visibility);
+          res.size = (res.size ?? 4) * (0.88 + visibility * 0.12);
+          res.hidden = visibility <= 0;
+          const labelVisibility = Math.max(0, (visibility - 0.35) / 0.65);
+          res.entranceLabelOpacity = (res.entranceLabelOpacity ?? 1) * labelVisibility;
           return res;
         },
       });
@@ -1758,55 +1709,34 @@ function GraphView({ data }: { data: ColoredGraphData }) {
         focusIsolationFrame = null;
       }
 
-      const previousSlug = isolatedFocusRef.current;
-      if (!nextSlug && !previousSlug) return;
-      if (nextSlug && nextSlug === previousSlug) return;
-
-      if (nextSlug && previousSlug) {
-        isolatedFocusRef.current = nextSlug;
-        isolationProgressRef.current = 1;
-        sigma.refresh();
-        return;
-      }
-
-      const startProgress = nextSlug ? 0 : isolationProgressRef.current;
-      const targetProgress = nextSlug ? 1 : 0;
-      const duration = getGraphMotionDuration(nextSlug ? 180 : 220);
-      if (nextSlug) isolatedFocusRef.current = nextSlug;
-
-      if (duration === 0) {
-        isolationProgressRef.current = targetProgress;
-        if (!nextSlug) isolatedFocusRef.current = null;
-        sigma.refresh();
-        return;
-      }
-
-      isolationProgressRef.current = startProgress;
-      sigma.refresh(isolationFrameRefreshOptions);
+      const fromNodes = new Map(nodeVisibility);
+      const fromEdges = new Map(edgeVisibility);
+      const visibleNodes = nextSlug ? new Set([nextSlug, ...graph.neighbors(nextSlug)]) : null;
+      const duration = getGraphMotionDuration(nextSlug ? 420 : 860);
       const startedAt = performance.now();
       const animate = (timestamp: number) => {
-        const elapsed = Math.min(1, (timestamp - startedAt) / duration);
-        const eased = 1 - Math.pow(1 - elapsed, 4);
-        isolationProgressRef.current =
-          startProgress + (targetProgress - startProgress) * eased;
-
-        if (elapsed >= 1) {
-          focusIsolationFrame = null;
-          isolationProgressRef.current = targetProgress;
-          if (!nextSlug) isolatedFocusRef.current = null;
-          sigma.refresh();
-          return;
+        const progress = duration === 0 ? 1 : Math.min(1, (timestamp - startedAt) / duration);
+        for (const node of nodeVisibility.keys()) {
+          const target = !visibleNodes || visibleNodes.has(node) ? 1 : 0;
+          nodeVisibility.set(node, focusVisibility(fromNodes.get(node) ?? 1, target, progress));
         }
-
+        for (const edge of edgeVisibility.keys()) {
+          const target = !nextSlug || graph.source(edge) === nextSlug || graph.target(edge) === nextSlug ? 1 : 0;
+          const from = fromEdges.get(edge) ?? 1;
+          edgeVisibility.set(edge, focusVisibility(from, target, progress, target > from ? 0.16 : 0));
+        }
         sigma.refresh(isolationFrameRefreshOptions);
-        focusIsolationFrame = requestAnimationFrame(animate);
+        if (progress < 1) focusIsolationFrame = requestAnimationFrame(animate);
+        else {
+          focusIsolationFrame = null;
+          sigma.refresh();
+        }
       };
-      focusIsolationFrame = requestAnimationFrame(animate);
+      animate(startedAt);
     };
     focusIsolationCallbackRef.current = animateFocusIsolation;
     if (focusedRef.current) {
-      isolatedFocusRef.current = focusedRef.current;
-      isolationProgressRef.current = 1;
+      animateFocusIsolation(focusedRef.current);
       neuralSelectionCallbackRef.current(focusedRef.current);
     }
     let labelLayoutFrame: number | null = null;
@@ -1924,8 +1854,6 @@ function GraphView({ data }: { data: ColoredGraphData }) {
       neuralSnapshotRef.current = null;
       if (focusIsolationFrame !== null) cancelAnimationFrame(focusIsolationFrame);
       focusIsolationCallbackRef.current = null;
-      isolatedFocusRef.current = null;
-      isolationProgressRef.current = 0;
       if (labelLayoutFrame !== null) cancelAnimationFrame(labelLayoutFrame);
       labelLayoutCallbackRef.current = null;
       resizeObserver.disconnect();
