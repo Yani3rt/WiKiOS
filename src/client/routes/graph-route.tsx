@@ -1191,7 +1191,7 @@ function InfoPanel({
 
 /* ── Tooltip ── */
 
-function NodeTooltip({
+export function NodeTooltip({
   node,
   position,
   resolvedMode,
@@ -1203,30 +1203,27 @@ function NodeTooltip({
   if (!node) return null;
   const catColor = adaptGraphCategoryColor(node.color, resolvedMode);
 
+  const placeLeft = typeof window !== "undefined" && position.x + 338 > window.innerWidth;
+  const metadata = `${node.connectionCount} ${node.connectionCount === 1 ? "connection" : "connections"} · ${Math.max(1, Math.round(node.wordCount / 200))} min read`;
   return (
     <div
-      className="graph-surface-raised pointer-events-none absolute z-20 max-w-xs rounded-lg px-4 py-2.5"
-      style={{ left: position.x + 14, top: position.y - 12 }}
+      role="tooltip"
+      className="graph-surface-raised pointer-events-none absolute z-20 rounded-lg px-3 py-2.5"
+      style={{
+        width: "max-content",
+        maxWidth: "min(320px, calc(100% - 24px))",
+        left: placeLeft ? undefined : Math.max(12, position.x + 18),
+        right: placeLeft ? `max(12px, calc(100% - ${position.x - 18}px))` : undefined,
+        top: `clamp(76px, ${position.y - 24}px, max(76px, calc(100% - 80px)))`,
+      }}
     >
-      <p className="text-[0.95rem] font-semibold text-[var(--graph-foreground)]">{node.label}</p>
+      <p className="truncate text-sm font-semibold text-[var(--graph-foreground)]">{node.label}</p>
       <div className="mt-1 flex items-center gap-1.5 text-[0.7rem] font-medium text-[var(--graph-muted)]">
-        <span>
-          {node.connectionCount} {node.connectionCount === 1 ? "connection" : "connections"}
-        </span>
-        <span>·</span>
-        <span>{node.wordCount} words</span>
+        <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: catColor }} />
+        <span className="min-w-0 truncate">{node.categories[0] ?? "Unassigned"}</span>
+        <span aria-hidden="true">·</span>
+        <span className="shrink-0">{metadata}</span>
       </div>
-      {node.categories.length > 0 && (
-        <div className="mt-1.5 flex items-center gap-1.5">
-          <span
-            className="h-1.5 w-1.5 rounded-full"
-            style={{ backgroundColor: catColor }}
-          />
-          <span className="text-[0.7rem] font-semibold text-[var(--graph-muted)]">
-            {node.categories.join(", ")}
-          </span>
-        </div>
-      )}
     </div>
   );
 }
@@ -1896,8 +1893,8 @@ function GraphView({ data }: { data: ColoredGraphData }) {
       tooltipFrame = requestAnimationFrame(() => {
         tooltipFrame = null;
         const hovered = hoveredRef.current;
-        if (!hovered || !graphRef.current || focusedRef.current) {
-          if (!focusedRef.current) setTooltip(null);
+        if (!hovered || !graphRef.current) {
+          setTooltip(null);
           return;
         }
         const attrs = graphRef.current.getNodeAttributes(hovered);
@@ -2000,14 +1997,12 @@ function GraphView({ data }: { data: ColoredGraphData }) {
               setFocusedSlug(null);
               setActiveGroup(id);
             }} />
-          {/* Tooltip (only when not focused) */}
-          {!focusedSlug && (
+          {/* Hover details remain available while exploring an isolated neighborhood. */}
             <NodeTooltip
               node={tooltip?.node ?? null}
               position={tooltip?.position ?? { x: 0, y: 0 }}
               resolvedMode={resolvedMode}
             />
-          )}
 
           {/* Info panel (when focused) */}
           {focusedNode && (
