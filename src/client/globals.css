@@ -1522,10 +1522,6 @@ html {
   text-transform: uppercase;
 }
 
-.command-palette-dialog[data-mode="recent"] .command-palette-section-heading {
-  color: var(--brand-secondary-accent);
-}
-
 .command-palette-state {
   margin: 0.25rem;
   border: 1px dashed var(--border);
@@ -1575,11 +1571,6 @@ html {
   border-radius: 0.65rem;
   background: var(--brand-accent-soft);
   color: var(--brand-accent);
-}
-
-.command-palette-dialog[data-mode="recent"] .command-palette-result-icon {
-  background: var(--brand-secondary-accent-soft);
-  color: var(--brand-secondary-accent);
 }
 
 .command-palette-result-copy {

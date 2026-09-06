@@ -149,3 +149,11 @@ describe("command palette modal", () => {
     expect(markup).toContain('role="option"');
   });
 });
+
+it("keeps recent-note palette styling on the primary theme instead of the pink secondary accent", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const css = await readFile(new URL("../src/client/globals.css", import.meta.url), "utf8");
+  const paletteRules = css.match(/\.command-palette[^{}]*\{[^{}]*\}/g) ?? [];
+  expect(paletteRules.length).toBeGreaterThan(0);
+  expect(paletteRules.join("\n")).not.toContain("--brand-secondary-accent");
+});
