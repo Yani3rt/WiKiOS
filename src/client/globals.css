@@ -1926,8 +1926,6 @@ html {
 .note-peek-excerpt {font-size:13px;line-height:1.8;display:-webkit-box;-webkit-line-clamp:5;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere;}
 .note-peek time {display:block;font-size:10px;color:var(--explorer-muted-foreground);margin-top:14px;}
 .note-peek-open {display:flex;align-items:center;justify-content:space-between;width:100%;min-height:42px;margin-top:16px;padding:8px 10px;border-radius:6px;background:var(--explorer-selection);color:var(--explorer-accent);font-size:12px;}
-.note-peek-touch {left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom));width:auto;}
-.note-peek-touch header button {width:44px;height:44px;}
 .note-peek {overflow-y:auto;max-height:calc(100dvh - 24px);overscroll-behavior:contain;}
 
 /* Reading tools keep the note mounted and layout preferences untouched. */
@@ -2025,7 +2023,7 @@ html {
 @keyframes note-peek-content-in {from {opacity:0;} to {opacity:1;}}
 @keyframes note-peek-content-out {from {opacity:1;} to {opacity:0;}}
 @media (prefers-reduced-motion:no-preference) {
-  .note-peek:not(.note-peek-touch) {transition:translate 240ms cubic-bezier(.22,1,.36,1);}
+  .note-peek {transition:translate 240ms cubic-bezier(.22,1,.36,1);}
   .note-peek-content-in {animation:note-peek-content-in 160ms ease-out both;}
   .note-peek-content-out {animation:note-peek-content-out 160ms ease-out both;}
 }

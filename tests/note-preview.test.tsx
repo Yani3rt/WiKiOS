@@ -25,9 +25,14 @@ it('opens through the explicit action and dismisses the preview',async()=>{
   await focus();await act(async()=>container.querySelector<HTMLButtonElement>('.note-peek-open')!.click());
   expect(open).toHaveBeenCalledWith('Notes/Beta');expect(container.querySelector('[role="dialog"]')).toBeNull();
 });
-it('intercepts a mobile tap without triggering the original navigation',async()=>{
-  touch=true;await act(async()=>container.querySelector<HTMLButtonElement>('[data-note-slug]')!.click());
-  expect(navigate).not.toHaveBeenCalled();expect(container.querySelector('.note-peek-touch')).not.toBeNull();
+it('opens touch notes directly without scheduling a focus preview',async()=>{
+  touch=true;
+  const note=container.querySelector<HTMLButtonElement>('[data-note-slug]')!;
+  await act(async()=>{note.focus();note.click();});
+  await act(async()=>vi.advanceTimersByTimeAsync(1000));
+  expect(navigate).toHaveBeenCalledOnce();
+  expect(container.querySelector('[role="dialog"]')).toBeNull();
+  expect(fetchMock).not.toHaveBeenCalled();
 });
 it('Escape restores focus without reopening and clears the description',async()=>{
   await focus();await act(async()=>container.querySelector<HTMLButtonElement>('[aria-label="Close note preview"]')!.focus());
@@ -97,18 +102,6 @@ it('removes the card immediately for reduced motion', async () => {
   await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Close note preview"]')!.click());
   expect(container.querySelector('.note-peek')).toBeNull();
 });
-it('does not let an old exit timer remove a newly opened preview', async () => {
-  vi.stubGlobal('matchMedia', (query: string) => ({matches: query === '(hover: none)'}));
-  const note = container.querySelector<HTMLButtonElement>('[data-note-slug]')!;
-  await act(async () => note.click());
-  await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Close note preview"]')!.click());
-  await act(async () => vi.advanceTimersByTimeAsync(70));
-  await act(async () => note.click());
-  await act(async () => vi.advanceTimersByTimeAsync(150));
-  expect(container.querySelector('[role="dialog"]')).not.toBeNull();
-  expect(container.querySelector('.note-peek')?.hasAttribute('inert')).toBe(false);
-});
-
 it('reuses the open card and switches to another note after 150ms', async () => {
   container.querySelector('a')!.getBoundingClientRect = () => ({left:100,top:180,bottom:220} as DOMRect);
   await focus();

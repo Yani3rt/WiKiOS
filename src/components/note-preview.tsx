@@ -15,7 +15,7 @@ export function previewExcerpt(markdown: string) {
 const PREVIEW_DWELL_MS = 750;
 const PREVIEW_SWITCH_MS = 150;
 
-type Target = {slug:string; element:HTMLElement; touch:boolean; x:number; y:number};
+type Target = {slug:string; element:HTMLElement; x:number; y:number};
 type Preview = {slug:string; page?:WikiPageData; message?:string};
 export function NotePreview({rootRef, onOpen, activeSlug}: {
   rootRef:RefObject<HTMLElement|null>; onOpen:(slug:string)=>void; activeSlug:string|null;
@@ -54,22 +54,22 @@ export function NotePreview({rootRef, onOpen, activeSlug}: {
       }
       return slug && slug!==activeSlug ? {element,slug}:null;
     }
-    function show(found:{element:HTMLElement;slug:string},touch:boolean) {
+    function show(found:{element:HTMLElement;slug:string}) {
       pendingFocus=null;
       const rect=found.element.getBoundingClientRect();
       const drawer=found.element.closest('#explorer-sidebar')?.getBoundingClientRect();
       const besideDrawer=drawer && drawer.right+352<=innerWidth;
-      setTarget({...found,touch,x:Math.max(12,Math.min(besideDrawer?drawer.right+8:rect.left,innerWidth-352)),y:Math.max(12,Math.min(besideDrawer?rect.top+rect.height/2-160:rect.bottom+8,innerHeight-320))});
+      setTarget({...found,x:Math.max(12,Math.min(besideDrawer?drawer.right+8:rect.left,innerWidth-352)),y:Math.max(12,Math.min(besideDrawer?rect.top+rect.height/2-160:rect.bottom+8,innerHeight-320))});
     }
     const hover=(event:PointerEvent)=>{
       if (panel.current?.contains(event.target as Node)) {if (!pendingFocus) cancel();return;}
-      if (event.pointerType==='touch' || window.matchMedia('(hover: none)').matches) return;
+      if (event.pointerType==='touch' || window.matchMedia('(hover: none)').matches || window.matchMedia('(max-width: 767px)').matches) return;
       const found=resolve(event.target); if (!found || found.element.contains(event.relatedTarget as Node|null)) return;
       if (pendingFocus && pendingFocus!==found.element && targetRef.current?.element===found.element) return;
       pendingFocus=null;
       cancel();
       if (targetRef.current?.element===found.element) return;
-      timer=setTimeout(()=>show(found,false),targetRef.current?PREVIEW_SWITCH_MS:PREVIEW_DWELL_MS);
+      timer=setTimeout(()=>show(found),targetRef.current?PREVIEW_SWITCH_MS:PREVIEW_DWELL_MS);
     };
     const leave=(event:PointerEvent)=>{
       if (pendingFocus===document.activeElement) return;
@@ -81,12 +81,12 @@ export function NotePreview({rootRef, onOpen, activeSlug}: {
       cancel();timer=setTimeout(()=>setTarget(null),180);
     };
     const focus=(event:FocusEvent)=>{
-      if (suppressFocus.current) return;
+      if (suppressFocus.current || window.matchMedia('(hover: none)').matches || window.matchMedia('(max-width: 767px)').matches) return;
       const found=resolve(event.target);if (!found) return;
       pendingFocus=found.element;
       cancel();
       if (targetRef.current?.element===found.element) return;
-      timer=setTimeout(()=>show(found,false),targetRef.current?PREVIEW_SWITCH_MS:PREVIEW_DWELL_MS);
+      timer=setTimeout(()=>show(found),targetRef.current?PREVIEW_SWITCH_MS:PREVIEW_DWELL_MS);
     };
     const blur=(event:FocusEvent)=>{
       pendingFocus=null;
@@ -96,7 +96,7 @@ export function NotePreview({rootRef, onOpen, activeSlug}: {
     const click=(event:MouseEvent)=>{
       const found=resolve(event.target);if (!found || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || event.button!==0) return;
       cancel();
-      if (window.matchMedia('(hover: none)').matches) {event.preventDefault();event.stopPropagation();show(found,true);} else setTarget(null);
+      setTarget(null);
     };
     const outside=(event:PointerEvent)=>{if (targetRef.current && !panel.current?.contains(event.target as Node) && !targetRef.current.element.contains(event.target as Node)) {cancel();setTarget(null);}};
     const keyboard=(event:KeyboardEvent)=>{
@@ -129,7 +129,6 @@ export function NotePreview({rootRef, onOpen, activeSlug}: {
     }).catch(()=>{if (!controller.signal.aborted) setResult({slug,message:'Preview unavailable.'});});
     return ()=>{controller.abort();target.element.removeAttribute('aria-describedby');};
   },[target,id,retry]);
-  useEffect(()=>{if (target?.touch) panel.current?.querySelector<HTMLButtonElement>('button')?.focus();},[target]);
   const visibleTarget=target??retainedTarget;
   const current=result?.slug===visibleTarget?.slug ? result:null;
   const previousContent=useRef<Preview|null>(null);
@@ -142,7 +141,7 @@ export function NotePreview({rootRef, onOpen, activeSlug}: {
   },[current]);
   if (!visibleTarget) return null;
   const exiting=!target;
-  return <div ref={panel} id={exiting?undefined:id} role={exiting?undefined:"dialog"} aria-hidden={exiting || undefined} inert={exiting} aria-label="Note preview" className={`note-peek ${visibleTarget.touch?'note-peek-touch':''} ${exiting?'note-peek-exiting':''}`} style={visibleTarget.touch?undefined:{left:0,top:0,translate:`${visibleTarget.x}px ${visibleTarget.y}px`,maxHeight:innerHeight-visibleTarget.y-12}}>
+  return <div ref={panel} id={exiting?undefined:id} role={exiting?undefined:"dialog"} aria-hidden={exiting || undefined} inert={exiting} aria-label="Note preview" className={`note-peek ${exiting?'note-peek-exiting':''}`} style={{left:0,top:0,translate:`${visibleTarget.x}px ${visibleTarget.y}px`,maxHeight:innerHeight-visibleTarget.y-12}}>
     <header><span><FileText size={14}/>Note preview</span><button aria-label="Close note preview" onClick={()=>{setTarget(null);suppressFocus.current=true;visibleTarget.element.focus({preventScroll:true});suppressFocus.current=false;}}><X size={16}/></button></header>
     <div className="note-peek-content">
       {outgoing && <div className="note-peek-content-out" aria-hidden="true" inert><PreviewText preview={outgoing}/></div>}

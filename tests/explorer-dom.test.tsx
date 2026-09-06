@@ -191,3 +191,11 @@ it("offers Find at tablet width and removes it when resizing to phone width", as
   document.dispatchEvent(event);
   expect(event.defaultPrevented).toBe(false);
 });
+it('opens a tapped drawer note in its workspace tab without a preview on mobile', async () => {
+  await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Toggle note tree"]')!.click());
+  const note = container.querySelector<HTMLButtonElement>('[data-note-slug="Beta"]')!;
+  await act(async () => {note.focus();note.click();});
+  expect(router.state.location.pathname).toBe('/explorer/Beta');
+  expect(container.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe('Beta');
+  expect(container.querySelector('[aria-label="Note preview"]')).toBeNull();
+});
