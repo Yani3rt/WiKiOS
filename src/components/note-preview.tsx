@@ -12,6 +12,8 @@ export function previewExcerpt(markdown: string) {
     .replace(/\s+/g, " ").trim().slice(0, 320) || "No text to preview.";
 }
 
+const PREVIEW_DWELL_MS = 750;
+
 type Target = {slug:string; element:HTMLElement; touch:boolean; x:number; y:number};
 type Preview = {slug:string; page?:WikiPageData; message?:string};
 export function NotePreview({rootRef, onOpen, activeSlug}: {
@@ -47,19 +49,22 @@ export function NotePreview({rootRef, onOpen, activeSlug}: {
       setTarget({...found,touch,x:Math.max(12,Math.min(rect.left,innerWidth-352)),y:Math.max(12,Math.min(rect.bottom+8,innerHeight-320))});
     }
     const hover=(event:PointerEvent)=>{
+      if (panel.current?.contains(event.target as Node)) {cancel();return;}
       if (event.pointerType==='touch' || window.matchMedia('(hover: none)').matches) return;
       const found=resolve(event.target); if (!found || found.element.contains(event.relatedTarget as Node|null)) return;
-      cancel();timer=setTimeout(()=>show(found,false),350);
+      cancel();timer=setTimeout(()=>show(found,false),PREVIEW_DWELL_MS);
     };
     const leave=(event:PointerEvent)=>{
       if (panel.current?.contains(event.relatedTarget as Node|null)) {cancel();return;}
-      if (!resolve(event.target)) return;
+      const found=resolve(event.target);
+      // pointerout bubbles between the icon, label and row: only a real row exit counts.
+      if (!found || found.element.contains(event.relatedTarget as Node|null)) return;
       cancel();timer=setTimeout(()=>setTarget(null),180);
     };
     const focus=(event:FocusEvent)=>{
       if (suppressFocus.current) return;
       const found=resolve(event.target);if (!found) return;
-      cancel();timer=setTimeout(()=>show(found,false),350);
+      cancel();timer=setTimeout(()=>show(found,false),PREVIEW_DWELL_MS);
     };
     const blur=(event:FocusEvent)=>{
       if (panel.current?.contains(event.relatedTarget as Node|null)) return;
