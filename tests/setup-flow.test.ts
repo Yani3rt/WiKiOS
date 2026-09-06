@@ -28,10 +28,10 @@ describe("setup flow routes", () => {
     fetchJson.mockReset();
   });
 
-  it("redirects the home loader to /setup when the API requires setup", async () => {
+  it("redirects the Explorer loader to /setup when the API requires setup", async () => {
     fetchJson.mockRejectedValue(new Response("Vault setup required", { status: 409 }));
 
-    const { loader } = await import("../src/client/routes/home-route");
+    const { loader } = await import("../src/client/routes/explorer-route");
     const thrown = await loader().catch((error: unknown) => error);
 
     expectRedirect(thrown, "/setup");

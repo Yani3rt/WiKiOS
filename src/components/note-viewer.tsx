@@ -39,6 +39,7 @@ const MemoizedMarkdown = memo(ReactMarkdown);
 
 export interface NoteViewerProps {
   page: WikiPageData;
+  embedded?: boolean;
   onNavigateNote: (slug: string) => void;
   onRefreshPage?: () => void | Promise<void>;
   scrollContainerRef?: RefObject<HTMLElement | null>;
@@ -525,11 +526,13 @@ export function handleTocHeadingClick(
   scrollToHeading(id, scrollContainerRef);
 }
 
-function TableOfContents({
+export function TableOfContents({
   headings,
   activeId,
   scrollContainerRef,
+  onNavigate,
 }: {
+  onNavigate?: () => void;
   headings: WikiHeading[];
   activeId: string | null;
   scrollContainerRef?: RefObject<HTMLElement | null>;
@@ -546,7 +549,7 @@ function TableOfContents({
           key={h.id}
           href={`#${h.id}`}
           aria-current={activeId === h.id ? "location" : undefined}
-          onClick={(event) => handleTocHeadingClick(event, h.id, scrollContainerRef)}
+          onClick={(event) => {handleTocHeadingClick(event, h.id, scrollContainerRef); onNavigate?.();}}
           className={`toc-item block text-[13px] leading-snug transition-colors duration-150 ${
             h.level === 3 ? "pl-3" : h.level >= 4 ? "pl-6" : ""
           } ${
@@ -563,7 +566,7 @@ function TableOfContents({
   );
 }
 
-function useActiveHeading(
+export function useActiveHeading(
   headings: WikiHeading[],
   scrollContainerRef?: RefObject<HTMLElement | null>,
 ) {
@@ -660,7 +663,7 @@ function computeScatteredLayout(
   return nodes;
 }
 
-function NeighborhoodGraph({
+export function NeighborhoodGraph({
   currentTitle,
   currentCategories,
   neighbors,
@@ -860,6 +863,7 @@ function NeighborhoodGraph({
 
 export function NoteViewer({
   page,
+  embedded = false,
   onNavigateNote,
   onRefreshPage,
   scrollContainerRef,
@@ -896,6 +900,7 @@ export function NoteViewer({
   }, [onNavigateNote]);
 
   useEffect(() => {
+    if (embedded) return;
     const scrollRoot = getScrollRoot(scrollContainerRef);
     if (scrollRoot) {
       scrollRoot.scrollTo({ top: 0, behavior: "auto" });
@@ -903,7 +908,7 @@ export function NoteViewer({
     }
 
     window.scrollTo(0, 0);
-  }, [page.slug, scrollContainerRef]);
+  }, [embedded, page.slug, scrollContainerRef]);
 
   const personActionBusy = isUpdatingPerson;
 
@@ -1064,35 +1069,9 @@ export function NoteViewer({
     [onRefreshPage, page.fileName],
   );
 
-  return (
-    <>
-      <div className="mb-6 flex items-start gap-4 sm:mb-10 sm:gap-5">
-        {page.isPerson && portraitUrl ? (
-          <img
-            src={portraitUrl}
-            alt={page.title}
-            loading="eager"
-            decoding="async"
-            className="h-16 w-16 shrink-0 rounded-2xl object-cover shadow-[0_8px_24px_-12px_rgba(21,19,26,0.25)] sm:h-24 sm:w-24"
-          />
-        ) : null}
-        <div className="min-w-0">
-          <h1 className="font-display text-[2rem] font-light leading-[1.05] tracking-tight text-[var(--foreground)] sm:text-5xl">
-            {page.title}
-          </h1>
-          <div className="mt-3 flex flex-wrap items-center gap-1.5 text-xs text-[var(--muted-foreground)]/60">
-            <span>{readTime} min read</span>
-            <span className="select-none">·</span>
-            <span>{words.toLocaleString()} words</span>
-            {page.modifiedAt > 0 ? (
-              <>
-                <span className="select-none">·</span>
-                <span>Updated {formatDate(page.modifiedAt)}</span>
-              </>
-            ) : null}
-            {peopleControlsEnabled ? (
-              <>
-                <span className="select-none">·</span>
+  const personControls = (
+<>
+
                 <button
                   type="button"
                   onClick={() => void updatePersonOverride(personPrimaryTarget)}
@@ -1116,12 +1095,39 @@ export function NoteViewer({
                 ) : null}
                 {personOverrideError ? <span className="text-[var(--brand-error)]">{personOverrideError}</span> : null}
               </>
+  );
+
+  return (
+    <>
+      <div className="mb-6 flex items-start gap-4 sm:mb-10 sm:gap-5">
+        {page.isPerson && portraitUrl ? (
+          <img
+            src={portraitUrl}
+            alt={page.title}
+            loading="eager"
+            decoding="async"
+            className="h-16 w-16 shrink-0 rounded-2xl object-cover shadow-[0_8px_24px_-12px_rgba(21,19,26,0.25)] sm:h-24 sm:w-24"
+          />
+        ) : null}
+        <div className="min-w-0">
+          <h1 className="font-display text-[2rem] font-light leading-[1.05] tracking-tight text-[var(--foreground)] sm:text-5xl">
+            {page.title}
+          </h1>
+          <div className="mt-3 flex flex-wrap items-center gap-1.5 text-xs text-[var(--muted-foreground)]/60">
+            <span>{readTime} min read</span>
+            {!embedded && <><span className="select-none">·</span><span>{words.toLocaleString()} words</span></>}
+            {page.modifiedAt > 0 ? (
+              <>
+                <span className="select-none">·</span>
+                <span>Updated {formatDate(page.modifiedAt)}</span>
+              </>
             ) : null}
+            {peopleControlsEnabled && (embedded ? <details className="workspace-note-options"><summary aria-label="Note options">•••</summary><div>{personControls}</div></details> : personControls)}
           </div>
         </div>
       </div>
 
-      {filteredHeadings.length > 0 ? (
+      {!embedded && filteredHeadings.length > 0 ? (
         <div
           className="note-viewer-mobile-toc mb-6 rounded-lg border border-[var(--border)] bg-[var(--brand-surface)] px-4 py-3 lg:hidden"
           data-note-viewer-mobile-toc="true"
@@ -1185,7 +1191,7 @@ export function NoteViewer({
             </section>
           ) : null}
 
-          {page.neighbors.length > 0 ? (
+          {!embedded && page.neighbors.length > 0 ? (
             <details
               className="note-viewer-mobile-connections mt-8 rounded-lg border border-[var(--border)] bg-[var(--brand-surface)] lg:hidden"
               data-note-viewer-mobile-connections="true"
@@ -1207,7 +1213,7 @@ export function NoteViewer({
           ) : null}
         </div>
 
-        <aside
+        {!embedded && <aside
           className="note-viewer-side-rail absolute -right-60 top-0 hidden w-52 xl:static xl:block xl:w-auto"
           data-note-viewer-side-rail="true"
         >
@@ -1229,7 +1235,7 @@ export function NoteViewer({
               />
             ) : null}
           </div>
-        </aside>
+        </aside>}
       </div>
     </>
   );

@@ -67,3 +67,23 @@ it("dismisses on an outside pointer event but not an inside one", async () => {
   await act(async () => document.body.dispatchEvent(new Event("pointerdown", { bubbles: true })));
   expect(container.querySelector("button")?.getAttribute("aria-expanded")).toBe("false");
 });
+
+it("offers a compact picker with named swatches and no repeated selection copy", async () => {
+  await click("button");
+  const colors = container.querySelector('[role="radiogroup"][aria-label="Color"]')!;
+  expect(colors.querySelectorAll('input[type="radio"]')).toHaveLength(3);
+  expect(colors.textContent).not.toContain("Selected");
+  for (const name of ["Teal", "Blue", "Violet"]) {
+    expect(colors.querySelector(`input[aria-label="${name}"]`)).not.toBeNull();
+  }
+  expect(container.querySelector('.theme-selector-title')).toBeNull();
+});
+
+it("consumes Escape so closing the picker does not also close its parent drawer", async () => {
+  const parentDismiss = vi.fn();
+  window.addEventListener("keydown", parentDismiss);
+  await click("button");
+  await act(async () => container.querySelector("input")!.dispatchEvent(new KeyboardEvent("keydown", {key:"Escape", bubbles:true})));
+  expect(parentDismiss).not.toHaveBeenCalled();
+  window.removeEventListener("keydown", parentDismiss);
+});

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import Database from "better-sqlite3";
 
 import {
@@ -12,11 +13,13 @@ import {
   type WikiLinkCandidate,
   type WikiLinkIndex,
 } from "./wiki-link-resolver";
-import { prepareWikiMarkdown, wikilinkHref } from "./markdown";
+import { parseWikiFrontmatter, prepareWikiMarkdown, wikilinkHref } from "./markdown";
 import {
   type CategoryInfo,
   type ExplorerPage,
-  type GraphData,
+  type ActivityPage,
+  type WikiConnections,
+  type ColoredGraphData,
   type HomepageData,
   type PageSummary,
   type PersonOverrideValue,
@@ -112,8 +115,10 @@ export interface WikiQueries {
   searchWiki(query: string): Promise<SearchResult[]>;
   getWikiStats(): Promise<WikiStats>;
   getHomepageData(): Promise<HomepageData>;
+  getActivityPages(): Promise<ActivityPage[]>;
+  getWikiConnections(slugParts: string[]): Promise<WikiConnections>;
   getExplorerPages(): Promise<ExplorerPage[]>;
-  getGraphData(): Promise<GraphData>;
+  getGraphData(): Promise<ColoredGraphData>;
   getWikiPage(slugParts: string[]): Promise<WikiPageData>;
   getWikiIndexStatus(): Promise<WikiIndexStatus>;
   getWikiHealthStatus(): Promise<WikiHealthStatus>;
@@ -140,6 +145,8 @@ interface SearchCandidate {
 }
 
 interface GraphNodeRow {
+  file: string;
+  explicitTopicsJson: string;
   slug: string;
   title: string;
   summary: string;
@@ -490,14 +497,22 @@ export async function getExplorerPages(deps: WikiQueryDependencies): Promise<Exp
     .all() as ExplorerPage[];
 }
 
-export async function getGraphData(deps: WikiQueryDependencies): Promise<GraphData> {
+export async function getActivityPages(deps: WikiQueryDependencies): Promise<ActivityPage[]> {
+  await prepareRead(deps);
+  return deps.getDb().prepare(`
+    SELECT file, slug, title, modified_at AS modifiedAt, first_seen_at AS firstSeenAt
+    FROM pages ORDER BY modified_at DESC, file COLLATE NOCASE ASC, file ASC
+  `).all() as ActivityPage[];
+}
+
+export async function getGraphData(deps: WikiQueryDependencies): Promise<ColoredGraphData> {
   await prepareRead(deps);
 
   const config = await deps.getConfig();
   const db = deps.getDb();
   const nodes = db
     .prepare(`
-      SELECT slug, title, summary, backlink_count AS backlinkCount, word_count AS wordCount, category_names_json AS categoryNamesJson
+      SELECT file, explicit_topics_json AS explicitTopicsJson, slug, title, summary, backlink_count AS backlinkCount, word_count AS wordCount, category_names_json AS categoryNamesJson
       FROM pages
     `)
     .all() as GraphNodeRow[];
@@ -541,6 +556,12 @@ export async function getGraphData(deps: WikiQueryDependencies): Promise<GraphDa
   const visibleSlugs = new Set(visibleNodes.map((node) => node.slug));
 
   return {
+    vaultId: createHash("sha256").update(deps.getIndexDbPath()).digest("hex"),
+    colorSources: Object.fromEntries(nodes.filter(node => visibleSlugs.has(node.slug)).map(node => [node.slug, {
+      topics: parseJsonArray<string>(node.explicitTopicsJson)
+        .filter(topic => !isTopicHidden(topic, config.categories.hidden)),
+      folder: node.file.replace(/\\/g, "/").includes("/") ? node.file.replace(/\\/g, "/").split("/")[0] : null,
+    }])),
     nodes: visibleNodes.map((node) => ({
       ...node,
       neighbors: node.neighbors.filter((slug) => visibleSlugs.has(slug)),
@@ -563,11 +584,10 @@ function getLinkIndex(db: SqliteDb, revision: number): WikiLinkIndex {
   return index;
 }
 
-export async function getWikiPage(
+function resolvePageRow(
   deps: WikiQueryDependencies,
   slugParts: string[],
-): Promise<WikiPageData> {
-  await prepareRead(deps);
+) {
 
   const canonicalSlug = canonicalSlugFromRouteParts(slugParts);
   const target = decodeSlugParts(slugParts).join("/");
@@ -611,6 +631,17 @@ export async function getWikiPage(
   if (!row) {
     throw new Error("Wiki page not found");
   }
+
+  return { row, linkIndex };
+}
+
+export async function getWikiPage(
+  deps: WikiQueryDependencies,
+  slugParts: string[],
+): Promise<WikiPageData> {
+  await prepareRead(deps);
+  const db = deps.getDb();
+  const { row, linkIndex } = resolvePageRow(deps, slugParts);
 
   const prepared = prepareWikiMarkdown(row.markdown, (linkTarget) => {
     const resolution = resolveWikiLinkTarget(linkTarget, row.file, linkIndex);
@@ -668,6 +699,59 @@ export async function getWikiPage(
     isPerson: row.isPerson === 1,
     personOverride: cache.personOverrides[row.file] ?? null,
   };
+}
+
+function incomingLinkExcerpt(markdown: string, sourceFile: string, targetSlug: string, linkIndex: WikiLinkIndex) {
+  const body = parseWikiFrontmatter(markdown).body
+    .replace(/^\s*(`{3,}|~{3,})[^\n]*\n[\s\S]*?^\s*\1\s*$/gm, "");
+  for (const paragraph of body.split(/\n\s*\n/)) {
+    const links = [...paragraph.matchAll(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g)];
+    if (!links.some((match) => {
+      const resolution = resolveWikiLinkTarget(match[1], sourceFile, linkIndex);
+      return resolution.status === "resolved" && resolution.candidate.slug === targetSlug;
+    })) continue;
+    const text = paragraph
+      .replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_match, target: string, label?: string) => label ?? target)
+      .replace(/!?\[([^\]]+)\]\([^)]*\)/g, "$1")
+      .replace(/<[^>]*>/g, "")
+      .replace(/^\s*(?:#{1,6}\s+|>\s*|[-*+]\s+|\d+\.\s+)/gm, "")
+      .replace(/[*_`~]/g, "")
+      .replace(/\s+/g, " ").trim();
+    if (text) return text.length > 140 ? `${text.slice(0, 139).trimEnd()}…` : text;
+  }
+  return undefined;
+}
+
+export async function getWikiConnections(
+  deps: WikiQueryDependencies,
+  slugParts: string[],
+): Promise<WikiConnections> {
+  await prepareRead(deps);
+  const { row, linkIndex } = resolvePageRow(deps, slugParts);
+  const db = deps.getDb();
+  const read = (direction: "outgoing" | "incoming") => {
+    const rows = db.prepare(`
+      SELECT DISTINCT p.slug, p.title, p.backlink_count AS backlinkCount,
+        p.category_names_json AS categoryNamesJson, p.file,
+        ${direction === "incoming" ? "p.markdown" : "NULL"} AS markdown
+      FROM backlinks b
+      JOIN pages p ON ${direction === "outgoing" ? "p.slug = b.target_slug" : "p.file = b.source_file"}
+      WHERE ${direction === "outgoing" ? "b.source_file" : "b.target_slug"} = ?
+        AND b.resolution_state = 'resolved' AND p.slug != ?
+      ORDER BY p.backlink_count DESC, p.title COLLATE NOCASE ASC, p.slug ASC
+    `).all(direction === "outgoing" ? row.file : row.slug, row.slug) as Array<PageNeighborRow & { file: string; markdown: string | null }>;
+    return rows.map((neighbor) => {
+      const excerpt = neighbor.markdown === null ? undefined : incomingLinkExcerpt(neighbor.markdown, neighbor.file, row.slug, linkIndex);
+      return {
+        slug: neighbor.slug,
+        title: neighbor.title,
+        backlinkCount: neighbor.backlinkCount,
+        categories: parseJsonArray<string>(neighbor.categoryNamesJson),
+        ...(excerpt ? { excerpt } : {}),
+      };
+    });
+  };
+  return { outgoing: read("outgoing"), incoming: read("incoming") };
 }
 
 export async function getWikiIndexStatus(
@@ -764,6 +848,8 @@ export function createWikiQueries(deps: WikiQueryDependencies): WikiQueries {
     searchWiki: (query) => searchWiki(deps, query),
     getWikiStats: () => getWikiStats(deps),
     getHomepageData: () => getHomepageData(deps),
+    getActivityPages: () => getActivityPages(deps),
+    getWikiConnections: (slugParts) => getWikiConnections(deps, slugParts),
     getExplorerPages: () => getExplorerPages(deps),
     getGraphData: () => getGraphData(deps),
     getWikiPage: (slugParts) => getWikiPage(deps, slugParts),

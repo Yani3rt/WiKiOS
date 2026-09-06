@@ -20,6 +20,24 @@ export interface ExplorerPage {
   modifiedAt: number;
 }
 
+export interface ActivityPage extends ExplorerPage {
+  firstSeenAt: number;
+}
+
+export interface WikiActivity {
+  vaultId: string;
+  pages: ActivityPage[];
+}
+
+export interface WikiConnection extends WikiNeighbor {
+  excerpt?: string;
+}
+
+export interface WikiConnections {
+  outgoing: WikiConnection[];
+  incoming: WikiConnection[];
+}
+
 export interface BacklinkStat {
   page: string;
   count: number;
@@ -134,3 +152,9 @@ export function titleFromFileName(fileName: string) {
 }
 
 export type SyncSource = "startup" | "watcher" | "reindex" | "periodic" | "manual";
+
+export interface GraphColorSource { topics: string[]; folder: string | null; }
+export interface ColoredGraphData extends GraphData {
+  vaultId: string;
+  colorSources: Record<string, GraphColorSource>;
+}

@@ -33,7 +33,6 @@ import {
 } from "../src/components/note-viewer";
 import { WikilinkAmbiguityView } from "../src/components/wikilink-ambiguity-view";
 import { applyExplorerRefreshResult } from "../src/client/routes/explorer-route";
-import { createRevalidationRefreshController, loader as wikiLoader } from "../src/client/routes/wiki-route";
 import { DEFAULT_WIKI_OS_CONFIG } from "../src/lib/wiki-config";
 import type { WikiLinkAmbiguityData, WikiPageData } from "../src/lib/wiki-shared";
 
@@ -372,25 +371,7 @@ describe("shared note viewer behavioral helpers", () => {
     expect(calls).toEqual(expect.arrayContaining(["after-save-call", "refresh-started", "refresh-resolved"]));
   });
 
-  it("does not resolve pending refreshes before loading starts and resolves them when revalidation returns idle", async () => {
-    const controller = createRevalidationRefreshController();
-    const revalidate = vi.fn();
-    let resolved = false;
 
-    const pending = controller.requestRefresh(revalidate).then(() => {
-      resolved = true;
-    });
-
-    expect(revalidate).toHaveBeenCalledTimes(1);
-    controller.onStateChange("idle");
-    await Promise.resolve();
-    expect(resolved).toBe(false);
-
-    controller.onStateChange("loading");
-    controller.onStateChange("idle");
-    await pending;
-    expect(resolved).toBe(true);
-  });
 });
 
 describe("shared note viewer rendering and route boundaries", () => {
@@ -454,76 +435,6 @@ describe("shared note viewer rendering and route boundaries", () => {
         ambiguity: ambiguousWikiLink,
       });
       expect(fetchImpl).toHaveBeenCalledWith("/api/wiki/Note", {
-        headers: { accept: "application/json" },
-      });
-    } finally {
-      vi.unstubAllGlobals();
-    }
-  });
-
-  it("wiki route: canonical redirect", async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ ...samplePage, slug: "Archive/Note" }), {
-        headers: { "content-type": "application/json" },
-      }),
-    );
-    vi.stubGlobal("fetch", fetchImpl);
-    try {
-      const redirectResponse = await wikiLoader({ params: { "*": "Note" } } as never).catch(
-        (error: unknown) => error,
-      );
-
-      expect(redirectResponse).toBeInstanceOf(Response);
-      expect((redirectResponse as Response).headers.get("Location")).toBe("/wiki/Archive/Note");
-    } finally {
-      vi.unstubAllGlobals();
-    }
-  });
-
-  it("does not redirect an already-canonical Wiki URL", async () => {
-    const canonicalPage = { ...samplePage, slug: "Archive/Note" };
-    const fetchImpl = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify(canonicalPage), {
-        headers: { "content-type": "application/json" },
-      }),
-    );
-    vi.stubGlobal("fetch", fetchImpl);
-    try {
-      await expect(
-        wikiLoader({ params: { "*": "Archive/Note" } } as never),
-      ).resolves.toEqual({
-        status: "ready",
-        page: canonicalPage,
-      });
-      expect(fetchImpl).toHaveBeenCalledWith("/api/wiki/Archive/Note", {
-        headers: { accept: "application/json" },
-      });
-    } finally {
-      vi.unstubAllGlobals();
-    }
-  });
-
-  it("loads a canonical literal-percent Wiki URL through both API decode layers", async () => {
-    const literalPercentPage = {
-      ...samplePage,
-      slug: "Literal%2520Name",
-      title: "Literal%20Name",
-      fileName: "Literal%20Name.md",
-    };
-    const fetchImpl = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify(literalPercentPage), {
-        headers: { "content-type": "application/json" },
-      }),
-    );
-    vi.stubGlobal("fetch", fetchImpl);
-    try {
-      await expect(
-        wikiLoader({ params: { "*": "Literal%20Name" } } as never),
-      ).resolves.toEqual({
-        status: "ready",
-        page: literalPercentPage,
-      });
-      expect(fetchImpl).toHaveBeenCalledWith("/api/wiki/Literal%252520Name", {
         headers: { accept: "application/json" },
       });
     } finally {

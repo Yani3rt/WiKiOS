@@ -66,6 +66,25 @@ describe("server app", () => {
       const ambiguous = await app.inject({ method: "GET", url: "/api/wiki/Note" });
       const missing = await app.inject({ method: "GET", url: "/api/wiki/Missing" });
 
+      const activity = await app.inject({ method: "GET", url: "/api/activity" });
+      expect(activity.statusCode).toBe(200);
+      expect(activity.json().vaultId).toMatch(/^[a-f0-9]{64}$/);
+      expect(activity.json().pages).toHaveLength(4);
+      expect(activity.json().pages[0].firstSeenAt).toEqual(expect.any(Number));
+      const beforeReindex = activity.json();
+      await app.inject({ method: "POST", url: "/api/admin/reindex" });
+      expect((await app.inject({ method: "GET", url: "/api/activity" })).json()).toEqual(beforeReindex);
+      const homeConnections = await app.inject({ method: "GET", url: "/api/connections/Home" });
+      expect(homeConnections.statusCode).toBe(200);
+      expect(homeConnections.json().outgoing.map((p: {slug: string}) => p.slug)).toEqual(["00%20Ideas/Ideas"]);
+      expect(homeConnections.json().incoming).toEqual([]);
+      const ideasConnections = await app.inject({ method: "GET", url: "/api/connections/Ideas" });
+      expect(ideasConnections.json().incoming.map((p: {slug: string}) => p.slug)).toEqual(["Home"]);
+      expect(ideasConnections.json().outgoing).toEqual([]);
+      expect((await app.inject({ method: "GET", url: "/api/connections/00%20Ideas/Ideas" })).json()).toEqual(ideasConnections.json());
+      expect((await app.inject({ method: "GET", url: "/api/connections/Note" })).statusCode).toBe(300);
+      expect((await app.inject({ method: "GET", url: "/api/connections/Missing" })).statusCode).toBe(404);
+
       expect(uniqueNested.statusCode).toBe(200);
       expect(uniqueNested.json().slug).toBe("00%20Ideas/Ideas");
       expect(home.json().contentMarkdown).toContain(

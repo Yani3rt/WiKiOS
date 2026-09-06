@@ -6,7 +6,7 @@ import {
   type WikiLinkCandidate,
 } from "./wiki-link-resolver";
 
-export const DEFAULT_WIKI_INDEX_CACHE_VERSION = 7;
+export const DEFAULT_WIKI_INDEX_CACHE_VERSION = 9;
 export const REQUIRED_INDEX_TABLES = ["pages", "backlinks", "categories", "pages_fts"] as const;
 
 export type SqliteDb = Database.Database;
@@ -26,6 +26,7 @@ export interface IndexedWikiPageRecord {
   wordCount: number;
   backlinkReferences: BacklinkReferenceRecord[];
   categoryNames: string[];
+  explicitTopics: string[];
   modifiedAt: number;
   summary: string;
   isPerson: boolean;
@@ -122,9 +123,11 @@ export function runDbMigrations(db: SqliteDb, options: WikiDbMigrationOptions = 
       content_lower TEXT NOT NULL,
       word_count INTEGER NOT NULL,
       modified_at REAL NOT NULL,
+      first_seen_at REAL NOT NULL,
       summary TEXT NOT NULL,
       is_person INTEGER NOT NULL CHECK (is_person IN (0, 1)),
       category_names_json TEXT NOT NULL,
+      explicit_topics_json TEXT NOT NULL DEFAULT '[]',
       backlink_count INTEGER NOT NULL DEFAULT 0
     );
 
@@ -256,10 +259,12 @@ export function upsertPageRecord(db: SqliteDb, page: IndexedWikiPageRecord) {
         content_lower,
         word_count,
         modified_at,
+        first_seen_at,
         summary,
         is_person,
-        category_names_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        category_names_json,
+        explicit_topics_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(file) DO UPDATE SET
         slug = excluded.slug,
         title = excluded.title,
@@ -270,7 +275,8 @@ export function upsertPageRecord(db: SqliteDb, page: IndexedWikiPageRecord) {
         modified_at = excluded.modified_at,
         summary = excluded.summary,
         is_person = excluded.is_person,
-        category_names_json = excluded.category_names_json
+        category_names_json = excluded.category_names_json,
+        explicit_topics_json = excluded.explicit_topics_json
     `).run(
       page.file,
       page.slug,
@@ -280,9 +286,11 @@ export function upsertPageRecord(db: SqliteDb, page: IndexedWikiPageRecord) {
       page.contentLower,
       page.wordCount,
       page.modifiedAt,
+      Date.now(),
       page.summary,
       page.isPerson ? 1 : 0,
       JSON.stringify(page.categoryNames),
+      JSON.stringify(page.explicitTopics),
     );
 
     db.prepare("DELETE FROM backlinks WHERE source_file = ?").run(page.file);

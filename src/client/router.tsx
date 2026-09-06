@@ -5,6 +5,7 @@ import { AppShell } from "./app-shell";
 export const router = createBrowserRouter([
   {
     Component: AppShell,
+    HydrateFallback: () => <div className="p-8 text-sm" role="status">Opening your workspace…</div>,
     children: [
       {
         path: "/setup",
@@ -12,7 +13,7 @@ export const router = createBrowserRouter([
       },
       {
         path: "/",
-        lazy: () => import("./routes/home-route"),
+        lazy: () => import("./routes/explorer-route"),
       },
       {
         path: "/stats",

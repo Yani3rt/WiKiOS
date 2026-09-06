@@ -1,3 +1,5 @@
+import { collectFrontmatterTopics, dedupeTopics } from "../../src/lib/wiki-classification";
+import { parseWikiFrontmatter } from "../../src/lib/markdown";
 import Database from "better-sqlite3";
 import { runDbMigrations, upsertPageRecord } from "../../src/lib/wiki-db";
 import { DEFAULT_WIKI_OS_CONFIG } from "../../src/lib/wiki-config";
@@ -23,6 +25,7 @@ export function createQueryFixture() {
       file, slug, title, titleLower: title.toLowerCase(), markdown,
       contentMarkdown: markdown, contentLower: markdown.toLowerCase(), wordCount: 2,
       backlinkReferences: [], categoryNames: [],
+      explicitTopics: dedupeTopics(collectFrontmatterTopics(parseWikiFrontmatter(markdown).data, DEFAULT_WIKI_OS_CONFIG), {}),
       modifiedAt: 1, summary: markdown, isPerson: false,
     });
   }

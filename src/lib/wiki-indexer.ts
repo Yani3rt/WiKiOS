@@ -3,7 +3,7 @@ import path from "node:path";
 
 import { normalizeRelativePath, isIgnoredDirectoryName, shouldIndexRelativeFile } from "./wiki-file-utils";
 import { parseWikiFrontmatter, prepareWikiMarkdown } from "./markdown";
-import { deriveCategoryNames, detectPersonPage, extractBacklinkReferences, extractSummary } from "./wiki-classification";
+import { collectFrontmatterTopics, dedupeTopics, deriveCategoryNames, detectPersonPage, extractBacklinkReferences, extractSummary } from "./wiki-classification";
 import { slugFromFileName, titleFromFileName, type PersonOverrideValue, type SyncSource } from "./wiki-shared";
 import { upsertPageRecord, deletePageByFile, reconcileBacklinkTargets, type IndexedWikiPageRecord, type SqliteDb } from "./wiki-db";
 import type { WikiOsConfig } from "./wiki-config";
@@ -130,6 +130,7 @@ export async function loadIndexedWikiPage(
       wordCount: prepared.contentMarkdown.split(/\s+/).filter(Boolean).length,
       backlinkReferences: extractBacklinkReferences(body),
       categoryNames,
+      explicitTopics: dedupeTopics(collectFrontmatterTopics(frontmatter, config), config.categories.aliases),
       modifiedAt,
       summary: extractSummary(prepared.contentMarkdown),
       isPerson,

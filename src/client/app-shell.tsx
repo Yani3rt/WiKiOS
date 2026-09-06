@@ -1,33 +1,27 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Outlet, useLocation, useNavigate } from "react-router-dom";
+import { Outlet, useNavigate } from "react-router-dom";
 
 import { CommandPalette, type CommandPaletteStatus } from "@/components/command-palette";
-import type { ExplorerPage } from "@/lib/wiki-shared";
+import type { ExplorerPage, WikiActivity } from "@/lib/wiki-shared";
 
 import { fetchJson } from "./api";
 import {
   commandPaletteExplorerPath,
   isCommandPaletteShortcut,
   normalizeCommandPalettePages,
-  noteSlugFromPathname,
-  promoteRecentNote,
 } from "./command-palette-model";
-import {
-  persistRecentNoteSlugs,
-  readRecentNoteSlugs,
-} from "./recent-note-storage";
+import { readWorkspacePreferences } from "./workspace-preferences";
 
 export interface AppShellOutletContext {
   readonly openCommandPalette: () => void;
 }
 
 export function AppShell() {
-  const location = useLocation();
   const navigate = useNavigate();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [pages, setPages] = useState<ExplorerPage[]>([]);
   const [status, setStatus] = useState<CommandPaletteStatus>("idle");
-  const [recentSlugs, setRecentSlugs] = useState<string[]>(readRecentNoteSlugs);
+  const [recentSlugs, setRecentSlugs] = useState<string[]>([]);
   const requestRef = useRef<AbortController | null>(null);
   const openCommandPalette = useCallback(() => setPaletteOpen(true), []);
 
@@ -38,11 +32,12 @@ export function AppShell() {
     setStatus("loading");
 
     try {
-      const loadedPages = await fetchJson<ExplorerPage[]>("/api/explorer", {
+      const activity = await fetchJson<WikiActivity>("/api/activity", {
         signal: controller.signal,
       });
       if (controller.signal.aborted) return;
-      setPages(normalizeCommandPalettePages(loadedPages));
+      setPages(normalizeCommandPalettePages(activity.pages));
+      setRecentSlugs(readWorkspacePreferences(activity.vaultId).recentSlugs);
       setStatus("ready");
     } catch {
       if (!controller.signal.aborted) setStatus("error");
@@ -52,20 +47,6 @@ export function AppShell() {
   useEffect(() => {
     return () => requestRef.current?.abort();
   }, []);
-
-  useEffect(() => {
-    const slug = noteSlugFromPathname(location.pathname);
-    if (!slug) return;
-
-    setRecentSlugs((current) => {
-      const next = promoteRecentNote(current, slug);
-      if (next.length === current.length && next.every((item, index) => item === current[index])) {
-        return current;
-      }
-      persistRecentNoteSlugs(next);
-      return next;
-    });
-  }, [location.pathname]);
 
   useEffect(() => {
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
@@ -79,9 +60,9 @@ export function AppShell() {
   }, [openCommandPalette]);
 
   useEffect(() => {
-    if (!paletteOpen || status !== "idle") return;
+    if (!paletteOpen) return;
     void loadPages();
-  }, [loadPages, paletteOpen, status]);
+  }, [loadPages, paletteOpen]);
 
   const selectPage = (page: ExplorerPage) => {
     setPaletteOpen(false);

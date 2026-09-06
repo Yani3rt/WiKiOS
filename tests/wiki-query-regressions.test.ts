@@ -47,3 +47,40 @@ describe("link-index caching", () => {
     expect((await getWikiPage(first.deps, ["Note"])).fileName).toBe("New/Note.md");
   });
 });
+
+describe("directional connections", () => {
+  it("deduplicates each direction, retains reciprocal links, and excludes self links", async () => {
+    const { db, deps, addPage } = fixture();
+    addPage("Home.md"); addPage("Note.md"); addPage("Source.md");
+    const insert = db.prepare(`INSERT INTO backlinks
+      (source_file, target_raw, target_slug, resolution_state, occurrence_count)
+      VALUES (?, ?, ?, 'resolved', 1)`);
+    insert.run("Home.md", "Note", "Note");
+    insert.run("Home.md", "Note.md", "Note");
+    insert.run("Note.md", "Home", "Home");
+    insert.run("Source.md", "Home", "Home");
+    insert.run("Home.md", "Home", "Home");
+    const { getWikiConnections } = await import("../src/lib/wiki-queries");
+    const connections = await getWikiConnections(deps, ["Home"]);
+    expect(connections.outgoing.map(page => page.slug)).toEqual(["Note"]);
+    expect(connections.incoming.map(page => page.slug)).toEqual(["Note", "Source"]);
+  });
+});
+
+ it("returns only an actual incoming link paragraph as a bounded plain-text excerpt", async () => {
+    const { db, deps, addPage } = fixture();
+    addPage("Folder/Target.md");
+    addPage("Source.md", "# Source\n\nUnrelated introduction.\n\n> Read **[[Target|the target]]** with `care` and [context](https://example.com).\n\nUnrelated ending.");
+    addPage("Long.md", "[[Target]] " + "word ".repeat(60));
+    addPage("Missing.md", "```md\n[[Target]]\n```\n\nNo matching paragraph.");
+    const insert = db.prepare(`INSERT INTO backlinks
+      (source_file, target_raw, target_slug, resolution_state, occurrence_count)
+      VALUES (?, 'Target', 'Folder/Target', 'resolved', 1)`);
+    for (const file of ["Source.md", "Long.md", "Missing.md"]) insert.run(file);
+    const { getWikiConnections } = await import("../src/lib/wiki-queries");
+    const { incoming } = await getWikiConnections(deps, ["Target"]);
+    expect(incoming.find(page => page.slug === "Source")?.excerpt).toBe("Read the target with care and context.");
+    expect(incoming.find(page => page.slug === "Long")?.excerpt).toHaveLength(140);
+    expect(incoming.find(page => page.slug === "Missing")).not.toHaveProperty("excerpt");
+    expect((await getWikiConnections(deps, ["Source"])).outgoing[0]).not.toHaveProperty("excerpt");
+ });

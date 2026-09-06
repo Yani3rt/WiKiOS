@@ -26,6 +26,7 @@ function createPage(
     wordCount: 0,
     backlinkReferences,
     categoryNames: [],
+    explicitTopics: [],
     modifiedAt: 0,
     summary: "",
     isPerson: false,

@@ -1,3 +1,4 @@
+import { DEFAULT_WIKI_INDEX_CACHE_VERSION } from "../src/lib/wiki-db";
 import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 
 import Database from "better-sqlite3";
@@ -64,7 +65,7 @@ describe("wiki startup self-heal", () => {
       }
       rebuiltDb.close();
 
-      expect(userVersion).toBe(7);
+      expect(userVersion).toBe(DEFAULT_WIKI_INDEX_CACHE_VERSION);
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
@@ -79,7 +80,7 @@ describe("wiki startup self-heal", () => {
       await mkdir(wikiRoot, { recursive: true });
       await writeFile(path.join(wikiRoot, "Alpha.md"), "# Alpha\n");
       const staleDb = new Database(indexDbPath);
-      runDbMigrations(staleDb, { cacheVersion: 6 });
+      runDbMigrations(staleDb, { cacheVersion: 7 });
       staleDb.exec(`
         ALTER TABLE pages ADD COLUMN content_markdown TEXT;
         ALTER TABLE pages ADD COLUMN has_code_blocks INTEGER;
@@ -101,10 +102,11 @@ describe("wiki startup self-heal", () => {
       for (const name of ["content_markdown", "has_code_blocks", "headings_json", "kind"]) {
         expect(columns.map(column => column.name)).not.toContain(name);
       }
+      expect(columns.map(column => column.name)).toContain("first_seen_at");
       rebuiltDb.close();
 
       expect(homepage.totalPages).toBe(1);
-      expect(userVersion).toBe(7);
+      expect(userVersion).toBe(DEFAULT_WIKI_INDEX_CACHE_VERSION);
       expect(
         tempFiles.some((fileName) => fileName.startsWith("index.sqlite.corrupt-")),
       ).toBe(true);

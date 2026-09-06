@@ -20,6 +20,10 @@ import type {
   NodeLabelDrawingFunction,
 } from "sigma/rendering";
 
+import { createNeuralNodeProgram } from "@/client/graph-neural-node-program";
+import { GraphColorControls } from "@/client/graph-color-controls";
+import { buildGraphColorGroups, readGraphColorPreferences, writeGraphColorPreferences } from "@/client/graph-color-model";
+import type { GraphColorGroup, GraphColorPreferences } from "@/client/graph-color-model";
 import { useAppearance } from "@/client/appearance-provider";
 import {
   createGraphNeuralAnimationController,
@@ -72,9 +76,12 @@ import {
 } from "@/client/graph-overview-model";
 import type { ResolvedThemeMode } from "@/client/theme-mode";
 import { getTopicColor, type TopicAliasConfig } from "@/lib/wiki-config";
-import type { GraphData, GraphNode } from "@/lib/wiki-shared";
+import type { GraphData, GraphNode, ColoredGraphData } from "@/lib/wiki-shared";
 import { fetchJson, isSetupRequiredResponse } from "../api";
 import { RouteErrorBoundary } from "../route-error-boundary";
+
+const NeuralNodeProgram = typeof document === "undefined" ? undefined
+  : createNeuralNodeProgram((await import("sigma/rendering")).NodeCircleProgram);
 
 /* ── Graph theme ── */
 
@@ -939,7 +946,8 @@ function InfoPanel({
   onClickNeighbor,
   onHoverNeighbor,
   onNavigate,
-  aliases,
+  groups,
+  explicitTopics,
   resolvedMode,
 }: {
   node: GraphNode;
@@ -951,12 +959,14 @@ function InfoPanel({
   onClickNeighbor: (slug: string) => void;
   onHoverNeighbor: (slug: string | null) => void;
   onNavigate: (slug: string) => void;
-  aliases: Record<string, TopicAliasConfig>;
+  groups: Map<string, GraphColorGroup>;
+  explicitTopics: string[];
   resolvedMode: ResolvedThemeMode;
 }) {
   const previousPanelHeightRef = useRef<number | null>(null);
   const panelHeightAnimationRef = useRef<Animation | null>(null);
-  const catColor = getCategoryColor(node.categories, aliases, resolvedMode);
+  const group = groups.get(node.slug);
+  const catColor = adaptGraphCategoryColor(group?.color ?? '#9ba9b2', resolvedMode);
   const connectedSlugs = new Set([
     ...connections.outgoing.map(({ node: connectedNode }) => connectedNode.slug),
     ...connections.incoming.map(({ node: connectedNode }) => connectedNode.slug),
@@ -1035,8 +1045,9 @@ function InfoPanel({
             >
               {node.title}
             </h2>
-            <div className="mt-1.5 flex items-center gap-2">
-              {node.categories.length > 0 && (
+            <div className="graph-note-topics">{explicitTopics.map(topic => <span key={topic}>{topic}</span>)}</div>
+            <div className="mt-1.5 flex items-center gap-2" aria-label="Node color group">
+              {group && (
                 <div className="flex items-center gap-1.5">
                   <span
                     className="h-1.5 w-1.5 rounded-full"
@@ -1044,7 +1055,7 @@ function InfoPanel({
                     aria-hidden="true"
                   />
                   <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--graph-muted)]">
-                    {node.categories[0]}
+                    Color · {group?.label}
                   </span>
                 </div>
               )}
@@ -1101,12 +1112,6 @@ function InfoPanel({
             </div>
           )}
 
-          <div className="border-b border-[var(--graph-border)] px-5 py-3">
-            <p className="text-xs leading-relaxed text-[var(--graph-muted)]">
-              Direct links only. Blue arrows leave this note; amber arrows point to it. Select a
-              linked note to continue tracing.
-            </p>
-          </div>
 
           {/* Open article button */}
           <div className="border-b border-[var(--graph-border)] px-5 py-3">
@@ -1150,11 +1155,7 @@ function InfoPanel({
                 <span
                   className="h-1.5 w-1.5 shrink-0 rounded-full"
                   style={{
-                    backgroundColor: getCategoryColor(
-                      connectedNode.categories,
-                      aliases,
-                      resolvedMode,
-                    ),
+                    backgroundColor: adaptGraphCategoryColor(groups.get(connectedNode.slug)?.color ?? '#9ba9b2', resolvedMode),
                   }}
                   aria-hidden="true"
                 />
@@ -1200,11 +1201,7 @@ function InfoPanel({
                 <span
                   className="h-1.5 w-1.5 shrink-0 rounded-full"
                   style={{
-                    backgroundColor: getCategoryColor(
-                      connectedNode.categories,
-                      aliases,
-                      resolvedMode,
-                    ),
+                    backgroundColor: adaptGraphCategoryColor(groups.get(connectedNode.slug)?.color ?? '#9ba9b2', resolvedMode),
                   }}
                   aria-hidden="true"
                 />
@@ -1238,16 +1235,14 @@ function InfoPanel({
 function NodeTooltip({
   node,
   position,
-  aliases,
   resolvedMode,
 }: {
-  node: { label: string; categories: string[]; connectionCount: number; wordCount: number } | null;
+  node: { label: string; color: string; categories: string[]; connectionCount: number; wordCount: number } | null;
   position: { x: number; y: number };
-  aliases: Record<string, TopicAliasConfig>;
   resolvedMode: ResolvedThemeMode;
 }) {
   if (!node) return null;
-  const catColor = getCategoryColor(node.categories, aliases, resolvedMode);
+  const catColor = adaptGraphCategoryColor(node.color, resolvedMode);
 
   return (
     <div
@@ -1281,7 +1276,7 @@ function NodeTooltip({
 
 export async function loader() {
   try {
-    return await fetchJson<GraphData>("/api/graph");
+    return await fetchJson<ColoredGraphData>("/api/graph");
   } catch (error) {
     if (isSetupRequiredResponse(error)) {
       throw redirect("/setup");
@@ -1292,9 +1287,25 @@ export async function loader() {
 }
 
 export function Component() {
-  const data = useLoaderData() as GraphData;
+  const data = useLoaderData() as ColoredGraphData;
+  return <GraphView key={data.vaultId} data={data} />;
+}
+
+function GraphView({ data }: { data: ColoredGraphData }) {
+  const topics = useMemo(() => [...new Set(Object.values(data.colorSources).flatMap(source => source.topics))].sort((a, b) => a.localeCompare(b)), [data.colorSources]);
+  const [colorPreferences, setColorPreferences] = useState(() => readGraphColorPreferences(data.vaultId, topics));
+  const [activeGroup, setActiveGroup] = useState<string | null>(null);
+  const colorGroups = useMemo(() => buildGraphColorGroups(data.colorSources, colorPreferences), [data.colorSources, colorPreferences]);
+  const colorGroupsRef = useRef(colorGroups);
+  const activeGroupRef = useRef(activeGroup);
+  const changeColorPreferences = (value: GraphColorPreferences) => {
+    setColorPreferences(value);
+    writeGraphColorPreferences(data.vaultId, value);
+    setActiveGroup(null);
+  };
   const config = useWikiConfig();
   const { colorTheme, resolvedMode } = useAppearance();
+  const resolvedModeRef = useRef(resolvedMode);
   const navigate = useNavigate();
   const containerRef = useRef<HTMLDivElement>(null);
   const sigmaRef = useRef<SigmaLib | null>(null);
@@ -1320,7 +1331,7 @@ export function Component() {
   const [detailPanelHeight, setDetailPanelHeight] = useState(0);
   const [detailPanelCollapsed, setDetailPanelCollapsed] = useState(false);
   const [tooltip, setTooltip] = useState<{
-    node: { label: string; categories: string[]; connectionCount: number; wordCount: number };
+    node: { label: string; color: string; categories: string[]; connectionCount: number; wordCount: number };
     position: { x: number; y: number };
   } | null>(null);
 
@@ -1520,7 +1531,8 @@ export function Component() {
         defaultEdgeType: "line",
         defaultNodeColor: graphTheme.nodeDefault,
         edgeProgramClasses,
-        minEdgeThickness: 1,
+        ...(NeuralNodeProgram ? { nodeProgramClasses: { circle: NeuralNodeProgram } } : {}),
+        minEdgeThickness: 0.65,
         stagePadding: viewportSettings.stagePadding,
         edgeReducer(edge, data) {
           const colors = graphThemeRef.current ?? graphTheme;
@@ -1571,6 +1583,12 @@ export function Component() {
             }
           }
 
+          if (!focused && !hovered && activeGroupRef.current !== null) {
+            const assignments = colorGroupsRef.current.assignments;
+            if (assignments.get(src)?.id !== activeGroupRef.current || assignments.get(tgt)?.id !== activeGroupRef.current) {
+              res.color = colors.edgeMuted;
+            } else { res.color = colors.edgeOutgoing; }
+          }
           return res;
         },
         nodeReducer(node, data) {
@@ -1579,9 +1597,19 @@ export function Component() {
           const hovered = hoveredRef.current;
           const linkedHover = linkedHoverRef.current;
           const active = focused ?? hovered;
+          const assignment = colorGroupsRef.current.assignments.get(node);
+          const groupColor = assignment ? adaptGraphCategoryColor(assignment.color, resolvedModeRef.current) : colors.nodeDefault;
           const res = { ...data };
+          res.color = groupColor;
+          if (!active && activeGroupRef.current !== null && assignment?.id !== activeGroupRef.current) {
+            res.color = colors.nodeMuted;
+          }
           res.label = viewportSettings.compact ? data.compactLabel : data.label;
           res.forceLabel = Boolean(data.forceLabel);
+          if (!active && activeGroupRef.current !== null && assignment?.id !== activeGroupRef.current) {
+            res.label = "";
+            res.forceLabel = false;
+          }
 
           if (active) {
             const isActive = node === active;
@@ -1604,7 +1632,7 @@ export function Component() {
                   isolationProgressRef.current,
                 );
                 res.color = mixGraphColors(
-                  String(data.originalColor ?? data.color ?? colors.nodeDefault),
+                  groupColor,
                   colors.background,
                   transition.colorMix,
                 );
@@ -1867,6 +1895,13 @@ export function Component() {
     updateGraphThemeInPlace(graph, sigma, config.categories.aliases, colors, resolvedMode);
   }, [colorTheme, resolvedMode, config.categories.aliases]);
 
+  useEffect(() => {
+    colorGroupsRef.current = colorGroups;
+    activeGroupRef.current = activeGroup;
+    resolvedModeRef.current = resolvedMode;
+    sigmaRef.current?.refresh();
+  }, [colorGroups, activeGroup, resolvedMode]);
+
   // Tooltip tracking
   useEffect(() => {
     const container = containerRef.current;
@@ -1889,7 +1924,8 @@ export function Component() {
         setTooltip({
           node: {
             label: attrs.fullLabel ?? attrs.label,
-            categories: attrs.categories ?? [],
+            color: colorGroupsRef.current.assignments.get(hovered)?.color ?? '#9ba9b2',
+            categories: [colorGroupsRef.current.assignments.get(hovered)?.label ?? 'Unassigned'],
             connectionCount: attrs.connectionCount ?? 0,
             wordCount: attrs.wordCount ?? 0,
           },
@@ -1933,12 +1969,9 @@ export function Component() {
           aria-label="Back to wiki home"
           className="app-route-header-brand hidden min-h-11 flex-col justify-center rounded-md px-1 py-1 text-left sm:flex"
         >
-          <p className="app-route-header-meta text-xs font-medium">
-            {config.siteTitle}
-          </p>
           <div className="mt-0.5 flex items-center gap-2">
             <House className="app-route-header-meta h-4 w-4" />
-            <h1 className="text-base font-semibold">Knowledge Graph</h1>
+            <h1 className="text-base font-semibold">Graph</h1>
           </div>
         </Link>
         <div className="relative z-20 ml-auto flex items-center gap-1.5 sm:gap-2.5">
@@ -1974,12 +2007,21 @@ export function Component() {
 
       {data.nodes.length > 0 ? (
         <>
+          <GraphColorControls preferences={colorPreferences} topics={topics}
+            groups={colorGroups.groups.map(group => ({ ...group, color: adaptGraphCategoryColor(group.color, resolvedMode) }))}
+            activeGroup={activeGroup} onChange={changeColorPreferences}
+            onHighlight={id => {
+              neuralControllerRef.current?.clearSelection();
+              focusedRef.current = null;
+              focusIsolationCallbackRef.current?.(null);
+              setFocusedSlug(null);
+              setActiveGroup(id);
+            }} />
           {/* Tooltip (only when not focused) */}
           {!focusedSlug && (
             <NodeTooltip
               node={tooltip?.node ?? null}
               position={tooltip?.position ?? { x: 0, y: 0 }}
-              aliases={config.categories.aliases}
               resolvedMode={resolvedMode}
             />
           )}
@@ -1996,7 +2038,8 @@ export function Component() {
               onClickNeighbor={handleInfoNeighborClick}
               onHoverNeighbor={handleInfoNeighborHover}
               onNavigate={(slug) => navigate(`/wiki/${slug}`)}
-              aliases={config.categories.aliases}
+              groups={colorGroups.assignments}
+              explicitTopics={data.colorSources[focusedNode.slug]?.topics ?? []}
               resolvedMode={resolvedMode}
             />
           )}

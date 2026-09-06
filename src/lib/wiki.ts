@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import type { WikiActivity } from "./wiki-shared";
 import {
   getTopicEmoji,
   getTopicLabel,
@@ -49,6 +51,10 @@ export type {
   CategoryInfo,
   HomepageData,
   ExplorerPage,
+  ActivityPage,
+  WikiActivity,
+  WikiConnection,
+  WikiConnections,
   GraphNode,
   GraphEdge,
   GraphData,
@@ -352,11 +358,18 @@ export const {
   getWikiStats,
   getHomepageData,
   getExplorerPages,
+  getWikiConnections,
   getGraphData,
   getWikiPage,
   getWikiIndexStatus,
   getWikiHealthStatus,
 } = queries;
+
+export async function getWikiActivity(): Promise<WikiActivity> {
+  const pages = await queries.getActivityPages();
+  const vaultId = createHash("sha256").update(requireWikiRoot()).digest("hex");
+  return { vaultId, pages };
+}
 
 export async function getWikiRootPath() {
   const runtime = await syncRuntimeSettings();

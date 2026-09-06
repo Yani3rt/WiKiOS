@@ -1,10 +1,22 @@
 import {
+  Maximize2,
+  Minimize2,
   ChevronLeft,
   ChevronDown,
   ChevronRight,
   ChevronsDownUp,
   ChevronsUpDown,
-  House,
+  BookOpen,
+  Command,
+  FileText,
+  Folder,
+  Clock3,
+  Network,
+  Pin,
+  Settings2,
+  PanelRight,
+  ArrowLeft,
+  ArrowRight,
   PanelLeft,
   Search,
   X,
@@ -15,6 +27,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useLayoutEffect,
   type KeyboardEvent,
   type RefObject,
 } from "react";
@@ -23,14 +36,23 @@ import {
   useLoaderData,
   useNavigate,
   useParams,
+  useOutletContext,
 } from "react-router-dom";
 import { Link } from "react-router-dom";
+import { FindInNote } from "@/components/find-in-note";
+import { NotePreview } from "@/components/note-preview";
+import { VaultSwitcher } from "@/components/vault-switcher";
+import { WorkspaceActivity } from "@/components/workspace-activity";
+import { WorkspaceConnections } from "@/components/workspace-connections";
+import { readWorkspacePreferences, writeWorkspacePreferences, togglePin, promoteRecent } from "../workspace-preferences";
+import type { AppShellOutletContext } from "../app-shell";
 import { NoteViewer } from "@/components/note-viewer";
 import { ThemeSelector } from "@/components/theme-selector";
 import { WikilinkAmbiguityView } from "@/components/wikilink-ambiguity-view";
 import type { WikiLinkCandidate } from "@/lib/wiki-link-resolver";
 import type {
   ExplorerPage,
+  WikiActivity,
   WikiLinkAmbiguityData,
   WikiPageData,
 } from "@/lib/wiki-shared";
@@ -349,18 +371,9 @@ export function writeExplorerWorkspaceStorage(
   }
 }
 
-function readStoredWorkspace(): ExplorerWorkspace {
-  if (typeof window === "undefined") return EMPTY_EXPLORER_WORKSPACE;
-  try {
-    return readExplorerWorkspaceStorage(window.localStorage);
-  } catch {
-    return EMPTY_EXPLORER_WORKSPACE;
-  }
-}
-
 export async function loader() {
   try {
-    return await fetchJson<ExplorerPage[]>("/api/explorer");
+    return await fetchJson<WikiActivity>("/api/activity");
   } catch (error) {
     if (isSetupRequiredResponse(error)) throw redirect("/setup");
     throw error;
@@ -368,12 +381,14 @@ export async function loader() {
 }
 
 export function ExplorerHeader({
+  backgroundInert = false,
   sidebarOpen,
   desktopSidebarVisible,
   onToggleSidebar,
   onToggleDesktopSidebar,
   toggleButtonRef,
 }: {
+  backgroundInert?: boolean;
   sidebarOpen: boolean;
   desktopSidebarVisible: boolean;
   onToggleSidebar: () => void;
@@ -381,53 +396,11 @@ export function ExplorerHeader({
   toggleButtonRef?: RefObject<HTMLButtonElement | null>;
 }) {
   return (
-    <header className="app-route-header flex h-16 items-center justify-between px-4 md:px-5">
-      <Link
-        to="/"
-        aria-label="Back to wiki home"
-        className="app-route-header-brand rounded-md px-1 py-1 text-left"
-      >
-        <p className="app-route-header-meta text-xs font-medium">WikiOS</p>
-        <div className="mt-0.5 flex items-center gap-2">
-          <House className="app-route-header-meta h-4 w-4" />
-          <h1 className="text-base font-semibold">Wiki Explorer</h1>
-        </div>
-      </Link>
-      <div className="flex items-center gap-2">
-        <button
-          type="button"
-          className={`app-route-header-control hidden items-center gap-2 rounded-md px-3 py-2 text-sm md:inline-flex ${
-            desktopSidebarVisible ? "md:invisible md:pointer-events-none" : ""
-          }`}
-          aria-expanded={desktopSidebarVisible}
-          aria-controls="explorer-sidebar"
-          aria-label={desktopSidebarVisible ? "Hide note tree" : "Show note tree"}
-          title={desktopSidebarVisible ? "Hide note tree" : "Show note tree"}
-          onClick={onToggleDesktopSidebar}
-        >
-          <ChevronRight className="h-4 w-4" />
-          <span>All Notes</span>
-        </button>
-        <Link
-          to="/"
-          className="app-route-header-control hidden min-h-11 items-center rounded-md px-3.5 py-2 text-sm font-medium sm:inline-flex sm:px-4"
-        >
-          Back to wiki
-        </Link>
-        <button
-          ref={toggleButtonRef}
-          type="button"
-          className="app-route-header-control inline-flex min-h-11 items-center gap-2 rounded-md px-3 py-2 text-sm md:hidden"
-          aria-expanded={sidebarOpen}
-          aria-controls="explorer-sidebar"
-          aria-label="Toggle note tree"
-          onClick={onToggleSidebar}
-        >
-          <PanelLeft className="h-4 w-4" />
-          Notes
-        </button>
-        <ThemeSelector />
-      </div>
+    <header className="workspace-mobile-header" inert={backgroundInert}>
+      <button ref={toggleButtonRef} className="workspace-icon" aria-expanded={sidebarOpen} aria-controls="explorer-sidebar" aria-label="Toggle note tree" onClick={onToggleSidebar}><PanelLeft size={19}/></button>
+      <Link to="/" className="workspace-wordmark">WikiOS</Link>
+      <button className="workspace-icon desktop-tree-toggle" aria-label={desktopSidebarVisible ? "Hide note tree" : "Show note tree"} onClick={onToggleDesktopSidebar}><PanelLeft size={19}/></button>
+      <ThemeSelector />
     </header>
   );
 }
@@ -582,12 +555,13 @@ export function ExplorerSidebar({
                 ) : (
                   <ChevronRight aria-hidden="true" className="h-4 w-4 shrink-0 text-[var(--explorer-muted-foreground)]" />
                 )}
-                <span className="truncate">{row.name}</span>
+                <Folder aria-hidden="true" className="h-4 w-4 shrink-0 text-[var(--explorer-muted-foreground)]"/><span className="truncate">{row.name}</span>
                 <span className="ml-auto text-xs text-[var(--explorer-muted-foreground)]">{row.count}</span>
               </button>
             ) : (
               <button
                 key={row.page.slug}
+                data-note-slug={row.page.slug}
                 type="button"
                 className={`min-h-11 md:min-h-0 w-full rounded-md px-2 py-1.5 text-left text-sm hover:bg-[var(--explorer-surface-subtle)] ${
                   activeSlug === row.page.slug
@@ -598,7 +572,7 @@ export function ExplorerSidebar({
                 aria-current={activeSlug === row.page.slug ? "page" : undefined}
                 onClick={() => onSelect(row.page)}
               >
-                <div className="truncate">{row.page.title}</div>
+                <div className="flex items-center gap-2"><FileText aria-hidden="true" className="h-4 w-4 shrink-0 text-[var(--explorer-muted-foreground)]"/><span className="truncate">{row.page.title}</span></div>
               </button>
             ),
           )
@@ -842,11 +816,12 @@ export function ExplorerReader({
   const { page } = state;
   return (
     <div
-      className="explorer-note-viewer-shell mx-auto w-full max-w-6xl px-4 pt-4 sm:px-6 sm:pt-8 lg:px-8"
+      className="explorer-note-viewer-shell workspace-reader mx-auto w-full"
       style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 4rem)" }}
     >
       <NoteViewer
         page={page}
+        embedded
         onNavigateNote={onWikiLink}
         onRefreshPage={onRefreshPage}
         scrollContainerRef={workspaceScrollRef}
@@ -856,33 +831,76 @@ export function ExplorerReader({
 }
 
 export function Component() {
-  const loadedPages = useLoaderData() as ExplorerPage[];
+  const data = useLoaderData() as WikiActivity;
+  return <ExplorerWorkspaceView key={data.vaultId} data={data}/>;
+}
+
+function ExplorerWorkspaceView({data}: {data: WikiActivity}) {
+  const {pages: loadedPages, vaultId} = data;
   const pages = useMemo(() => normalizeExplorerPages(loadedPages), [loadedPages]);
+  const activityPages = useMemo(() => loadedPages.map(page => ({...page, slug: canonicalExplorerSlugFromFile(page.file)})), [loadedPages]);
+  const shell = useOutletContext<AppShellOutletContext | undefined>();
+  const storageKey = `${EXPLORER_STORAGE_KEY}:${vaultId}`;
+  const [preferences, setPreferences] = useState(() => readWorkspacePreferences(vaultId));
+  const preferencesRef = useRef(preferences);
+  const [focusMode, setFocusMode] = useState(false);
+  const focusToggleRef = useRef<HTMLButtonElement>(null);
+  const focusScrollRef = useRef<number | null>(null);
+  const [mobileConnections, setMobileConnections] = useState(false);
   const params = useParams();
   const navigate = useNavigate();
   const rawUrlSlug = normalizeExplorerSlug(params["*"]);
   const pageBySlug = useMemo(() => new Map(pages.map((page) => [page.slug, page])), [pages]);
   const urlSlug = resolveExplorerSelectionSlug(rawUrlSlug, pageBySlug);
-  const [workspace, setWorkspace] = useState<ExplorerWorkspace>(readStoredWorkspace);
+  const [workspace, setWorkspace] = useState<ExplorerWorkspace>(() => {
+    try { return normalizeExplorerWorkspaceSlugs(parseExplorerWorkspace(localStorage.getItem(storageKey) ?? "")); } catch { return EMPTY_EXPLORER_WORKSPACE; }
+  });
+  const [view, setView] = useState<"notes" | "activity">(() => workspace.tabs.length > 0 ? "notes" : "activity");
   const [hydrated, setHydrated] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [desktopSidebarVisible, setDesktopSidebarVisible] = useState(true);
   const [readerState, setReaderState] = useState<ReaderState>({ slug: null, status: "idle" });
+  const previewRootRef = useRef<HTMLElement>(null);
   const workspaceRef = useRef<HTMLElement>(null);
   const workspaceScrollRef = useRef<HTMLDivElement>(null);
   const workspaceStateRef = useRef(workspace);
   const sidebarRef = useRef<HTMLElement>(null);
   const toggleButtonRef = useRef<HTMLButtonElement>(null);
+  const desktopToggleRef = useRef<HTMLButtonElement>(null);
+  const connectionsToggleRef = useRef<HTMLButtonElement>(null);
+  const connectionsRef = useRef<HTMLDivElement>(null);
   const filterInputRef = useRef<HTMLInputElement>(null);
   const sidebarCloseFocusTargetRef = useRef<"toggle" | "workspace">("toggle");
   const prefersReducedMotion = usePrefersReducedMotion();
   const isDesktopSidebar = useMediaQuery("(min-width: 768px)");
-  const sidebarInteractive = isExplorerSidebarInteractive(
+  const isConnectionsDesktop = useMediaQuery("(min-width: 1100px)");
+  const connectionsModal = !focusMode && mobileConnections && !isConnectionsDesktop;
+  const sidebarInteractive = !focusMode && !connectionsModal && isExplorerSidebarInteractive(
     sidebarOpen,
     isDesktopSidebar,
     desktopSidebarVisible,
   );
-  const sidebarModalActive = isExplorerModalActive(sidebarOpen, isDesktopSidebar);
+  const sidebarModalActive = !focusMode && isExplorerModalActive(sidebarOpen, isDesktopSidebar);
+
+  const toggleFocus = useCallback(() => {
+    focusScrollRef.current = workspaceScrollRef.current?.scrollTop ?? 0;
+    setFocusMode(value => !value);
+  }, []);
+  useLayoutEffect(() => {
+    if (focusScrollRef.current !== null) {
+      workspaceScrollRef.current?.scrollTo({top: focusScrollRef.current, behavior: "auto"});
+      focusScrollRef.current = null;
+    }
+  }, [focusMode]);
+  useEffect(() => {
+    if (!focusMode) return;
+    const escape = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented || document.querySelector('[aria-modal="true"]')) return;
+      event.preventDefault(); toggleFocus(); focusToggleRef.current?.focus();
+    };
+    window.addEventListener("keydown", escape);
+    return () => window.removeEventListener("keydown", escape);
+  }, [focusMode, toggleFocus]);
 
   useEffect(() => setHydrated(true), []);
 
@@ -893,6 +911,7 @@ export function Component() {
   useEffect(() => {
     if (typeof window === "undefined") return;
 
+    if (view === "activity") return;
     const isDesktop = window.matchMedia("(min-width: 768px)").matches;
     if (
       shouldAutoOpenExplorerSidebar(
@@ -904,7 +923,7 @@ export function Component() {
       sidebarCloseFocusTargetRef.current = "toggle";
       setSidebarOpen(true);
     }
-  }, [isDesktopSidebar, urlSlug, workspace.tabs.length]);
+  }, [isDesktopSidebar, urlSlug, workspace.tabs.length, view]);
 
   useEffect(() => {
     if (!sidebarOpen) return;
@@ -928,8 +947,8 @@ export function Component() {
 
     const focusWasInsideDrawer = sidebarRef.current?.contains(document.activeElement) ?? false;
     sidebarRef.current?.setAttribute("inert", "");
-    if (focusWasInsideDrawer) toggleButtonRef.current?.focus();
-  }, [sidebarInteractive]);
+    if (focusWasInsideDrawer) (isDesktopSidebar ? desktopToggleRef : toggleButtonRef).current?.focus();
+  }, [sidebarInteractive, isDesktopSidebar]);
 
   useEffect(() => {
     if (sidebarModalActive) {
@@ -948,13 +967,14 @@ export function Component() {
   useEffect(() => {
     if (!hydrated || typeof window === "undefined") return;
     try {
-      writeExplorerWorkspaceStorage(window.localStorage, workspace);
+      window.localStorage.setItem(storageKey, serializeExplorerWorkspace(workspace));
     } catch {
       // Storage access can be unavailable in restricted browser contexts.
     }
-  }, [hydrated, workspace]);
+  }, [hydrated, workspace, storageKey]);
 
   useEffect(() => {
+    if (urlSlug) setView("notes");
     setWorkspace((current) => {
       if (!urlSlug) {
         return current;
@@ -964,7 +984,7 @@ export function Component() {
   }, [pageBySlug, urlSlug]);
 
   useEffect(() => {
-    if (!shouldRestoreExplorerRoute(urlSlug, workspace.activeSlug)) return;
+    if (!shouldRestoreExplorerRoute(urlSlug || null, workspace.activeSlug)) return;
     navigate(explorerPath(workspace.activeSlug), { replace: true });
   }, [navigate, urlSlug, workspace.activeSlug]);
 
@@ -1042,8 +1062,41 @@ export function Component() {
   }, [navigate, resolveAmbiguity, workspace.activeSlug]);
 
   useEffect(() => {
-    workspaceScrollRef.current?.scrollTo({ top: 0, behavior: "auto" });
-  }, [workspace.activeSlug]);
+    preferencesRef.current = {...preferences, scrollPositions: preferencesRef.current.scrollPositions};
+    writeWorkspacePreferences(vaultId, preferencesRef.current);
+  }, [preferences, vaultId]);
+
+  useEffect(() => {
+    if (readerState.status !== "ready") return;
+    setPreferences(current => ({...current, recentSlugs: promoteRecent(current.recentSlugs, readerState.slug)}));
+  }, [readerState.status, readerState.slug]);
+
+  useLayoutEffect(() => {
+    if (readerState.status !== "ready" || view !== "notes") return;
+    workspaceScrollRef.current?.scrollTo({top: preferencesRef.current.scrollPositions[readerState.slug] ?? 0, behavior: "auto"});
+  }, [readerState, view]);
+
+  useEffect(() => {
+    const save = () => writeWorkspacePreferences(vaultId, preferencesRef.current);
+    window.addEventListener("pagehide", save);
+    return () => { save(); window.removeEventListener("pagehide", save); };
+  }, [vaultId]);
+
+  useEffect(() => {
+    if (!connectionsModal) return;
+    connectionsRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
+    const keydown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") { event.preventDefault(); setMobileConnections(false); requestAnimationFrame(() => connectionsToggleRef.current?.focus()); }
+      if (event.key !== "Tab") return;
+      const controls = connectionsRef.current?.querySelectorAll<HTMLElement>('button, a[href], [tabindex="0"]');
+      if (!controls?.length) return;
+      const first = controls[0], last = controls[controls.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    };
+    window.addEventListener("keydown", keydown);
+    return () => window.removeEventListener("keydown", keydown);
+  }, [connectionsModal]);
 
   const refreshActivePage = useCallback(async () => {
     const slug = workspaceStateRef.current.activeSlug;
@@ -1097,13 +1150,20 @@ export function Component() {
 
   const transitionAndNavigate = useCallback(
     (transition: (current: ExplorerWorkspace) => ExplorerWorkspace) => {
+      const active = workspace.activeSlug;
+      if (view === "notes" && active && workspaceScrollRef.current && readerState.status === "ready") {
+        const nextPreferences = {...preferencesRef.current, scrollPositions: {...preferencesRef.current.scrollPositions, [active]: workspaceScrollRef.current.scrollTop}};
+        preferencesRef.current = nextPreferences;
+        setPreferences(nextPreferences);
+      }
+      setView("notes");
       const next = transition(workspace);
       setWorkspace(next);
       if (shouldNavigateExplorerTransition(workspace, next, urlSlug || null)) {
         navigate(explorerPath(next.activeSlug));
       }
     },
-    [navigate, urlSlug, workspace],
+    [navigate, urlSlug, workspace, readerState.status, view],
   );
 
   const selectSlug = useCallback(
@@ -1111,6 +1171,7 @@ export function Component() {
       const slug = resolveExplorerSelectionSlug(requestedSlug, pageBySlug);
       sidebarCloseFocusTargetRef.current = "workspace";
       setSidebarOpen(false);
+      setMobileConnections(false);
       transitionAndNavigate((current) =>
         openExplorerTab(current, pageBySlug.get(slug) ?? fallbackTab(slug)),
       );
@@ -1136,8 +1197,9 @@ export function Component() {
   );
 
   return (
-    <main className="app-route-shell explorer-shell flex min-h-screen flex-col bg-[var(--explorer-canvas)] text-[var(--foreground)] md:h-dvh md:min-h-0 md:overflow-hidden">
+    <main ref={previewRootRef} className={`app-route-shell explorer-shell continuous-workspace ${focusMode ? "workspace-focused" : ""} flex h-dvh min-h-0 flex-col overflow-hidden bg-[var(--explorer-canvas)] text-[var(--foreground)]`}>
       <ExplorerHeader
+        backgroundInert={connectionsModal || sidebarModalActive}
         sidebarOpen={sidebarOpen}
         desktopSidebarVisible={desktopSidebarVisible}
         toggleButtonRef={toggleButtonRef}
@@ -1165,10 +1227,21 @@ export function Component() {
           aria-hidden={!sidebarInteractive}
           aria-modal={sidebarModalActive}
           role="dialog"
-          className={`fixed inset-y-16 left-0 z-40 w-[18.5rem] max-w-[calc(100vw-2rem)] border-r border-[var(--explorer-border)] bg-[var(--explorer-surface)] shadow-[4px_0_8px_var(--brand-shadow-soft)] md:static md:inset-auto md:z-auto md:max-w-none md:shadow-none ${
+          className={`fixed inset-y-0 left-0 z-40 w-[18.5rem] max-w-[calc(100vw-2rem)] border-r border-[var(--explorer-border)] bg-[var(--explorer-surface)] shadow-[4px_0_8px_var(--brand-shadow-soft)] md:static md:inset-auto md:z-auto md:max-w-none md:shadow-none ${
             sidebarOpen ? "translate-x-0" : "-translate-x-[calc(100%+1rem)]"
           } ${desktopSidebarVisible ? "md:w-[19rem] md:translate-x-0 md:opacity-100" : "md:w-0 md:translate-x-[-1rem] md:opacity-0 md:border-r-0"} ${prefersReducedMotion ? "transition-none" : "transition-all duration-200 ease-out"} overflow-hidden motion-reduce:transition-none`}
         >
+          <div className="workspace-sidebar-top">
+            <div className="workspace-brand-row"><Link to="/" className="workspace-wordmark">WikiOS</Link><button className="workspace-icon" aria-label="Collapse navigation" onClick={() => {setDesktopSidebarVisible(false); setSidebarOpen(false);}}><PanelLeft size={18}/></button></div>
+            <VaultSwitcher/>
+            <button className="workspace-search" aria-label="Open search palette" aria-haspopup="dialog" onClick={() => shell?.openCommandPalette()}><Command size={16}/><span>Quick search</span><kbd>⌘ K</kbd></button>
+            <div className="workspace-nav" aria-label="Workspace views">
+              <button aria-current={view === "notes" ? "page" : undefined} onClick={() => setView("notes")}><BookOpen size={17}/>Notes<span>{pages.length}</span></button>
+              <Link to="/graph"><Network size={17}/>Graph</Link>
+              <button aria-current={view === "activity" ? "page" : undefined} onClick={() => {setView("activity");setSidebarOpen(false);}}><Clock3 size={17}/>Activity</button>
+            </div>
+          </div>
+          <div className="workspace-tree">
           <ExplorerSidebar
             pages={pages}
             activeSlug={workspace.activeSlug}
@@ -1177,14 +1250,19 @@ export function Component() {
             onToggleDesktopSidebar={() => setDesktopSidebarVisible((visible) => !visible)}
             filterInputRef={filterInputRef}
           />
+          </div>
+          {preferences.pinnedSlugs.some(slug => pageBySlug.has(slug)) && <section className="workspace-pins"><h2><Pin size={13}/>Pinned</h2>{preferences.pinnedSlugs.map(slug => {const page = pageBySlug.get(slug); return page ? <button key={slug} data-note-slug={slug} onClick={() => selectSlug(slug)}>{page.title}</button> : null;})}</section>}
+          <footer className="workspace-sidebar-footer"><Link to="/setup?change=1" aria-label="Vault settings"><Settings2 size={16}/><span>Vault settings</span></Link><ThemeSelector/></footer>
         </aside>
         <section
           ref={workspaceRef}
           tabIndex={-1}
           aria-hidden={sidebarModalActive}
-          className="flex min-w-0 flex-1 flex-col md:min-w-0"
+          className="workspace-center flex min-w-0 flex-1 flex-col md:min-w-0"
           aria-label="Explorer workspace"
         >
+          <div className="workspace-tabbar" inert={connectionsModal}>
+          {!desktopSidebarVisible && <button ref={desktopToggleRef} className="workspace-icon workspace-reopen-nav" aria-label="Show note tree" onClick={() => setDesktopSidebarVisible(true)}><PanelLeft size={18}/></button>}
           <ExplorerTabs
             workspace={workspace}
             fallbackFocusRef={workspaceRef}
@@ -1192,6 +1270,18 @@ export function Component() {
             onClose={(slug) => transitionAndNavigate((current) => closeExplorerTab(current, slug))}
             onCloseOthers={(slug) => transitionAndNavigate((current) => closeOtherExplorerTabs(current, slug))}
           />
+          </div>
+          <div className="workspace-toolbar" inert={connectionsModal}>
+            <div className="workspace-history"><button className="workspace-icon" aria-label="Go back" onClick={() => navigate(-1)}><ArrowLeft size={16}/></button><button className="workspace-icon" aria-label="Go forward" onClick={() => navigate(1)}><ArrowRight size={16}/></button></div>
+            <div className="workspace-breadcrumb">{view === "activity" ? "Activity" : workspace.activeSlug?.split("/").map((part, index) => <span key={index}>{index > 0 && <ChevronRight size={12}/>}<span>{part}</span></span>) ?? "Notes"}</div>
+            {visibleReaderState.status === "ready" && view === "notes" && <>
+              {isDesktopSidebar && <FindInNote key={visibleReaderState.page.fileName} readerRef={workspaceScrollRef} noteKey={`${visibleReaderState.page.fileName}:${visibleReaderState.page.modifiedAt}`}/>}
+              <button ref={focusToggleRef} className="workspace-icon" aria-label={focusMode ? "Exit focus mode" : "Enter focus mode"} aria-pressed={focusMode} onClick={toggleFocus}>{focusMode ? <Minimize2 size={17}/> : <Maximize2 size={17}/>}</button>
+            </>}
+            {!focusMode && workspace.activeSlug && view === "notes" && <><button className="workspace-icon" aria-label={preferences.pinnedSlugs.includes(workspace.activeSlug) ? "Unpin note" : "Pin note"} aria-pressed={preferences.pinnedSlugs.includes(workspace.activeSlug)} onClick={() => setPreferences(current => ({...current, pinnedSlugs: togglePin(current.pinnedSlugs, workspace.activeSlug!)}))}><Pin size={16}/></button><button ref={connectionsToggleRef} className="workspace-icon" aria-label="Toggle connections" aria-expanded={isConnectionsDesktop ? preferences.connectionsOpen : mobileConnections} onClick={() => {if (window.matchMedia("(min-width: 1100px)").matches) setPreferences(current => ({...current, connectionsOpen: !current.connectionsOpen})); else setMobileConnections(open => !open);}}><PanelRight size={18}/></button></>}
+          </div>
+          <div className="workspace-content">
+          <div className="workspace-reading-column" inert={connectionsModal} hidden={view === "activity"}>
           {workspace.tabs.map((tab) => {
             const active = tab.slug === workspace.activeSlug;
             return (
@@ -1203,6 +1293,10 @@ export function Component() {
                 tabIndex={active ? 0 : -1}
                 hidden={!active}
                 className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
+                onScroll={active ? event => {
+                  if (view !== "notes" || visibleReaderState.status !== "ready") return;
+                  preferencesRef.current = {...preferencesRef.current, scrollPositions: {...preferencesRef.current.scrollPositions, [tab.slug]: event.currentTarget.scrollTop}};
+                } : undefined}
                 ref={active ? workspaceScrollRef : undefined}
               >
                 {active ? (
@@ -1235,8 +1329,15 @@ export function Component() {
               />
             </div>
           ) : null}
+          </div>
+          {view === "activity" && <WorkspaceActivity pages={activityPages} recentSlugs={preferences.recentSlugs} onSelect={selectSlug}/>}
+          {view === "notes" && visibleReaderState.status === "ready" && <div ref={connectionsRef} role={connectionsModal ? "dialog" : undefined} aria-modal={connectionsModal || undefined} aria-label={connectionsModal ? "Note connections" : undefined} className={`workspace-connections-container ${preferences.connectionsOpen ? "connections-desktop-open" : ""} ${mobileConnections ? "connections-mobile-open" : ""}`}>
+            <WorkspaceConnections onNavigateHeading={connectionsModal ? () => {setMobileConnections(false); requestAnimationFrame(() => workspaceScrollRef.current?.focus({preventScroll:true}));} : undefined} page={visibleReaderState.page} scrollRef={workspaceScrollRef} onSelect={selectSlug} onClose={() => {setMobileConnections(false); if (isConnectionsDesktop) setPreferences(current => ({...current,connectionsOpen:false})); requestAnimationFrame(() => connectionsToggleRef.current?.focus());}}/>
+          </div>}
+          </div>
         </section>
       </div>
+      <NotePreview rootRef={previewRootRef} onOpen={selectSlug} activeSlug={workspace.activeSlug}/>
     </main>
   );
 }

@@ -20,6 +20,8 @@ import {
 import { isFinderFolderPickerAvailable, pickFolderWithFinder } from "./folder-picker";
 import {
   getExplorerPages,
+  getWikiActivity,
+  getWikiConnections,
   getWikiRootPath,
   getGraphData,
   getHomepageData,
@@ -376,6 +378,25 @@ export async function buildServer({
       return await getHomepageData();
     } catch (error) {
       return replyForWikiError(error, reply, "Homepage data failed");
+    }
+  });
+
+  app.get("/api/activity", async (_request, reply) => {
+    try {
+      return await getWikiActivity();
+    } catch (error) {
+      return replyForWikiError(error, reply, "Activity data failed");
+    }
+  });
+
+  app.get<{ Params: { "*": string } }>("/api/connections/*", async (request, reply) => {
+    try {
+      return await getWikiConnections(request.params["*"]?.split("/").filter(Boolean) ?? []);
+    } catch (error) {
+      if (isWikiLinkAmbiguityError(error)) {
+        return reply.code(300).send(error.data);
+      }
+      return replyForWikiError(error, reply, "Wiki page not found", 404);
     }
   });
 

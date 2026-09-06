@@ -27,9 +27,10 @@ export function createThemeSelectorDismissHandlers({
     onPointerDown(event: Pick<PointerEvent, "target">) {
       if (!containsTarget(event.target)) close();
     },
-    onKeyDown(event: Pick<KeyboardEvent, "key" | "preventDefault">) {
+    onKeyDown(event: Pick<KeyboardEvent, "key" | "preventDefault"> & {stopPropagation?: () => void}) {
       if (event.key !== "Escape") return;
       event.preventDefault();
+      event.stopPropagation?.();
       close();
       focusTrigger();
     },
@@ -45,37 +46,20 @@ export function ThemeOptions({
   resolvedMode: ResolvedThemeMode;
   onSelect(theme: ColorThemeId): void;
 }) {
+  const groupName = useId();
   return (
     <div role="radiogroup" aria-label="Color" className="theme-options">
-      {COLOR_THEMES.map((theme) => {
-        const selected = theme.id === selectedTheme;
-        return (
-          <label key={theme.id} className="theme-option">
-            <input
-              className="sr-only"
-              type="radio"
-              name="wikios-color-theme"
-              value={theme.id}
-              checked={selected}
-              onChange={() => onSelect(theme.id)}
-            />
-            <span className="theme-option-swatches" aria-hidden="true">
-              {theme.preview[resolvedMode].map((color) => (
-                <span key={color} style={{ backgroundColor: color }} />
-              ))}
-            </span>
-            <span className="theme-option-label">{theme.label}</span>
-            <span className="theme-option-state">
-              {selected ? (
-                <>
-                  <Check aria-hidden className="h-4 w-4" />
-                  <span>Selected</span>
-                </>
-              ) : null}
-            </span>
-          </label>
-        );
-      })}
+      {COLOR_THEMES.map(theme => (
+        <label key={theme.id} className="theme-option" title={theme.label}>
+          <input className="sr-only" type="radio" name={groupName}
+            aria-label={theme.label} value={theme.id} checked={theme.id === selectedTheme}
+            onChange={() => onSelect(theme.id)} />
+          <span className="theme-option-swatch" aria-hidden="true"
+            style={{backgroundColor: theme.preview[resolvedMode][1], color: resolvedMode === "dark" ? "#15151b" : "#fff"}}>
+            {theme.id === selectedTheme && <Check size={15} strokeWidth={2.5}/>}
+          </span>
+        </label>
+      ))}
     </div>
   );
 }
@@ -87,6 +71,7 @@ export function ModeOptions({
   selectedMode: ThemeModePreference;
   onSelect(mode: ThemeModePreference): void;
 }) {
+  const groupName = useId();
   return (
     <div role="radiogroup" aria-label="Mode" className="theme-mode-options">
       {THEME_MODE_OPTIONS.map((mode) => {
@@ -97,7 +82,7 @@ export function ModeOptions({
             <input
               className="sr-only"
               type="radio"
-              name="wikios-theme-mode"
+              name={groupName}
               value={mode.id}
               checked={selected}
               onChange={() => onSelect(mode.id)}
@@ -188,13 +173,11 @@ export function ThemeSelector() {
           state === "open" ? " is-open" : state === "closing" ? " is-closing" : ""
         }`}
       >
-        <p className="theme-selector-title">Appearance</p>
         <section className="theme-selector-section">
-          <p className="theme-selector-label">Mode</p>
           <ModeOptions selectedMode={modePreference} onSelect={selectModePreference} />
         </section>
         <section className="theme-selector-section">
-          <p className="theme-selector-label">Color</p>
+          <span className="theme-selector-label">Accent</span>
           <ThemeOptions
             selectedTheme={colorTheme}
             resolvedMode={resolvedMode}
