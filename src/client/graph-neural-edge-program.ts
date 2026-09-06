@@ -126,6 +126,19 @@ void main(void) {
   #else
   float crossDistance = length(v_normal) * v_thickness;
   float edgeMask = 1.0 - smoothstep(v_thickness - v_feather, v_thickness, crossDistance);
+  if (u_mode > 1.5) {
+    float delay = v_delayMs < 0.0 ? -v_delayMs - 1.0 : v_delayMs;
+    float pathPosition = v_delayMs < 0.0 ? 1.0 - v_pathPosition : v_pathPosition;
+    float progress = clamp((u_elapsedMs - delay - 200.0) / 600.0, 0.0, 1.0);
+    float remaining = 1.0 - progress;
+    progress = 1.0 - remaining * remaining * remaining;
+    float trace = 1.0 - smoothstep(progress - 0.025, progress, pathPosition);
+    if (progress >= 1.0) trace = 1.0;
+    if (progress <= 0.0) trace = 0.0;
+    float alpha = edgeMask * trace * v_color.a;
+    gl_FragColor = vec4(v_color.rgb * alpha, alpha);
+    return;
+  }
   float selectionMode = step(0.5, u_mode);
   float staticMode = step(0.5, u_reducedMotion);
   float travelMs = mix(
@@ -197,7 +210,7 @@ void main(void) {
 
 export interface GraphNeuralRendererAnimationState {
   elapsedMs: number;
-  mode: GraphNeuralActivationMode;
+  mode: GraphNeuralActivationMode | "entrance";
   releaseOpacity: number;
   reducedMotion: boolean;
 }
@@ -305,7 +318,7 @@ export class NeuralEdgeProgram extends EdgeProgram<NeuralEdgeUniform> {
     gl.uniform1f(uniformLocations.u_elapsedMs, animationState?.elapsedMs ?? 0);
     gl.uniform1f(
       uniformLocations.u_mode,
-      animationState?.mode === "selection" ? 1 : 0,
+      animationState?.mode === "entrance" ? 2 : animationState?.mode === "selection" ? 1 : 0,
     );
     gl.uniform1f(uniformLocations.u_releaseOpacity, animationState?.releaseOpacity ?? 0);
     gl.uniform1f(uniformLocations.u_reducedMotion, animationState?.reducedMotion ? 1 : 0);

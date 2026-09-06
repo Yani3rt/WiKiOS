@@ -63,3 +63,14 @@ describe("unified color system", () => {
     }
   });
 });
+
+it("lets the graph inherit the selected theme instead of overriding its palette locally", () => {
+  const styles = source("../src/client/globals.css");
+  const graphRules = [...styles.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+    .filter(([, selector]) => selector.includes(".graph-shell"));
+  for (const [, selector, declarations] of graphRules) {
+    expect(declarations, `Theme palette overridden by ${selector.trim()}`).not.toMatch(
+      /--graph-(?:background|surface|foreground|label|muted|border|control-border|control-hover|node-muted|edge-default|edge-muted)\s*:/,
+    );
+  }
+});

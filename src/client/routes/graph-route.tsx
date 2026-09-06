@@ -20,6 +20,7 @@ import type {
   NodeLabelDrawingFunction,
 } from "sigma/rendering";
 
+import { buildEntranceDelays, entranceFrame, createEntranceController, GRAPH_ENTRANCE_MS } from "@/client/graph-entrance";
 import { createNeuralNodeProgram } from "@/client/graph-neural-node-program";
 import { GraphColorControls } from "@/client/graph-color-controls";
 import { buildGraphColorGroups, readGraphColorPreferences, writeGraphColorPreferences } from "@/client/graph-color-model";
@@ -201,6 +202,7 @@ function createGraphLabelDrawer(colors: GraphThemeColors): NodeLabelDrawingFunct
     const labelColor = "color" in settings.labelColor ? settings.labelColor.color : colors.label;
 
     context.save();
+    context.globalAlpha *= typeof data.entranceLabelOpacity === "number" ? data.entranceLabelOpacity : 1;
     context.font = `${settings.labelWeight} ${settings.labelSize}px ${settings.labelFont}`;
     const labelWidth = context.measureText(data.label).width;
     const x =
@@ -517,7 +519,7 @@ function startGraphLayoutWorker(graph: Graph, onComplete: () => void) {
     },
     { once: true },
   );
-  worker.addEventListener("error", () => worker.terminate(), { once: true });
+  worker.addEventListener("error", () => { worker.terminate(); onComplete(); }, { once: true });
   worker.postMessage({
     nodes,
     edges,
@@ -1308,6 +1310,8 @@ function GraphView({ data }: { data: ColoredGraphData }) {
   const resolvedModeRef = useRef(resolvedMode);
   const navigate = useNavigate();
   const containerRef = useRef<HTMLDivElement>(null);
+  const finishEntranceRef = useRef<(() => void) | null>(null);
+  const entranceShownRef = useRef(false);
   const sigmaRef = useRef<SigmaLib | null>(null);
   const graphRef = useRef<Graph | null>(null);
   const graphThemeRef = useRef<GraphThemeColors | null>(null);
@@ -1504,6 +1508,9 @@ function GraphView({ data }: { data: ColoredGraphData }) {
     const neuralActivationIndex = createGraphNeuralActivationIndex(data.edges);
     const isolationFrameRefreshOptions = getGraphIsolationFrameRefreshOptions(graph.nodes());
     graphRef.current = graph;
+    const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+    let entranceElapsed = motionQuery.matches || entranceShownRef.current ? GRAPH_ENTRANCE_MS : 0;
+    const entranceDelays = buildEntranceDelays(data.nodes.map(node => node.slug), data.edges);
     let viewportSettings = getGraphViewportSettings(
       containerRef.current.clientWidth,
       containerRef.current.clientHeight,
@@ -1589,6 +1596,15 @@ function GraphView({ data }: { data: ColoredGraphData }) {
               res.color = colors.edgeMuted;
             } else { res.color = colors.edgeOutgoing; }
           }
+          if (entranceElapsed < GRAPH_ENTRANCE_MS) {
+            const delay = Math.max(entranceDelays.get(src) ?? 0, entranceDelays.get(tgt) ?? 0);
+            if (rendererNeuralEnabled) {
+              res.type = "neural";
+              res.neuralDelayMs = (entranceDelays.get(src) ?? 0) > (entranceDelays.get(tgt) ?? 0) ? -(delay + 1) : delay;
+            } else {
+              res.color = mixGraphColors(colors.background, res.color, Math.max(0, Math.min(1, (entranceElapsed - delay - 200) / 600)));
+            }
+          }
           return res;
         },
         nodeReducer(node, data) {
@@ -1662,6 +1678,13 @@ function GraphView({ data }: { data: ColoredGraphData }) {
               neuralScale = Math.max(neuralScale, neuralSnapshot.activeNodeScale);
             }
             res.size = (res.size ?? 4) * neuralScale;
+          }
+
+          if (entranceElapsed < GRAPH_ENTRANCE_MS) {
+            const frame = entranceFrame(entranceElapsed, entranceDelays.get(node) ?? 0);
+            res.size = Math.max(0.01, (res.size ?? 4) * (0.12 + frame.node * 0.88));
+            res.color = mixGraphColors(colors.background, res.color, frame.node);
+            res.entranceLabelOpacity = frame.label;
           }
 
           return res;
@@ -1795,16 +1818,40 @@ function GraphView({ data }: { data: ColoredGraphData }) {
       });
     };
     labelLayoutCallbackRef.current = schedulePersistentLabelLayout;
-    const layoutWorker = startGraphLayoutWorker(graph, () => {
-      sigma.refresh();
-      if (!focusedRef.current) {
-        void sigma.getCamera()
-          .animatedReset({ duration: getGraphMotionDuration(180) })
-          .then(schedulePersistentLabelLayout);
+    const entranceRefreshOptions = {
+      partialGraph: { nodes: graph.nodes(), ...(neuralEnabled ? {} : { edges: graph.edges() }) },
+      skipIndexation: true,
+      schedule: true,
+    };
+    const entrance = createEntranceController({ onFrame(elapsed) {
+      const previousElapsed = entranceElapsed;
+      entranceElapsed = elapsed;
+      if (elapsed < GRAPH_ENTRANCE_MS) {
+        setGraphNeuralRendererAnimationState(sigma, { elapsedMs: elapsed, mode: "entrance", releaseOpacity: 1, reducedMotion: false });
+        sigma.refresh(entranceRefreshOptions);
+        if (previousElapsed < 1300 && elapsed >= 1300) schedulePersistentLabelLayout();
       } else {
+        entranceShownRef.current = true;
+        clearGraphNeuralRendererAnimationState(sigma);
+        sigma.refresh();
         schedulePersistentLabelLayout();
       }
+    }});
+    finishEntranceRef.current = entrance.finish;
+    const onMotionChange = () => { if (motionQuery.matches) entrance.finish(); };
+    motionQuery.addEventListener("change", onMotionChange);
+    // Never leave the graph waiting indefinitely for a layout worker.
+    const entranceFallback = window.setTimeout(() => entrance.start(motionQuery.matches || entranceShownRef.current), 1000);
+    const layoutWorker = startGraphLayoutWorker(graph, () => {
+      window.clearTimeout(entranceFallback);
+      entrance.start(motionQuery.matches || entranceShownRef.current);
+      sigma.refresh();
+      schedulePersistentLabelLayout();
     });
+    if (!layoutWorker) {
+      window.clearTimeout(entranceFallback);
+      entrance.start(motionQuery.matches || entranceShownRef.current);
+    }
     schedulePersistentLabelLayout();
 
     const resizeObserver = new ResizeObserver(([entry]) => {
@@ -1823,6 +1870,7 @@ function GraphView({ data }: { data: ColoredGraphData }) {
     resizeObserver.observe(containerRef.current);
 
     sigma.on("enterNode", ({ node }) => {
+      entrance.finish();
       hoveredRef.current = node;
       if (!focusedRef.current) activateNeural(node, "hover");
       sigma.refresh();
@@ -1864,6 +1912,10 @@ function GraphView({ data }: { data: ColoredGraphData }) {
     });
 
     return () => {
+      entrance.destroy();
+      finishEntranceRef.current = null;
+      window.clearTimeout(entranceFallback);
+      motionQuery.removeEventListener("change", onMotionChange);
       layoutWorker?.terminate();
       neuralSelectionCallbackRef.current = null;
       neuralController?.destroy();
@@ -1945,6 +1997,9 @@ function GraphView({ data }: { data: ColoredGraphData }) {
     <main
       className="app-route-shell graph-shell fixed inset-0"
       aria-label="Knowledge graph"
+      onPointerDownCapture={() => finishEntranceRef.current?.()}
+      onKeyDownCapture={() => finishEntranceRef.current?.()}
+      onWheelCapture={() => finishEntranceRef.current?.()}
       aria-describedby="graph-instructions"
     >
       <p id="graph-instructions" className="sr-only">

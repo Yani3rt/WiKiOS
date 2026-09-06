@@ -1945,22 +1945,7 @@ html {
 ::highlight(note-find) {background:color-mix(in srgb, var(--explorer-accent) 30%, transparent);color:var(--foreground);}
 ::highlight(note-find-current) {background:var(--explorer-accent);color:var(--explorer-canvas);}
 
-/* Neural observatory: graph-local surfaces keep reading themes untouched. */
-:root[data-mode="dark"] .graph-shell {
-  --graph-background: #0b1419;
-  --graph-surface: #111f26;
-  --graph-foreground: #e6eff2;
-  --graph-label: #dce9ed;
-  --graph-muted: #a2b5bd;
-  --graph-border: #293b43;
-  --graph-control-border: #3b505a;
-  --graph-control-hover: #21363e;
-  --graph-node-muted: #35454c;
-  --graph-edge-default: #31464e;
-  --graph-edge-muted: #1c2a31;
-  --graph-edge-outgoing: #8bd9c8;
-  --graph-edge-incoming: #e4b778;
-}
+/* Neural graph chrome inherits the active app theme palette. */
 .graph-shell .app-route-header {
   background: var(--graph-background);
   color: var(--graph-foreground);

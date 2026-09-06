@@ -1,18 +1,20 @@
 # WikiOS
 
-WikiOS turns an Obsidian vault into a local web app. It lets you browse notes through a homepage, search, article pages, a graph view, and stats.
+WikiOS turns an Obsidian vault into a local web app with a tabbed reading workspace, fast search, and an interactive 2D knowledge graph.
 
 Originally released as WikiOS under the MIT License. [Ansub/wiki-os.git](https://github.com/Ansub/wiki-os.git); this fork is maintained at [Yani3rt/WiKiOS](https://github.com/Yani3rt/WiKiOS).
 
 ## App previews
 
-### Home
+### Notes workspace
 
-![WikiOS home](images/Notes.png)
+![WikiOS tabbed notes workspace with navigation and reading tools](images/Home.png)
 
-### Notes Explorer
+### Knowledge graph
 
-![WikiOS Notes Explorer](images/Notes-Explorer.png)
+![WikiOS 2D neural graph with topic colors and a clickable legend](images/graph.png)
+
+Screenshots show a demonstration vault.
 
 ## What it does
 
@@ -36,29 +38,25 @@ WikiOS will open in your browser and guide you through choosing a vault. You can
 
 ## Features
 
-- Homepage with featured notes, recent notes, topic sections, and people highlights
+- Continuous notes workspace with:
+  - persistent reading tabs and searchable note tree
+  - pinned notes and per-note scroll restoration
+  - activity views for newly added, last updated, and recently opened notes
+  - focus mode and desktop find-in-note
+  - linked-note previews and incoming/outgoing connections
 - Global command palette (`⌘K` / `Ctrl+K`) with recent notes and instant note search
-- Fast local search on the homepage
 - Wikilinks with vault-wide basename resolution and duplicate-note selection
-- Full note viewer with:
-  - table of contents
-  - connected / related notes
-  - reading metadata
-  - person controls
-  - Mermaid diagram rendering
-  - polished Markdown tables
-  - copy buttons on fenced code blocks
-- Dedicated Wiki Explorer with:
-  - searchable folder tree
-  - folder expand / collapse controls
-  - desktop hide / show sidebar controls
-  - persistent tabbed reading workspace
-  - shared note viewer that matches direct wiki pages
-- Graph view with topic-based node coloring
-- Stats view
-- Manual reindex support
-- Automatic file watching
-- Local-first setup with no cloud requirement
+- Full note viewer with table of contents, reading metadata, person controls, Mermaid diagrams, Markdown tables, and code-block copy buttons
+- WebGL-powered 2D graph with:
+  - luminous nodes, link-driven layout, and neural connection signals
+  - a two-second entrance: nodes emerge, links trace, then labels fade in
+  - tags/topics, folder, or neutral coloring
+  - ordered topic priority, a counted clickable legend, and explicit color ownership
+  - search, keyboard-accessible node browsing, zoom, and note inspection
+  - reduced-motion support; interaction immediately finishes the entrance
+- Teal, Blue, and Violet themes with Light, Dark, and System modes
+- Vault switching, stats, manual reindexing, and automatic file watching
+- Local-first operation with no cloud requirement
 
 ## Note categories and topics
 
@@ -88,7 +86,17 @@ tags:
 
 Folder names can also become note topics. By default, WikiOS uses up to two folder levels and ignores structural folders such as `notes/`, `topics/`, `docs/`, and `sources/`.
 
-### Docker
+### Graph color rules
+
+Graph coloring is separate from derived note categories. In **Tags / topics** mode, only explicit frontmatter values from the configured keys above are used—not inferred keywords or inline body hashtags.
+
+Use the settings button beside **Color by** to order topics. The first matching topic determines a note's color; notes without a matching configured topic stay neutral. The initial priority is alphabetical. In **Folders** mode, the actual top-level folder determines the color. **None** gives every note a neutral color.
+
+Colors describe groups, while positions follow actual links. Matching colors do not imply a detected community or a forced spatial cluster. The inspector lists all explicit topics and identifies the color owner.
+
+Color mode and topic priority are saved per vault in the current browser, not synced into vault files. Existing index caches rebuild automatically when their schema changes; source Markdown is not rewritten. The graph is currently 2D; 3D is not included yet.
+
+## Docker
 
 You can run WikiOS with Docker if you want a simple container setup.
 
@@ -200,14 +208,11 @@ You can customize this in `wiki-os.config.ts` with `people.mode`:
 
 Local person overrides are saved in `~/.wiki-os/config.json` and do not rewrite your notes.
 
-### Explorer and note experience
+### Workspace and note navigation
 
-WikiOS now has two complementary reading flows:
+The root route (`/`) opens the notes workspace. `/explorer/:slug` opens a note in that workspace, while `/wiki/:slug` redirects there and preserves query strings and heading anchors. Graph selections open notes in the same reading experience.
 
-- `/wiki/:slug` for direct note pages
-- `/explorer/:slug` for a tabbed browsing workspace
-
-Both routes share the same note viewer, so note presentation stays consistent across the app.
+Tabs, pinned/recent notes, and scroll preferences are stored locally in the browser. The vault remains the source of truth for note content.
 
 ### Wikilink resolution
 
