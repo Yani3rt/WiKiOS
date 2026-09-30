@@ -290,7 +290,7 @@ it('resizes desktop navigation by dragging without toggling and stops on pointer
   expect(divider.getAttribute('aria-valuenow')).toBe('400');
 });
 
-it.each([240, 400])('snaps to mini below half the minimum width during a held drag from %ipx and ends the gesture', async initialWidth => {
+it.each([288, 400])('snaps to mini below half the minimum width during a held drag from %ipx and ends the gesture', async initialWidth => {
   writeWorkspacePreferences(vaultId, {...readWorkspacePreferences(vaultId), sidebarWidth: initialWidth});
   vi.stubGlobal('matchMedia', (query: string) => ({matches:query === '(min-width: 768px)',addEventListener() {},removeEventListener() {}}));
   await act(async () => root.render(<AppearanceProvider key="desktop" initialColorTheme="teal" initialModePreference="light" initialResolvedMode="light"><RouterProvider router={router}/></AppearanceProvider>));
@@ -306,16 +306,16 @@ it.each([240, 400])('snaps to mini below half the minimum width during a held dr
     await act(async () => divider.dispatchEvent(event));
   };
   await pointer('pointerdown', initialWidth);
-  await pointer('pointermove', 240);
+  await pointer('pointermove', 288);
   await pointer('pointermove', 180);
-  expect(divider.getAttribute('aria-valuenow')).toBe('240');
+  expect(divider.getAttribute('aria-valuenow')).toBe('288');
   expect(container.querySelector('[aria-label="Mini sidebar"]')).toBeNull();
-  await pointer('pointermove', 120);
+  await pointer('pointermove', 144);
   expect(container.querySelector('[aria-label="Mini sidebar"]')).toBeNull();
-  await pointer('pointermove', 119);
+  await pointer('pointermove', 143);
   expect(container.querySelector('[aria-label="Mini sidebar"]')).not.toBeNull();
   expect(divider.getAttribute('aria-valuenow')).toBe('56');
-  expect(readWorkspacePreferences(vaultId).sidebarWidth).toBe(240);
+  expect(readWorkspacePreferences(vaultId).sidebarWidth).toBe(288);
   expect(captured).toBe(false);
   expect(document.body.style.cursor).not.toBe('col-resize');
   expect(document.body.style.userSelect).not.toBe('none');
@@ -323,9 +323,13 @@ it.each([240, 400])('snaps to mini below half the minimum width during a held dr
   await pointer('pointerup', 400);
   expect(divider.getAttribute('aria-valuenow')).toBe('56');
   await pointer('pointerdown', 56);
+  await pointer('pointermove', 20);
+  expect(divider.getAttribute('aria-valuenow')).toBe('56');
+  await pointer('pointermove', 56);
+  expect(divider.getAttribute('aria-valuenow')).toBe('56');
   await pointer('pointermove', 80);
   await pointer('pointermove', 90);
-  expect(divider.getAttribute('aria-valuenow')).toBe('240');
+  expect(divider.getAttribute('aria-valuenow')).toBe('288');
   await pointer('pointermove', 400);
   expect(container.querySelector('[aria-label="Mini sidebar"]')).toBeNull();
   expect(divider.getAttribute('aria-valuenow')).toBe('400');
@@ -334,9 +338,9 @@ it.each([240, 400])('snaps to mini below half the minimum width during a held dr
   await pointer('pointerdown', 400);
   await pointer('pointermove', 80);
   expect(divider.getAttribute('aria-valuenow')).toBe('56');
-  expect(readWorkspacePreferences(vaultId).sidebarWidth).toBe(240);
+  expect(readWorkspacePreferences(vaultId).sidebarWidth).toBe(288);
   await act(async () => container.querySelector<HTMLButtonElement>('.workspace-mini-sidebar [aria-label="Show note tree"]')!.click());
-  expect(divider.getAttribute('aria-valuenow')).toBe('240');
+  expect(divider.getAttribute('aria-valuenow')).toBe('288');
 });
 
 it('resizes with the keyboard within safe limits and restores the saved width after remounting', async () => {
@@ -352,14 +356,14 @@ it('resizes with the keyboard within safe limits and restores the saved width af
   expect(divider.getAttribute('aria-valuenow')).toBe('480');
   await key('Home');
   await key('ArrowLeft');
-  expect(divider.getAttribute('aria-valuenow')).toBe('240');
+  expect(divider.getAttribute('aria-valuenow')).toBe('288');
   await key('Enter');
   expect(divider.getAttribute('aria-valuenow')).toBe('56');
   await key('Enter');
   await key('ArrowRight');
-  expect(divider.getAttribute('aria-valuenow')).toBe('260');
+  expect(divider.getAttribute('aria-valuenow')).toBe('308');
   await act(async () => root.render(<AppearanceProvider key="remount" initialColorTheme="teal" initialModePreference="light" initialResolvedMode="light"><RouterProvider router={router}/></AppearanceProvider>));
-  expect(container.querySelector('[role="separator"]')?.getAttribute('aria-valuenow')).toBe('260');
+  expect(container.querySelector('[role="separator"]')?.getAttribute('aria-valuenow')).toBe('308');
   expect(readWorkspacePreferences('other-vault').sidebarWidth).toBe(304);
 });
 it('opens a tapped drawer note in its workspace tab without a preview on mobile', async () => {
@@ -469,4 +473,26 @@ it("shows saved reading history on a root visit with no tabs", async () => {
   await act(async () => recent.click());
   expect(router.state.location.pathname).toBe("/explorer/Alpha");
   expect(document.activeElement).toBe(container.querySelector('[role="tabpanel"]:not([hidden])'));
+});
+
+
+it('keeps the mini sidebar collapsed for shrinking keys and opens at the minimum for ArrowRight', async () => {
+  writeWorkspacePreferences(vaultId, {...readWorkspacePreferences(vaultId), sidebarWidth:400});
+  vi.stubGlobal('matchMedia', (query: string) => ({matches:query === '(min-width: 768px)',addEventListener() {},removeEventListener() {}}));
+  await act(async () => root.render(<AppearanceProvider key="desktop" initialColorTheme="teal" initialModePreference="light" initialResolvedMode="light"><RouterProvider router={router}/></AppearanceProvider>));
+  const divider = container.querySelector<HTMLElement>('[role="separator"][aria-label="Resize navigation"]')!;
+  const key = async (value: string) => act(async () => divider.dispatchEvent(new KeyboardEvent('keydown',{key:value,bubbles:true,cancelable:true})));
+  await key('Enter');
+  for (const value of ['ArrowLeft', 'Home', 'ArrowLeft']) {
+    await key(value);
+    expect(divider.getAttribute('aria-valuenow')).toBe('56');
+    expect(container.querySelector('[aria-label="Mini sidebar"]')).not.toBeNull();
+    expect(readWorkspacePreferences(vaultId).sidebarWidth).toBe(400);
+  }
+  await key('ArrowRight');
+  expect(divider.getAttribute('aria-valuenow')).toBe('288');
+  expect(container.querySelector('[aria-label="Mini sidebar"]')).toBeNull();
+  await key('Enter');
+  await key('End');
+  expect(divider.getAttribute('aria-valuenow')).toBe('480');
 });

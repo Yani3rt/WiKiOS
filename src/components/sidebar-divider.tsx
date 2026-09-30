@@ -45,8 +45,12 @@ export function SidebarDivider({ expanded, width, minWidth, maxWidth, onResize, 
       if (!event.repeat) onToggle();
       return;
     }
+    if (!expanded && (event.key === "ArrowLeft" || event.key === "Home")) {
+      event.preventDefault();
+      return;
+    }
     const next = event.key === "ArrowLeft" ? width - 20
-      : event.key === "ArrowRight" ? width + 20
+      : event.key === "ArrowRight" ? (expanded ? width + 20 : minWidth)
       : event.key === "Home" ? minWidth
       : event.key === "End" ? maxWidth : null;
     if (next === null) return;
@@ -81,6 +85,7 @@ export function SidebarDivider({ expanded, width, minWidth, maxWidth, onResize, 
           if (!start || start.pointerId !== event.pointerId || (!start.moved && Math.abs(event.clientX - start.x) < 4)) return;
           start.moved = true;
           const nextWidth = start.width + event.clientX - start.x;
+          if (!expanded && nextWidth <= 56) return;
           if (start.expanded && expanded && nextWidth < minWidth / 2) {
             finishResize(event.currentTarget, event.pointerId);
             onResize(minWidth);

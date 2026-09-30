@@ -40,7 +40,7 @@ it("toggles pins and promotes recent notes without mutating input", () => {
 it('bounds saved sidebar widths and falls back for invalid numbers', () => {
   const storage = memoryStorage();
   const preferences = readWorkspacePreferences('a',storage);
-  for (const [width,expected] of [[400,400],[-1,240],[9999,480],[NaN,304],[Infinity,304]]) {
+  for (const [width,expected] of [[400,400],[-1,288],[240,288],[275,288],[288,288],[9999,480],[NaN,304],[Infinity,304]]) {
     writeWorkspacePreferences('a',{...preferences,sidebarWidth:width},storage);
     expect(readWorkspacePreferences('a',storage).sidebarWidth).toBe(expected);
   }
@@ -53,4 +53,11 @@ it('persists bounded reading progress per vault and rejects invalid values', () 
   writeWorkspacePreferences('a', {...defaults, readingProgress: {Alpha:42, Beta:0, Finished:100, negative:-5, tooLarge:140, invalid:NaN}}, storage);
   expect(readWorkspacePreferences('a', storage).readingProgress).toEqual({Alpha:42, Beta:0, Finished:100, tooLarge:100});
   expect(readWorkspacePreferences('b', storage).readingProgress).toEqual({});
+});
+
+
+it('raises previously saved narrow sidebars to the new minimum on read', () => {
+  const storage = memoryStorage();
+  storage.setItem('wiki-os:workspace-preferences:a', JSON.stringify({sidebarWidth:275}));
+  expect(readWorkspacePreferences('a', storage).sidebarWidth).toBe(288);
 });

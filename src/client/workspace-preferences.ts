@@ -14,7 +14,8 @@ export interface WorkspacePreferenceStorage {
 
 const MAX_ITEMS = 100;
 const MAX_SERIALIZED_LENGTH = 300_000;
-export const MIN_SIDEBAR_WIDTH = 240;
+// Fits the 254px appearance popover, footer padding, and sidebar border.
+export const MIN_SIDEBAR_WIDTH = 288;
 export const MAX_SIDEBAR_WIDTH = 480;
 
 export function clampSidebarWidth(value: unknown): number {
