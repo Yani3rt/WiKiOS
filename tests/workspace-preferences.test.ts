@@ -8,7 +8,7 @@ function memoryStorage() {
 it("keeps preferences isolated per vault and tolerates inaccessible storage", () => {
   const storage = memoryStorage();
   const defaults = readWorkspacePreferences("a", storage);
-  expect(defaults).toEqual({ pinnedSlugs: [], recentSlugs: [], scrollPositions: {}, connectionsOpen: true });
+  expect(defaults).toEqual({ pinnedSlugs: [], recentSlugs: [], scrollPositions: {}, readingProgress: {}, connectionsOpen: true, sidebarWidth:304 });
   writeWorkspacePreferences("a", { ...defaults, pinnedSlugs: ["Alpha"], connectionsOpen: true }, storage);
   expect(readWorkspacePreferences("a", storage).pinnedSlugs).toEqual(["Alpha"]);
   expect(readWorkspacePreferences("b", storage)).toEqual(defaults);
@@ -35,4 +35,22 @@ it("toggles pins and promotes recent notes without mutating input", () => {
   expect(togglePin(slugs, "Gamma")).toEqual(["Alpha", "Beta", "Gamma"]);
   expect(promoteRecent(slugs, "Beta")).toEqual(["Beta", "Alpha"]);
   expect(slugs).toEqual(["Alpha", "Beta"]);
+});
+
+it('bounds saved sidebar widths and falls back for invalid numbers', () => {
+  const storage = memoryStorage();
+  const preferences = readWorkspacePreferences('a',storage);
+  for (const [width,expected] of [[400,400],[-1,240],[9999,480],[NaN,304],[Infinity,304]]) {
+    writeWorkspacePreferences('a',{...preferences,sidebarWidth:width},storage);
+    expect(readWorkspacePreferences('a',storage).sidebarWidth).toBe(expected);
+  }
+  expect(readWorkspacePreferences('b',storage).sidebarWidth).toBe(304);
+});
+
+it('persists bounded reading progress per vault and rejects invalid values', () => {
+  const storage = memoryStorage();
+  const defaults = readWorkspacePreferences('a', storage);
+  writeWorkspacePreferences('a', {...defaults, readingProgress: {Alpha:42, Beta:0, Finished:100, negative:-5, tooLarge:140, invalid:NaN}}, storage);
+  expect(readWorkspacePreferences('a', storage).readingProgress).toEqual({Alpha:42, Beta:0, Finished:100, tooLarge:100});
+  expect(readWorkspacePreferences('b', storage).readingProgress).toEqual({});
 });

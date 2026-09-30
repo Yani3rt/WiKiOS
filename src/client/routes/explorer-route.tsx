@@ -30,6 +30,7 @@ import {
   useLayoutEffect,
   type KeyboardEvent,
   type RefObject,
+  type CSSProperties,
 } from "react";
 import {
   redirect,
@@ -43,12 +44,14 @@ import { MobileWorkspaceNav } from "@/components/mobile-workspace-nav";
 import { FindInNote } from "@/components/find-in-note";
 import { NotePreview } from "@/components/note-preview";
 import { VaultSwitcher } from "@/components/vault-switcher";
+import { WorkspaceStart } from "@/components/workspace-start";
 import { WorkspaceActivity } from "@/components/workspace-activity";
 import { WorkspaceConnections } from "@/components/workspace-connections";
-import { readWorkspacePreferences, writeWorkspacePreferences, togglePin, promoteRecent } from "../workspace-preferences";
+import { readWorkspacePreferences, writeWorkspacePreferences, togglePin, promoteRecent, recordReadingPosition, clampSidebarWidth, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH } from "../workspace-preferences";
 import type { AppShellOutletContext } from "../app-shell";
 import { NoteViewer } from "@/components/note-viewer";
 import { ThemeSelector } from "@/components/theme-selector";
+import { SidebarDivider } from "@/components/sidebar-divider";
 import { WikilinkAmbiguityView } from "@/components/wikilink-ambiguity-view";
 import type { WikiLinkCandidate } from "@/lib/wiki-link-resolver";
 import type {
@@ -311,7 +314,7 @@ export function isExplorerSidebarInteractive(
   isDesktop: boolean,
   desktopSidebarVisible: boolean,
 ) {
-  return sidebarOpen || (isDesktop && desktopSidebarVisible);
+  return isDesktop ? desktopSidebarVisible : sidebarOpen;
 }
 
 export function isExplorerModalActive(sidebarOpen: boolean, isDesktop: boolean) {
@@ -864,14 +867,17 @@ function ExplorerWorkspaceView({data}: {data: WikiActivity}) {
   const [workspace, setWorkspace] = useState<ExplorerWorkspace>(() => {
     try { return normalizeExplorerWorkspaceSlugs(parseExplorerWorkspace(localStorage.getItem(storageKey) ?? "")); } catch { return EMPTY_EXPLORER_WORKSPACE; }
   });
-  const [view, setView] = useState<"notes" | "activity">(() => workspace.tabs.length > 0 ? "notes" : "activity");
+  const [view, setView] = useState<"notes" | "activity">("notes");
   const [hydrated, setHydrated] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [desktopSidebarVisible, setDesktopSidebarVisible] = useState(true);
+  const [maxSidebarWidth, setMaxSidebarWidth] = useState(MAX_SIDEBAR_WIDTH);
+  const sidebarWidth = Math.min(preferences.sidebarWidth, maxSidebarWidth);
   const [readerState, setReaderState] = useState<ReaderState>({ slug: null, status: "idle" });
   const previewRootRef = useRef<HTMLElement>(null);
   const workspaceRef = useRef<HTMLElement>(null);
   const workspaceScrollRef = useRef<HTMLDivElement>(null);
+  const focusStartReaderRef = useRef(false);
   const workspaceStateRef = useRef(workspace);
   const sidebarRef = useRef<HTMLElement>(null);
   const toggleButtonRef = useRef<HTMLButtonElement>(null);
@@ -890,6 +896,13 @@ function ExplorerWorkspaceView({data}: {data: WikiActivity}) {
     desktopSidebarVisible,
   );
   const sidebarModalActive = !focusMode && isExplorerModalActive(sidebarOpen, isDesktopSidebar);
+
+  useEffect(() => {
+    const updateLimit = () => setMaxSidebarWidth(Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, window.innerWidth - 320)));
+    updateLimit();
+    window.addEventListener("resize", updateLimit);
+    return () => window.removeEventListener("resize", updateLimit);
+  }, []);
 
   const toggleFocus = useCallback(() => {
     focusScrollRef.current = workspaceScrollRef.current?.scrollTop ?? 0;
@@ -924,7 +937,7 @@ function ExplorerWorkspaceView({data}: {data: WikiActivity}) {
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    if (view === "activity") return;
+    if (view === "activity" || preferences.recentSlugs.some(slug => pageBySlug.has(slug))) return;
     const isDesktop = window.matchMedia("(min-width: 768px)").matches;
     if (
       shouldAutoOpenExplorerSidebar(
@@ -936,7 +949,7 @@ function ExplorerWorkspaceView({data}: {data: WikiActivity}) {
       sidebarCloseFocusTargetRef.current = "toggle";
       setSidebarOpen(true);
     }
-  }, [isDesktopSidebar, urlSlug, workspace.tabs.length, view]);
+  }, [isDesktopSidebar, urlSlug, workspace.tabs.length, view, preferences.recentSlugs, pageBySlug]);
 
   useEffect(() => {
     if (!sidebarOpen) return;
@@ -1075,7 +1088,7 @@ function ExplorerWorkspaceView({data}: {data: WikiActivity}) {
   }, [navigate, resolveAmbiguity, workspace.activeSlug]);
 
   useEffect(() => {
-    preferencesRef.current = {...preferences, scrollPositions: preferencesRef.current.scrollPositions};
+    preferencesRef.current = {...preferences, scrollPositions: preferencesRef.current.scrollPositions, readingProgress: preferencesRef.current.readingProgress};
     writeWorkspacePreferences(vaultId, preferencesRef.current);
   }, [preferences, vaultId]);
 
@@ -1083,6 +1096,12 @@ function ExplorerWorkspaceView({data}: {data: WikiActivity}) {
     if (readerState.status !== "ready") return;
     setPreferences(current => ({...current, recentSlugs: promoteRecent(current.recentSlugs, readerState.slug)}));
   }, [readerState.status, readerState.slug]);
+
+  useLayoutEffect(() => {
+    if (!focusStartReaderRef.current || !workspace.activeSlug || view !== "notes") return;
+    workspaceScrollRef.current?.focus({preventScroll: true});
+    focusStartReaderRef.current = false;
+  }, [workspace.activeSlug, view]);
 
   useLayoutEffect(() => {
     if (readerState.status !== "ready" || view !== "notes") return;
@@ -1165,7 +1184,7 @@ function ExplorerWorkspaceView({data}: {data: WikiActivity}) {
     (transition: (current: ExplorerWorkspace) => ExplorerWorkspace) => {
       const active = workspace.activeSlug;
       if (view === "notes" && active && workspaceScrollRef.current && readerState.status === "ready") {
-        const nextPreferences = {...preferencesRef.current, scrollPositions: {...preferencesRef.current.scrollPositions, [active]: workspaceScrollRef.current.scrollTop}};
+        const nextPreferences = recordReadingPosition(preferencesRef.current, active, workspaceScrollRef.current);
         preferencesRef.current = nextPreferences;
         setPreferences(nextPreferences);
       }
@@ -1204,6 +1223,30 @@ function ExplorerWorkspaceView({data}: {data: WikiActivity}) {
       setSidebarOpen(true);
     }
   }, [isDesktopSidebar]);
+  const toggleSidebar = useCallback(() => {
+    sidebarCloseFocusTargetRef.current = "toggle";
+    if (isDesktopSidebar) {
+      if (desktopSidebarVisible) setDesktopSidebarVisible(false);
+      else showNoteTree();
+    } else {
+      setSidebarOpen(open => !open);
+    }
+  }, [isDesktopSidebar, desktopSidebarVisible, showNoteTree]);
+  const resizeSidebar = useCallback((width: number) => {
+    setDesktopSidebarVisible(true);
+    setPreferences(current => ({...current, sidebarWidth: Math.min(clampSidebarWidth(width), maxSidebarWidth)}));
+  }, [maxSidebarWidth]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.defaultPrevented || event.repeat || !event.metaKey || !event.shiftKey || event.ctrlKey || event.altKey || event.key.toLowerCase() !== "s") return;
+      if (focusMode || connectionsModal || document.querySelector('[aria-modal="true"]:not(#explorer-sidebar), dialog[open]')) return;
+      event.preventDefault();
+      toggleSidebar();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [toggleSidebar, focusMode, connectionsModal]);
   const activeTabIndex = workspace.tabs.findIndex(tab => tab.slug === workspace.activeSlug);
   const previousTab = activeTabIndex > 0 ? workspace.tabs[activeTabIndex - 1] : undefined;
   const nextTab = activeTabIndex >= 0 ? workspace.tabs[activeTabIndex + 1] : undefined;
@@ -1225,7 +1268,7 @@ function ExplorerWorkspaceView({data}: {data: WikiActivity}) {
         }}
         onToggleDesktopSidebar={() => setDesktopSidebarVisible((visible) => !visible)}
       />}
-      <div className="flex min-h-0 flex-1">
+      <div className="workspace-layout flex min-h-0 flex-1" style={{"--workspace-sidebar-width":`${sidebarWidth}px`, "--workspace-navigation-width":desktopSidebarVisible ? `${sidebarWidth}px` : "56px"} as CSSProperties}>
         <div
           aria-hidden="true"
           className={`explorer-sidebar-backdrop fixed inset-0 z-30 md:hidden ${
@@ -1245,12 +1288,23 @@ function ExplorerWorkspaceView({data}: {data: WikiActivity}) {
           role="dialog"
           className={`fixed inset-y-0 left-0 z-40 w-[18.5rem] max-w-[calc(100vw-2rem)] border-r border-[var(--explorer-border)] bg-[var(--explorer-surface)] shadow-[4px_0_8px_var(--brand-shadow-soft)] md:static md:inset-auto md:z-auto md:max-w-none md:shadow-none ${
             sidebarOpen ? "translate-x-0" : "-translate-x-[calc(100%+1rem)]"
-          } ${desktopSidebarVisible ? "md:w-[19rem] md:translate-x-0 md:opacity-100" : "md:w-0 md:translate-x-[-1rem] md:opacity-0 md:border-r-0"} ${prefersReducedMotion ? "transition-none" : "transition-all duration-200 ease-out"} overflow-hidden motion-reduce:transition-none`}
+          } ${desktopSidebarVisible ? "md:w-[var(--workspace-sidebar-width)] md:translate-x-0 md:opacity-100" : "md:w-0 md:translate-x-[-1rem] md:opacity-0 md:border-r-0"} ${prefersReducedMotion ? "transition-none" : "transition-all duration-200 ease-out"} overflow-hidden motion-reduce:transition-none`}
         >
           <div className="workspace-sidebar-top">
-            <div className="workspace-brand-row"><Link to="/" className="workspace-wordmark">WikiOS</Link><button className="workspace-icon" aria-label="Collapse navigation" onClick={() => {setDesktopSidebarVisible(false); setSidebarOpen(false);}}><PanelLeft size={18}/></button></div>
+            <div className="workspace-brand-row">
+              <Link to="/" className="workspace-wordmark">WikiOS</Link>
+              <div className="workspace-brand-actions">
+                <button className="workspace-icon workspace-tooltip-trigger" aria-label="Search" aria-describedby="workspace-search-tooltip" aria-haspopup="dialog" aria-keyshortcuts="Meta+k" onClick={() => shell?.openCommandPalette()}>
+                  <Search size={18}/>
+                  <span id="workspace-search-tooltip" className="workspace-tooltip" role="tooltip">Search<kbd><Command size={12}/>K</kbd></span>
+                </button>
+                <button className="workspace-icon workspace-tooltip-trigger" aria-label="Collapse navigation" aria-describedby="workspace-sidebar-tooltip" aria-controls="explorer-sidebar" aria-expanded={sidebarInteractive} aria-keyshortcuts="Meta+Shift+s" onClick={toggleSidebar}>
+                  <PanelLeft size={18}/>
+                  <span id="workspace-sidebar-tooltip" className="workspace-tooltip workspace-tooltip-end" role="tooltip">Toggle sidebar<kbd>⇧<Command size={12}/>S</kbd></span>
+                </button>
+              </div>
+            </div>
             <VaultSwitcher/>
-            <button className="workspace-search" aria-label="Open search palette" aria-haspopup="dialog" onClick={() => shell?.openCommandPalette()}><Command size={16}/><span>Quick search</span><kbd>⌘ K</kbd></button>
             <div className="workspace-nav" aria-label="Workspace views">
               <button aria-current={view === "notes" ? "page" : undefined} onClick={() => setView("notes")}><BookOpen size={17}/>Notes<span>{pages.length}</span></button>
               <Link to="/graph"><Network size={17}/>Graph</Link>
@@ -1270,6 +1324,39 @@ function ExplorerWorkspaceView({data}: {data: WikiActivity}) {
           {preferences.pinnedSlugs.some(slug => pageBySlug.has(slug)) && <section className="workspace-pins"><h2><Pin size={13}/>Pinned</h2>{preferences.pinnedSlugs.map(slug => {const page = pageBySlug.get(slug); return page ? <button key={slug} data-note-slug={slug} onClick={() => selectSlug(slug)}>{page.title}</button> : null;})}</section>}
           <footer className="workspace-sidebar-footer"><Link to="/setup?change=1" aria-label="Vault settings"><Settings2 size={16}/><span>Vault settings</span></Link><ThemeSelector/></footer>
         </aside>
+        {isDesktopSidebar && !desktopSidebarVisible && !focusMode && (
+          <aside className="workspace-mini-sidebar" aria-label="Mini sidebar" aria-hidden={connectionsModal} inert={connectionsModal}>
+            <button ref={desktopToggleRef} className="workspace-icon workspace-tooltip-trigger" aria-label="Show note tree" aria-describedby="workspace-mini-sidebar-tooltip" aria-controls="explorer-sidebar" aria-expanded={false} aria-keyshortcuts="Meta+Shift+s" onClick={toggleSidebar}>
+              <PanelLeft size={18} aria-hidden/>
+              <span id="workspace-mini-sidebar-tooltip" className="workspace-tooltip workspace-tooltip-right" role="tooltip">Toggle sidebar<kbd>⇧<Command size={12}/>S</kbd></span>
+            </button>
+            <button className="workspace-icon workspace-tooltip-trigger" aria-label="Search" aria-describedby="workspace-mini-search-tooltip" aria-haspopup="dialog" aria-keyshortcuts="Meta+k" onClick={() => shell?.openCommandPalette()}>
+              <Search size={18} aria-hidden/>
+              <span id="workspace-mini-search-tooltip" className="workspace-tooltip workspace-tooltip-right" role="tooltip">Search<kbd><Command size={12}/>K</kbd></span>
+            </button>
+            <nav className="workspace-mini-views" aria-label="Workspace views">
+              <button className="workspace-icon workspace-tooltip-trigger" aria-label="Notes" aria-describedby="workspace-mini-notes-tooltip" aria-current={view === "notes" ? "page" : undefined} onClick={() => setView("notes")}>
+                <BookOpen size={18} aria-hidden/>
+                <span id="workspace-mini-notes-tooltip" className="workspace-tooltip workspace-tooltip-right" role="tooltip">Notes</span>
+              </button>
+              <Link to="/graph" className="workspace-icon workspace-tooltip-trigger" aria-label="Graph" aria-describedby="workspace-mini-graph-tooltip">
+                <Network size={18} aria-hidden/>
+                <span id="workspace-mini-graph-tooltip" className="workspace-tooltip workspace-tooltip-right" role="tooltip">Graph</span>
+              </Link>
+              <button className="workspace-icon workspace-tooltip-trigger" aria-label="Activity" aria-describedby="workspace-mini-activity-tooltip" aria-current={view === "activity" ? "page" : undefined} onClick={() => setView("activity")}>
+                <Clock3 size={18} aria-hidden/>
+                <span id="workspace-mini-activity-tooltip" className="workspace-tooltip workspace-tooltip-right" role="tooltip">Activity</span>
+              </button>
+            </nav>
+            <div className="workspace-mini-appearance workspace-tooltip-trigger">
+              <ThemeSelector/>
+              <span className="workspace-tooltip workspace-tooltip-right" role="tooltip">Appearance</span>
+            </div>
+          </aside>
+        )}
+        {isDesktopSidebar && !focusMode && <div inert={connectionsModal} aria-hidden={connectionsModal}>
+          <SidebarDivider expanded={desktopSidebarVisible} width={sidebarWidth} minWidth={MIN_SIDEBAR_WIDTH} maxWidth={maxSidebarWidth} onResize={resizeSidebar} onToggle={toggleSidebar}/>
+        </div>}
         <section
           ref={workspaceRef}
           tabIndex={-1}
@@ -1278,7 +1365,6 @@ function ExplorerWorkspaceView({data}: {data: WikiActivity}) {
           aria-label="Explorer workspace"
         >
           <div className="workspace-tabbar" inert={connectionsModal}>
-          {!desktopSidebarVisible && <button ref={desktopToggleRef} className="workspace-icon workspace-reopen-nav" aria-label="Show note tree" onClick={() => setDesktopSidebarVisible(true)}><PanelLeft size={18}/></button>}
           <ExplorerTabs
             workspace={workspace}
             fallbackFocusRef={workspaceRef}
@@ -1314,7 +1400,7 @@ function ExplorerWorkspaceView({data}: {data: WikiActivity}) {
                 className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
                 onScroll={active ? event => {
                   if (view !== "notes" || visibleReaderState.status !== "ready") return;
-                  preferencesRef.current = {...preferencesRef.current, scrollPositions: {...preferencesRef.current.scrollPositions, [tab.slug]: event.currentTarget.scrollTop}};
+                  preferencesRef.current = recordReadingPosition(preferencesRef.current, tab.slug, event.currentTarget);
                 } : undefined}
                 ref={active ? workspaceScrollRef : undefined}
               >
@@ -1337,14 +1423,15 @@ function ExplorerWorkspaceView({data}: {data: WikiActivity}) {
               ref={workspaceScrollRef}
               className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
             >
-              <ExplorerReader
-                state={visibleReaderState}
-                hasTabs={workspace.tabs.length > 0}
-                onWikiLink={selectSlug}
-                onRefreshPage={refreshActivePage}
+              <WorkspaceStart
+                pages={pages}
+                recentSlugs={preferences.recentSlugs}
+                readingProgress={preferencesRef.current.readingProgress}
+                onSelect={slug => {
+                  focusStartReaderRef.current = true;
+                  selectSlug(slug);
+                }}
                 onBrowseNotes={showNoteTree}
-                onResolveAmbiguity={resolveAmbiguity}
-                workspaceScrollRef={workspaceScrollRef}
               />
             </div>
           ) : null}

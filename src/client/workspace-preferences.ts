@@ -2,7 +2,9 @@ export interface WorkspacePreferences {
   pinnedSlugs: string[];
   recentSlugs: string[];
   scrollPositions: Record<string, number>;
+  readingProgress: Record<string, number>;
   connectionsOpen: boolean;
+  sidebarWidth: number;
 }
 
 export interface WorkspacePreferenceStorage {
@@ -12,6 +14,14 @@ export interface WorkspacePreferenceStorage {
 
 const MAX_ITEMS = 100;
 const MAX_SERIALIZED_LENGTH = 300_000;
+export const MIN_SIDEBAR_WIDTH = 240;
+export const MAX_SIDEBAR_WIDTH = 480;
+
+export function clampSidebarWidth(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value)
+    ? Math.round(Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, value)))
+    : 304;
+}
 const validSlug = (value: unknown): value is string => typeof value === "string" && value.trim().length > 0 && value.length <= 1024;
 
 function cleanSlugs(value: unknown): string[] {
@@ -29,11 +39,21 @@ function cleanPreferences(value: unknown): WorkspacePreferences {
       }
     }
   }
+  const readingProgress: Record<string, number> = {};
+  if (source.readingProgress && typeof source.readingProgress === "object" && !Array.isArray(source.readingProgress)) {
+    for (const [slug, progress] of Object.entries(source.readingProgress).slice(0, MAX_ITEMS)) {
+      if (validSlug(slug) && !["__proto__", "constructor", "prototype"].includes(slug) && typeof progress === "number" && Number.isFinite(progress) && progress >= 0) {
+        readingProgress[slug] = Math.round(Math.min(progress, 100));
+      }
+    }
+  }
   return {
     pinnedSlugs: cleanSlugs(source.pinnedSlugs),
     recentSlugs: cleanSlugs(source.recentSlugs),
     scrollPositions,
+    readingProgress,
     connectionsOpen: typeof source.connectionsOpen === "boolean" ? source.connectionsOpen : true,
+    sidebarWidth: clampSidebarWidth(source.sidebarWidth),
   };
 }
 
@@ -65,4 +85,20 @@ export function togglePin(slugs: readonly string[], slug: string): string[] {
 
 export function promoteRecent(slugs: readonly string[], slug: string): string[] {
   return cleanSlugs([slug, ...slugs]);
+}
+
+/** Capture the reading offset and its fraction of the available scroll range. */
+export function recordReadingPosition(
+  preferences: WorkspacePreferences,
+  slug: string,
+  {scrollTop, scrollHeight, clientHeight}: {scrollTop: number; scrollHeight: number; clientHeight: number},
+): WorkspacePreferences {
+  const range = scrollHeight - clientHeight;
+  return {
+    ...preferences,
+    scrollPositions: {...preferences.scrollPositions, [slug]: Math.max(0, scrollTop)},
+    readingProgress: range > 0
+      ? {...preferences.readingProgress, [slug]: Math.round(Math.max(0, Math.min(1, scrollTop / range)) * 100)}
+      : preferences.readingProgress,
+  };
 }

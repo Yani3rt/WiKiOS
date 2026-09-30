@@ -162,8 +162,8 @@ it("preserves scrolled positions across preference changes, history navigation a
 it("links vault controls to change mode and labels search as a palette action", () => {
   expect(container.querySelector<HTMLAnchorElement>('[aria-label="Vault settings"]')?.getAttribute("href")).toBe("/setup?change=1");
   expect(container.querySelector('button[aria-label="Switch vault"]')?.getAttribute("aria-haspopup")).toBe("dialog");
-  expect(container.querySelector('button[aria-label="Open search palette"]')).not.toBeNull();
-  expect(container.querySelector('button[aria-label="Open search palette"]')?.getAttribute("aria-haspopup")).toBe("dialog");
+  expect(container.querySelector('.workspace-brand-actions button[aria-label="Search"]')).not.toBeNull();
+  expect(container.querySelector('.workspace-brand-actions button[aria-label="Search"]')?.getAttribute("aria-haspopup")).toBe("dialog");
 });
 
 it("toggles focus mode without changing saved layout and restores focus on Escape", async () => {
@@ -182,6 +182,7 @@ it("toggles focus mode without changing saved layout and restores focus on Escap
 });
 it("does not offer Find in note on phones", () => {
   expect(container.querySelector('[aria-label="Find in note"]')).toBeNull();
+  expect(container.querySelector('[role="separator"][aria-label="Resize navigation"]')).toBeNull();
 });
 it("offers Find at tablet width and removes it when resizing to phone width", async () => {
   const listeners = new Map<string, () => void>();
@@ -189,11 +190,177 @@ it("offers Find at tablet width and removes it when resizing to phone width", as
   vi.stubGlobal('matchMedia', (query: string) => ({get matches() {return tablet && query === '(min-width: 768px)';}, addEventListener(_name: string, listener: () => void) {listeners.set(query, listener);}, removeEventListener() {}}));
   await act(async () => root.render(<AppearanceProvider key="tablet" initialColorTheme="teal" initialModePreference="light" initialResolvedMode="light"><RouterProvider router={router}/></AppearanceProvider>));
   expect(container.querySelector('[aria-label="Find in note"]')).not.toBeNull();
+  await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Collapse navigation"]')!.click());
+  expect(container.querySelector('[aria-label="Mini sidebar"]')).not.toBeNull();
   await act(async () => {tablet = false; listeners.get('(min-width: 768px)')!();});
+  expect(container.querySelector('[aria-label="Mini sidebar"]')).toBeNull();
+  expect(container.querySelector('[aria-label="Mobile navigation"]')).not.toBeNull();
   expect(container.querySelector('[aria-label="Find in note"]')).toBeNull();
   const event = new KeyboardEvent('keydown', {key:'f',ctrlKey:true,cancelable:true,bubbles:true});
   document.dispatchEvent(event);
   expect(event.defaultPrevented).toBe(false);
+  await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Notes: toggle note tree"]')!.click());
+  expect(container.querySelector('#explorer-sidebar')?.getAttribute('aria-hidden')).toBe('false');
+  await act(async () => {tablet = true; listeners.get('(min-width: 768px)')!();});
+  expect(container.querySelector('[aria-label="Mini sidebar"]')).not.toBeNull();
+  expect(container.querySelector('#explorer-sidebar')?.getAttribute('aria-hidden')).toBe('true');
+  expect(container.querySelector('#explorer-sidebar')?.hasAttribute('inert')).toBe(true);
+});
+
+it('keeps the reader accessible from collapsed desktop navigation without expanding the tree', async () => {
+  vi.stubGlobal('matchMedia', (query: string) => ({matches:query === '(min-width: 768px)',addEventListener() {},removeEventListener() {}}));
+  await act(async () => root.render(<AppearanceProvider key="desktop" initialColorTheme="teal" initialModePreference="light" initialResolvedMode="light"><RouterProvider router={router}/></AppearanceProvider>));
+  const collapse = container.querySelector<HTMLButtonElement>('[aria-label="Collapse navigation"]')!;
+  await act(async () => {collapse.focus();collapse.click();});
+  const rail = container.querySelector<HTMLElement>('[aria-label="Mini sidebar"]')!;
+  expect(rail).not.toBeNull();
+  expect(container.querySelector('#explorer-sidebar')?.hasAttribute('inert')).toBe(true);
+  expect(document.activeElement).toBe(rail.querySelector('[aria-label="Show note tree"]'));
+  expect(rail.querySelector('[aria-label="Search"]')?.getAttribute('aria-haspopup')).toBe('dialog');
+  expect(rail.querySelector('[aria-label="Graph"]')?.getAttribute('href')).toBe('/graph');
+  const activity = rail.querySelector<HTMLButtonElement>('[aria-label="Activity"]')!;
+  await act(async () => activity.click());
+  expect(container.querySelector('.workspace-activity')).not.toBeNull();
+  expect(activity.getAttribute('aria-current')).toBe('page');
+  const notes = rail.querySelector<HTMLButtonElement>('[aria-label="Notes"]')!;
+  await act(async () => notes.click());
+  expect(notes.getAttribute('aria-current')).toBe('page');
+  expect(container.querySelector('.workspace-activity')).toBeNull();
+  expect(container.querySelector('.workspace-reading-column')?.hasAttribute('hidden')).toBe(false);
+  expect(container.querySelector('[role="tabpanel"]:not([hidden])')?.textContent).toContain('Body of Alpha');
+  expect(container.querySelector('#explorer-sidebar')?.getAttribute('aria-hidden')).toBe('true');
+  const appearance = rail.querySelector<HTMLButtonElement>('[aria-label="Choose appearance"]')!;
+  await act(async () => appearance.click());
+  expect(appearance.getAttribute('aria-expanded')).toBe('true');
+  await act(async () => rail.querySelector<HTMLButtonElement>('[aria-label="Show note tree"]')!.click());
+  expect(container.querySelector('[aria-label="Mini sidebar"]')).toBeNull();
+  expect(container.querySelector('#explorer-sidebar')?.hasAttribute('inert')).toBe(false);
+});
+
+it('toggles between full and mini desktop navigation with Command-Shift-S', async () => {
+  vi.stubGlobal('matchMedia', (query: string) => ({matches:query === '(min-width: 768px)',addEventListener() {},removeEventListener() {}}));
+  await act(async () => root.render(<AppearanceProvider key="desktop" initialColorTheme="teal" initialModePreference="light" initialResolvedMode="light"><RouterProvider router={router}/></AppearanceProvider>));
+  const shortcut = () => new KeyboardEvent('keydown',{key:'S',metaKey:true,shiftKey:true,cancelable:true,bubbles:true});
+  const collapse = shortcut();
+  await act(async () => window.dispatchEvent(collapse));
+  expect(collapse.defaultPrevented).toBe(true);
+  expect(container.querySelector('[aria-label="Mini sidebar"]')).not.toBeNull();
+  await act(async () => window.dispatchEvent(new KeyboardEvent('keydown',{key:'S',metaKey:true,shiftKey:true,repeat:true})));
+  expect(container.querySelector('[aria-label="Mini sidebar"]')).not.toBeNull();
+  await act(async () => window.dispatchEvent(shortcut()));
+  expect(container.querySelector('[aria-label="Mini sidebar"]')).toBeNull();
+  expect(container.querySelector('#explorer-sidebar')?.getAttribute('aria-hidden')).toBe('false');
+});
+
+it('resizes desktop navigation by dragging without toggling and stops on pointer cancellation', async () => {
+  vi.stubGlobal('matchMedia', (query: string) => ({matches:query === '(min-width: 768px)',addEventListener() {},removeEventListener() {}}));
+  await act(async () => root.render(<AppearanceProvider key="desktop" initialColorTheme="teal" initialModePreference="light" initialResolvedMode="light"><RouterProvider router={router}/></AppearanceProvider>));
+  const divider = container.querySelector<HTMLElement>('[role="separator"][aria-label="Resize navigation"]')!;
+  expect(divider).not.toBeNull();
+  // jsdom has no pointer-capture implementation; the real component owns the drag state.
+  divider.setPointerCapture = () => {};
+  divider.hasPointerCapture = () => false;
+  const pointer = (type: string, clientX: number) => {
+    const event = new MouseEvent(type,{clientX,button:0,bubbles:true,cancelable:true});
+    Object.defineProperty(event,'pointerId',{value:1});
+    return event;
+  };
+  await act(async () => divider.dispatchEvent(pointer('pointerdown',304)));
+  await act(async () => divider.dispatchEvent(pointer('pointermove',390)));
+  expect(divider.getAttribute('aria-valuenow')).toBe('390');
+  await act(async () => divider.dispatchEvent(pointer('pointermove',304)));
+  expect(divider.getAttribute('aria-valuenow')).toBe('304');
+  await act(async () => divider.dispatchEvent(pointer('pointermove',390)));
+  expect(container.querySelector('#explorer-sidebar')?.getAttribute('aria-hidden')).toBe('false');
+  await act(async () => divider.dispatchEvent(pointer('pointerup',390)));
+  await act(async () => divider.dispatchEvent(pointer('pointermove',460)));
+  expect(readWorkspacePreferences(vaultId).sidebarWidth).toBe(390);
+  await act(async () => divider.dispatchEvent(pointer('pointerdown',390)));
+  await act(async () => divider.dispatchEvent(pointer('pointermove',400)));
+  await act(async () => divider.dispatchEvent(pointer('pointercancel',400)));
+  await act(async () => divider.dispatchEvent(pointer('pointermove',460)));
+  expect(readWorkspacePreferences(vaultId).sidebarWidth).toBe(400);
+  expect(document.body.style.cursor).not.toBe('col-resize');
+  const toggle = container.querySelector<HTMLButtonElement>('[aria-label="Toggle sidebar"]')!;
+  await act(async () => toggle.click());
+  expect(container.querySelector('[aria-label="Mini sidebar"]')).not.toBeNull();
+  expect(divider.getAttribute('aria-valuenow')).toBe('56');
+  await act(async () => toggle.click());
+  expect(container.querySelector('[aria-label="Mini sidebar"]')).toBeNull();
+  expect(divider.getAttribute('aria-valuenow')).toBe('400');
+});
+
+it.each([240, 400])('snaps to mini below half the minimum width during a held drag from %ipx and ends the gesture', async initialWidth => {
+  writeWorkspacePreferences(vaultId, {...readWorkspacePreferences(vaultId), sidebarWidth: initialWidth});
+  vi.stubGlobal('matchMedia', (query: string) => ({matches:query === '(min-width: 768px)',addEventListener() {},removeEventListener() {}}));
+  await act(async () => root.render(<AppearanceProvider key="desktop" initialColorTheme="teal" initialModePreference="light" initialResolvedMode="light"><RouterProvider router={router}/></AppearanceProvider>));
+  const divider = container.querySelector<HTMLElement>('[role="separator"][aria-label="Resize navigation"]')!;
+  let captured = false;
+  // Model the browser's pointer capture; assert on the real rendered sidebar state.
+  divider.setPointerCapture = () => { captured = true; };
+  divider.hasPointerCapture = () => captured;
+  divider.releasePointerCapture = () => { captured = false; };
+  const pointer = async (type: string, clientX: number) => {
+    const event = new MouseEvent(type, {clientX, button:0, bubbles:true, cancelable:true});
+    Object.defineProperty(event, 'pointerId', {value:1});
+    await act(async () => divider.dispatchEvent(event));
+  };
+  await pointer('pointerdown', initialWidth);
+  await pointer('pointermove', 240);
+  await pointer('pointermove', 180);
+  expect(divider.getAttribute('aria-valuenow')).toBe('240');
+  expect(container.querySelector('[aria-label="Mini sidebar"]')).toBeNull();
+  await pointer('pointermove', 120);
+  expect(container.querySelector('[aria-label="Mini sidebar"]')).toBeNull();
+  await pointer('pointermove', 119);
+  expect(container.querySelector('[aria-label="Mini sidebar"]')).not.toBeNull();
+  expect(divider.getAttribute('aria-valuenow')).toBe('56');
+  expect(readWorkspacePreferences(vaultId).sidebarWidth).toBe(240);
+  expect(captured).toBe(false);
+  expect(document.body.style.cursor).not.toBe('col-resize');
+  expect(document.body.style.userSelect).not.toBe('none');
+  await pointer('pointermove', 400);
+  await pointer('pointerup', 400);
+  expect(divider.getAttribute('aria-valuenow')).toBe('56');
+  await pointer('pointerdown', 56);
+  await pointer('pointermove', 80);
+  await pointer('pointermove', 90);
+  expect(divider.getAttribute('aria-valuenow')).toBe('240');
+  await pointer('pointermove', 400);
+  expect(container.querySelector('[aria-label="Mini sidebar"]')).toBeNull();
+  expect(divider.getAttribute('aria-valuenow')).toBe('400');
+  await pointer('pointerup', 400);
+  // A fast move can cross both the minimum and snap threshold in one event.
+  await pointer('pointerdown', 400);
+  await pointer('pointermove', 80);
+  expect(divider.getAttribute('aria-valuenow')).toBe('56');
+  expect(readWorkspacePreferences(vaultId).sidebarWidth).toBe(240);
+  await act(async () => container.querySelector<HTMLButtonElement>('.workspace-mini-sidebar [aria-label="Show note tree"]')!.click());
+  expect(divider.getAttribute('aria-valuenow')).toBe('240');
+});
+
+it('resizes with the keyboard within safe limits and restores the saved width after remounting', async () => {
+  vi.stubGlobal('matchMedia', (query: string) => ({matches:query === '(min-width: 768px)',addEventListener() {},removeEventListener() {}}));
+  await act(async () => root.render(<AppearanceProvider key="desktop" initialColorTheme="teal" initialModePreference="light" initialResolvedMode="light"><RouterProvider router={router}/></AppearanceProvider>));
+  const divider = container.querySelector<HTMLElement>('[role="separator"][aria-label="Resize navigation"]')!;
+  expect(divider).not.toBeNull();
+  const key = async (value: string) => act(async () => divider.dispatchEvent(new KeyboardEvent('keydown',{key:value,bubbles:true,cancelable:true})));
+  await key('ArrowRight');
+  expect(divider.getAttribute('aria-valuenow')).toBe('324');
+  await key('End');
+  await key('ArrowRight');
+  expect(divider.getAttribute('aria-valuenow')).toBe('480');
+  await key('Home');
+  await key('ArrowLeft');
+  expect(divider.getAttribute('aria-valuenow')).toBe('240');
+  await key('Enter');
+  expect(divider.getAttribute('aria-valuenow')).toBe('56');
+  await key('Enter');
+  await key('ArrowRight');
+  expect(divider.getAttribute('aria-valuenow')).toBe('260');
+  await act(async () => root.render(<AppearanceProvider key="remount" initialColorTheme="teal" initialModePreference="light" initialResolvedMode="light"><RouterProvider router={router}/></AppearanceProvider>));
+  expect(container.querySelector('[role="separator"]')?.getAttribute('aria-valuenow')).toBe('260');
+  expect(readWorkspacePreferences('other-vault').sidebarWidth).toBe(304);
 });
 it('opens a tapped drawer note in its workspace tab without a preview on mobile', async () => {
   await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Notes: toggle note tree"]')!.click());
@@ -266,4 +433,40 @@ it('keeps the selected tab visible when navigating with mobile arrows', async ()
   expect(scroll).toHaveBeenCalledWith({block:'nearest',inline:'nearest',behavior:'auto'});
   expect(scroll.mock.contexts.at(-1)).toBe(container.querySelector('[role="tab"][aria-selected="true"]'));
   scroll.mockRestore();
+});
+
+it("resumes the last closed note at its saved position with measured progress", async () => {
+  HTMLElement.prototype.scrollTo = function(options?: ScrollToOptions | number, y?: number) { this.scrollTop = typeof options === "number" ? y ?? 0 : options?.top ?? 0; };
+  await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Close Beta"]')!.click());
+  const panel = container.querySelector<HTMLElement>('[role="tabpanel"]:not([hidden])')!;
+  Object.defineProperties(panel, {scrollHeight:{value:1500}, clientHeight:{value:500}});
+  panel.scrollTop = 420;
+  await act(async () => panel.dispatchEvent(new Event("scroll", {bubbles:true})));
+  // A preference update must not replace the scroll-only reading history.
+  await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Pin note"]')!.click());
+  await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Close Alpha"]')!.click());
+  expect(router.state.location.pathname).toBe("/explorer");
+  const resume = container.querySelector<HTMLButtonElement>(".workspace-resume");
+  expect(resume?.textContent).toContain("42% read");
+  expect(container.querySelector('[aria-label="Explorer workspace"]')?.hasAttribute("inert")).toBe(false);
+  resume!.focus();
+  await act(async () => resume!.click());
+  expect(router.state.location.pathname).toBe("/explorer/Alpha");
+  expect(document.activeElement).toBe(container.querySelector('[role="tabpanel"]:not([hidden])'));
+  expect(container.querySelector<HTMLElement>('[role="tabpanel"]:not([hidden])')!.scrollTop).toBe(420);
+  expect(readWorkspacePreferences(vaultId).readingProgress.Alpha).toBe(42);
+});
+
+it("shows saved reading history on a root visit with no tabs", async () => {
+  vaultId = "returning-vault";
+  writeWorkspacePreferences(vaultId, {...readWorkspacePreferences(vaultId), recentSlugs:["missing", "Beta", "Alpha"], scrollPositions:{Beta:300}, readingProgress:{Beta:30}});
+  await act(async () => router.navigate("/explorer"));
+  expect(container.querySelector(".workspace-reading-column")?.hasAttribute("hidden")).toBe(false);
+  expect(container.querySelector(".workspace-resume")?.textContent).toContain("Beta");
+  expect(container.querySelector(".workspace-resume")?.textContent).toContain("30% read");
+  const recent = container.querySelector<HTMLButtonElement>(".workspace-recent-note")!;
+  recent.focus();
+  await act(async () => recent.click());
+  expect(router.state.location.pathname).toBe("/explorer/Alpha");
+  expect(document.activeElement).toBe(container.querySelector('[role="tabpanel"]:not([hidden])'));
 });
