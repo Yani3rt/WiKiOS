@@ -25,6 +25,7 @@ export interface GraphNeuralAnimationController {
     mode: GraphNeuralActivationMode;
     reducedMotion: boolean;
   }): boolean;
+  setReducedMotion(reducedMotion: boolean): void;
   releaseHover(): void;
   clearSelection(): void;
   getSnapshot(): GraphNeuralAnimationSnapshot;
@@ -62,7 +63,9 @@ function createSnapshot(
   const edgeFrames = new Map<string, GraphNeuralSignalFrame>();
   const edgeDelays = new Map<string, number>();
   const nodeScales = new Map<string, number>();
-  let activeNodeScale = 1;
+  const activeNodeScale = getGraphNeuralSignalFrame(
+    elapsedMs, 0, input.mode, input.reducedMotion,
+  ).activeNodeScale;
 
   for (const edge of input.edges) {
     const frame = getGraphNeuralSignalFrame(
@@ -73,7 +76,6 @@ function createSnapshot(
     );
     edgeFrames.set(edge.edgeKey, frame);
     edgeDelays.set(edge.edgeKey, edge.delayMs);
-    activeNodeScale = Math.max(activeNodeScale, frame.activeNodeScale);
     nodeScales.set(
       edge.receivingNode,
       Math.max(nodeScales.get(edge.receivingNode) ?? 1, frame.arrivalScale),
@@ -91,6 +93,14 @@ function createSnapshot(
     releaseOpacity: 1,
     reducedMotion: input.reducedMotion,
   });
+}
+
+function isAnimationComplete(input: GraphNeuralActivationInput, snapshot: GraphNeuralAnimationSnapshot) {
+  if (input.reducedMotion) return true;
+  if (input.edges.length === 0) {
+    return input.mode === "hover" || snapshot.elapsedMs >= GRAPH_NEURAL_TIMING.chargeMs + GRAPH_NEURAL_TIMING.ignitionMs;
+  }
+  return [...snapshot.edges.values()].every((frame) => frame.complete);
 }
 
 export function createGraphNeuralAnimationController(
@@ -143,12 +153,12 @@ export function createGraphNeuralAnimationController(
 
   const scheduleActivationFrame = (generation: number) => {
     animationFrame = requestFrame(() => {
-      animationFrame = null;
       if (destroyed || generation !== frameGeneration || !activeInput) return;
+      animationFrame = null;
 
       const nextSnapshot = createSnapshot(activeInput, now() - animationStart);
       publish(nextSnapshot);
-      if ([...nextSnapshot.edges.values()].every((frame) => frame.complete)) return;
+      if (destroyed || generation !== frameGeneration || !activeInput || isAnimationComplete(activeInput, nextSnapshot)) return;
       scheduleActivationFrame(generation);
     });
   };
@@ -160,15 +170,11 @@ export function createGraphNeuralAnimationController(
     activeInput = input;
     animationStart = now();
 
+    const generation = frameGeneration;
     const initialSnapshot = createSnapshot(input, 0);
     publish(initialSnapshot);
-    if (
-      input.reducedMotion ||
-      [...initialSnapshot.edges.values()].every((frame) => frame.complete)
-    ) {
-      return;
-    }
-    scheduleActivationFrame(frameGeneration);
+    if (destroyed || generation !== frameGeneration || isAnimationComplete(input, initialSnapshot)) return;
+    scheduleActivationFrame(generation);
   };
 
   const reset = (notify: boolean) => {
@@ -188,8 +194,8 @@ export function createGraphNeuralAnimationController(
     releaseInput: GraphNeuralActivationInput,
   ) => {
     animationFrame = requestFrame(() => {
-      animationFrame = null;
       if (destroyed || generation !== frameGeneration || !releasingHover) return;
+      animationFrame = null;
 
       const progress = Math.max(
         0,
@@ -236,7 +242,9 @@ export function createGraphNeuralAnimationController(
           reducedMotion: releaseInput.reducedMotion,
         }),
       );
-      scheduleReleaseFrame(generation, releaseStart, releaseSnapshot, releaseInput);
+      if (!destroyed && generation === frameGeneration && releasingHover) {
+        scheduleReleaseFrame(generation, releaseStart, releaseSnapshot, releaseInput);
+      }
     });
   };
 
@@ -254,11 +262,15 @@ export function createGraphNeuralAnimationController(
         }
 
         cancelHoverIntent();
+        if (input.reducedMotion) {
+          startActivation(input);
+          return true;
+        }
         pendingHover = input;
         const generation = hoverIntentGeneration;
         hoverIntentTimer = setTimer(() => {
-          hoverIntentTimer = null;
           if (destroyed || generation !== hoverIntentGeneration || pendingHover !== input) return;
+          hoverIntentTimer = null;
           pendingHover = null;
           startActivation(input);
         }, GRAPH_NEURAL_TIMING.hoverIntentMs);
@@ -268,6 +280,20 @@ export function createGraphNeuralAnimationController(
       cancelHoverIntent();
       startActivation(input);
       return true;
+    },
+
+    setReducedMotion(reducedMotion) {
+      if (destroyed || !reducedMotion) return;
+      const pendingInput = pendingHover;
+      const nextInput = pendingInput ?? activeInput;
+      cancelHoverIntent();
+      if (pendingInput) {
+        startActivation({ ...pendingInput, reducedMotion: true });
+      } else if (releasingHover) {
+        reset(true);
+      } else if (nextInput && !nextInput.reducedMotion) {
+        startActivation({ ...nextInput, reducedMotion: true });
+      }
     },
 
     releaseHover() {

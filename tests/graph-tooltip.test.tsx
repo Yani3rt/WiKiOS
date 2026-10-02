@@ -1,6 +1,7 @@
 import { expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 vi.mock('sigma', () => ({ default: class Sigma {} }));
+vi.mock('../src/client/graph-motion-camera', () => ({ GraphMotionCamera: class {} }));
 import { NodeTooltip } from '../src/client/routes/graph-route';
 const node = { label: 'Knowledge management', color: '#aabbcc', categories: ['Knowledge'], connectionCount: 14, wordCount: 420 };
 it('renders a compact title and a single metadata row', () => {

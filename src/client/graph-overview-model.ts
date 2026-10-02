@@ -1,3 +1,4 @@
+import { GRAPH_COMPACT_WIDTH, type GraphBounds } from "./graph-camera";
 import type { GraphEdge, GraphNode } from "@/lib/wiki-shared";
 import type { ResolvedThemeMode } from "@/client/theme-mode";
 
@@ -85,7 +86,7 @@ export interface GraphViewportSettings {
   maxLabelCharacters: number;
 }
 
-export type GraphLabelPlacement = "left" | "right";
+export type GraphLabelPlacement = "left" | "right" | "above-left" | "above-right" | "below-left" | "below-right";
 
 export interface GraphLabelCandidate {
   slug: string;
@@ -121,7 +122,7 @@ export const GRAPH_NEURAL_TIMING = {
   chargeMs: 100,
   ignitionMs: 120,
   hoverTravelMs: 520,
-  selectionTravelMs: 1400,
+  selectionTravelMs: 850,
   arrivalMs: 140,
   releaseMs: 180,
   maximumStaggerMs: 100,
@@ -219,7 +220,7 @@ export function getGraphNeuralSignalFrame(
     (elapsed - GRAPH_NEURAL_TIMING.chargeMs) / GRAPH_NEURAL_TIMING.ignitionMs,
   );
   const activeNodeScale =
-    1 + chargeProgress * (mode === "selection" ? 0.02 : 0);
+    1 + chargeProgress * (1 - ignitionProgress) * (mode === "selection" ? 0.12 : 0);
   const travelMs =
     mode === "selection"
       ? GRAPH_NEURAL_TIMING.selectionTravelMs
@@ -267,7 +268,7 @@ export function getGraphNeuralSignalFrame(
           (GRAPH_NEURAL_TIMING.arrivalMs / travelMs),
       )
     : 0;
-  const arrivalScale = 1 + Math.sin(arrivalProgress * Math.PI) * (mode === "selection" ? 0.02 : 0);
+  const arrivalScale = 1 + Math.sin(arrivalProgress * Math.PI) * (mode === "selection" ? 0.10 : 0);
   const targetIntensity = mode === "selection" ? 1 : 0.7;
   const hoverSettleProgress =
     mode === "hover"
@@ -394,14 +395,14 @@ export function getGraphNodeClickSelection(
 }
 
 export function shouldCloseGraphNodeIndexAfterSelection(viewportWidth: number) {
-  return viewportWidth < 640;
+  return viewportWidth < GRAPH_COMPACT_WIDTH;
 }
 
 export function shouldCollapseGraphDetailPanelOnSearchInteraction(
   viewportWidth: number,
   hasFocusedNode: boolean,
 ) {
-  return hasFocusedNode && viewportWidth < 640;
+  return hasFocusedNode && viewportWidth < GRAPH_COMPACT_WIDTH;
 }
 
 export function shouldCloseGraphNodeIndexOnDetailExpand(
@@ -409,11 +410,11 @@ export function shouldCloseGraphNodeIndexOnDetailExpand(
   wasCollapsed: boolean,
   isCollapsed: boolean,
 ) {
-  return viewportWidth < 640 && wasCollapsed && !isCollapsed;
+  return viewportWidth < GRAPH_COMPACT_WIDTH && wasCollapsed && !isCollapsed;
 }
 
 export function shouldResetGraphCameraAfterDetailClose(viewportWidth: number) {
-  return viewportWidth < 640;
+  return viewportWidth < GRAPH_COMPACT_WIDTH;
 }
 
 export function getGraphNodeVerticalBalance(
@@ -459,7 +460,7 @@ export function getGraphNodeFocusViewportPoint(
   searchBottom: number,
   detailPanelTop?: number,
 ) {
-  if (viewportWidth >= 640) {
+  if (viewportWidth >= GRAPH_COMPACT_WIDTH) {
     return { x: viewportWidth / 2, y: viewportHeight / 2 };
   }
 
@@ -511,7 +512,7 @@ export function getGraphDetailHeightAnimation({
     !Number.isFinite(previousHeight) ||
     !Number.isFinite(nextHeight) ||
     Math.abs(previousHeight - nextHeight) < 1 ||
-    viewportWidth >= 640 ||
+    viewportWidth >= GRAPH_COMPACT_WIDTH ||
     reducedMotion
   ) {
     return null;
@@ -610,13 +611,22 @@ export function getPersistentLabelSlugs(nodes: GraphNode[]) {
   return new Set(ranked.slice(0, budget).map((node) => node.slug));
 }
 
+export function getGraphLabelBounds(candidate: Pick<GraphLabelCandidate, "x" | "y" | "nodeSize" | "labelWidth" | "labelHeight">, placement: GraphLabelPlacement): GraphBounds {
+  const {x,y,nodeSize,labelWidth,labelHeight} = candidate;
+  const left = placement === "left" ? x-nodeSize-5-labelWidth : placement === "right" ? x+nodeSize+5
+    : placement.endsWith("left") ? x-labelWidth : x;
+  const top = placement.startsWith("above") ? y-nodeSize-5-labelHeight
+    : placement.startsWith("below") ? y+nodeSize+5 : y-labelHeight/2;
+  return {left,top,right:left+labelWidth,bottom:top+labelHeight};
+}
+
 export function getCollisionAwareGraphLabelPlacements(
   candidates: GraphLabelCandidate[],
-  viewport: { width: number; height: number; padding?: number; gap?: number },
+  viewport: { width: number; height: number; padding?: number; gap?: number; obstacles?: GraphBounds[] },
 ) {
   const padding = viewport.padding ?? 8;
   const gap = viewport.gap ?? 4;
-  const occupied: Array<{ left: number; right: number; top: number; bottom: number }> = [];
+  const occupied: GraphBounds[] = [...(viewport.obstacles ?? [])];
   const placements = new Map<string, GraphLabelPlacement>();
   const ranked = [...candidates].sort(
     (left, right) => right.priority - left.priority || left.slug.localeCompare(right.slug),
@@ -634,20 +644,11 @@ export function getCollisionAwareGraphLabelPlacements(
   for (const candidate of ranked) {
     const preferred: GraphLabelPlacement =
       candidate.x > viewport.width / 2 ? "left" : "right";
-    const options: GraphLabelPlacement[] = [preferred, preferred === "right" ? "left" : "right"];
+    const opposite = preferred === "right" ? "left" : "right";
+    const options: GraphLabelPlacement[] = [preferred, opposite, `below-${preferred}`, `below-${opposite}`, `above-${preferred}`, `above-${opposite}`];
 
     for (const placement of options) {
-      const left =
-        placement === "right"
-          ? candidate.x + candidate.nodeSize + 5
-          : candidate.x - candidate.nodeSize - 5 - candidate.labelWidth;
-      const top = candidate.y - candidate.labelHeight / 2;
-      const box = {
-        left,
-        right: left + candidate.labelWidth,
-        top,
-        bottom: top + candidate.labelHeight,
-      };
+      const box = getGraphLabelBounds(candidate, placement);
       const insideViewport =
         box.left >= padding &&
         box.right <= viewport.width - padding &&

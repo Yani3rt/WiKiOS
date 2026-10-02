@@ -382,3 +382,115 @@ describe("graph neural animation controller", () => {
     expect(running.snapshots).toHaveLength(snapshotCount);
   });
 });
+
+
+describe("live reduced motion", () => {
+  it("settles selection immediately and ignores an already queued animation callback", () => {
+    const { controller, scheduler, snapshots } = setup();
+    controller.activate({ activeSlug: "selected", edges, mode: "selection", reducedMotion: false });
+    scheduler.runNextFrame(50);
+    expect(controller.getSnapshot().activeNodeScale).toBeGreaterThan(1);
+    const staleFrame = scheduler.firstFrameCallback();
+
+    controller.setReducedMotion(true);
+
+    expect(controller.getSnapshot()).toMatchObject({activeSlug: "selected", activeNodeScale: 1, reducedMotion: true});
+    expect([...controller.getSnapshot().edges.values()].every(frame => frame.complete)).toBe(true);
+    expect(scheduler.frameCount).toBe(0);
+    expect(scheduler.timerCount).toBe(0);
+    const count = snapshots.length;
+    staleFrame?.(500);
+    controller.setReducedMotion(false);
+    expect(snapshots).toHaveLength(count);
+    expect(scheduler.frameCount).toBe(0);
+  });
+
+  it("resolves pending hover intent statically and cancels its timer", () => {
+    const { controller, scheduler, snapshots } = setup();
+    controller.activate({ activeSlug: "hovered", edges, mode: "hover", reducedMotion: false });
+    const staleTimer = scheduler.firstTimerCallback();
+    controller.setReducedMotion(true);
+
+    expect(controller.getSnapshot()).toMatchObject({activeSlug: "hovered", reducedMotion: true, activeNodeScale: 1});
+    expect(scheduler.timerCount).toBe(0);
+    expect(scheduler.frameCount).toBe(0);
+    const count = snapshots.length;
+    staleTimer?.();
+    expect(snapshots).toHaveLength(count);
+  });
+
+  it("finishes a running hover release rather than resurrecting its highlight", () => {
+    const { controller, scheduler, snapshots } = setup();
+    controller.activate({ activeSlug: "hovered", edges, mode: "hover", reducedMotion: false });
+    scheduler.advanceTimersBy(70);
+    scheduler.runNextFrame(500);
+    controller.releaseHover();
+    const staleFrame = scheduler.firstFrameCallback();
+    controller.setReducedMotion(true);
+
+    expect(controller.getSnapshot()).toMatchObject({activeSlug: null, mode: null});
+    expect(scheduler.frameCount).toBe(0);
+    const count = snapshots.length;
+    staleFrame?.(550);
+    expect(snapshots).toHaveLength(count);
+  });
+
+  it("does not schedule hover intent when reduced motion was already enabled", () => {
+    const { controller, scheduler } = setup();
+    controller.activate({ activeSlug: "hovered", edges, mode: "hover", reducedMotion: true });
+    expect(controller.getSnapshot()).toMatchObject({activeSlug: "hovered", reducedMotion: true});
+    expect(scheduler.timerCount).toBe(0);
+    expect(scheduler.frameCount).toBe(0);
+  });
+
+  it("does not publish new snapshots after destruction", () => {
+    const { controller, snapshots } = setup();
+    controller.destroy();
+    controller.setReducedMotion(true);
+    expect(snapshots).toHaveLength(0);
+  });
+});
+
+it("charges and settles an isolated selected node without inventing edges", () => {
+  const { controller, scheduler } = setup();
+  controller.activate({activeSlug: "isolated", edges: [], mode: "selection", reducedMotion: false});
+  expect(scheduler.frameCount).toBe(1);
+  scheduler.runNextFrame(50);
+  expect(controller.getSnapshot().activeNodeScale).toBeGreaterThan(1);
+  scheduler.runNextFrame(220);
+  expect(controller.getSnapshot().activeNodeScale).toBe(1);
+  expect(controller.getSnapshot().edges.size).toBe(0);
+  expect(scheduler.frameCount).toBe(0);
+});
+
+it("settles the newest pending hover when reduced motion interrupts an older hover release", () => {
+  const { controller, scheduler } = setup();
+  controller.activate({activeSlug: "old", edges, mode: "hover", reducedMotion: false});
+  scheduler.advanceTimersBy(70);
+  scheduler.runNextFrame(200);
+  controller.releaseHover();
+  controller.activate({activeSlug: "new", edges, mode: "hover", reducedMotion: false});
+  controller.setReducedMotion(true);
+  expect(controller.getSnapshot()).toMatchObject({activeSlug: "new", reducedMotion: true});
+  expect(scheduler.frameCount).toBe(0);
+  expect(scheduler.timerCount).toBe(0);
+});
+
+it("keeps replacement handles cancellable after obsolete callbacks have fired", () => {
+  const running = setup();
+  running.controller.activate({activeSlug: "old", edges, mode: "selection", reducedMotion: false});
+  const staleFrame = running.scheduler.firstFrameCallback();
+  running.controller.activate({activeSlug: "new", edges, mode: "selection", reducedMotion: false});
+  staleFrame?.(50);
+  running.controller.setReducedMotion(true);
+  expect(running.scheduler.frameCount).toBe(0);
+
+  const pending = setup();
+  pending.controller.activate({activeSlug: "old", edges, mode: "hover", reducedMotion: false});
+  const staleTimer = pending.scheduler.firstTimerCallback();
+  pending.controller.activate({activeSlug: "new", edges, mode: "hover", reducedMotion: false});
+  staleTimer?.();
+  pending.controller.setReducedMotion(true);
+  expect(pending.scheduler.timerCount).toBe(0);
+  expect(pending.controller.getSnapshot().activeSlug).toBe("new");
+});

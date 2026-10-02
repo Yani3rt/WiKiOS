@@ -92,10 +92,36 @@ describe('traveling arrowheads', () => {
     expect(NEURAL_ARROW_VERTEX_SHADER).toContain('mix(a_positionStart, a_positionEnd, progress)');
     expect(NEURAL_ARROW_VERTEX_SHADER).not.toContain('mod(');
   });
-  it('fades at arrival, preserves reduced-motion direction, and leaves picking to the line', () => {
-    expect(NEURAL_ARROW_VERTEX_SHADER).toContain('1.0 - smoothstep(0.78, 1.0, progress)');
+  it('preserves reduced-motion direction and leaves picking to the line', () => {
     expect(NEURAL_ARROW_VERTEX_SHADER).toContain('u_reducedMotion > 0.5');
     expect(NEURAL_ARROW_FRAGMENT_SHADER).toContain('discard;');
     expect(NEURAL_ARROW_FRAGMENT_SHADER).toContain('v_color.rgb * alpha');
   });
+});
+
+
+// Run the emitted GLSL clock arithmetic, not a second implementation of the timing.
+function sampleArrow(elapsedMs: number, reducedMotion = false) {
+  const clock = NEURAL_ARROW_VERTEX_SHADER.split('void main() {')[1].split('float normalLength')[0];
+  const evaluate = new Function('u_elapsedMs', 'u_reducedMotion', 'a_delayMs', 'clamp', 'smoothstep', 'min', 'mix',
+    clock.replace(/\bfloat\b/g, 'let') + '\nreturn {progress, opacity};');
+  return evaluate(elapsedMs, reducedMotion ? 1 : 0, 0,
+    (value: number, start: number, end: number) => Math.max(start, Math.min(end, value)),
+    (start: number, end: number, value: number) => {
+      const t = Math.max(0, Math.min(1, (value - start) / (end - start)));
+      return t * t * (3 - 2 * t);
+    }, Math.min, (start: number, end: number, progress: number) => start + (end - start) * progress,
+  ) as {progress: number; opacity: number};
+}
+
+it('moves one arrow toward its target and retains a static direction cue after arrival', () => {
+  expect(sampleArrow(0).opacity).toBe(0);
+  const early = sampleArrow(400);
+  const later = sampleArrow(700);
+  expect(early.opacity).toBeGreaterThan(0.5);
+  expect(later.progress).toBeGreaterThan(early.progress);
+  expect(sampleArrow(2000).progress).toBeCloseTo(0.90);
+  expect(sampleArrow(2000).opacity).toBeGreaterThanOrEqual(0.6);
+  expect(sampleArrow(20000)).toEqual(sampleArrow(2000));
+  expect(sampleArrow(0, true)).toEqual(sampleArrow(2000));
 });

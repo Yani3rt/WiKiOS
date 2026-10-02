@@ -1,4 +1,6 @@
+import { GraphMotionCamera } from "../graph-motion-camera";
 import { GraphSearch } from "@/components/graph-search";
+import { createGraphCameraSettler, findGraphPointerTarget, getGraphFitGeometry, getGraphUsableViewport, type GraphBounds } from "../graph-camera";
 import { focusVisibility, focusColor } from "../graph-focus-transition";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, redirect, useLoaderData, useNavigate } from "react-router-dom";
@@ -21,7 +23,7 @@ import type {
   NodeLabelDrawingFunction,
 } from "sigma/rendering";
 
-import { buildEntranceDelays, entranceFrame, createEntranceController, GRAPH_ENTRANCE_MS } from "@/client/graph-entrance";
+import { buildEntranceDelays, entranceFrame, createEntranceController, GRAPH_ENTRANCE_MS, GRAPH_ENTRANCE_TIMING } from "@/client/graph-entrance";
 import { createNeuralNodeProgram } from "@/client/graph-neural-node-program";
 import { GraphColorControls } from "@/client/graph-color-controls";
 import { buildGraphColorGroups, readGraphColorPreferences, writeGraphColorPreferences } from "@/client/graph-color-model";
@@ -43,6 +45,7 @@ import { graphTopologyKey, graphViewCache, type GraphViewState } from "@/client/
 import { useWikiConfig } from "@/client/wiki-config";
 import {
   getCollisionAwareGraphLabelPlacements,
+  getGraphLabelBounds,
   createGraphNeuralActivationIndex,
   getDeterministicGraphPositions,
   getGraphCameraCenterForViewportTarget,
@@ -54,7 +57,6 @@ import {
   getGraphLinkedNodePulseScale,
   getGraphNeuralIndexedDirectEdges,
   getGraphNodeClickSelection,
-  getGraphNodeFocusViewportPoint,
   getGraphNodeSize,
   getGraphToolbarPanelOffset,
   getGraphViewportSettings,
@@ -62,7 +64,6 @@ import {
   GRAPH_INDEX_INITIAL_VISIBLE_COUNT,
   GRAPH_MOVEMENT_RENDERING_SETTINGS,
   shouldCollapseGraphDetailPanelOnSearchInteraction,
-  shouldResetGraphCameraAfterDetailClose,
   mixGraphColors,
   adaptGraphCategoryColor,
   truncateGraphLabel,
@@ -77,8 +78,11 @@ import type { GraphData, GraphNode, ColoredGraphData } from "@/lib/wiki-shared";
 import { fetchJson, isSetupRequiredResponse } from "../api";
 import { RouteErrorBoundary } from "../route-error-boundary";
 
-const NeuralNodeProgram = typeof document === "undefined" ? undefined
-  : createNeuralNodeProgram((await import("sigma/rendering")).NodeCircleProgram);
+const NodeCircleProgram = typeof document === "undefined" ? undefined : (await import("sigma/rendering")).NodeCircleProgram;
+const neuralNodePrograms = NodeCircleProgram ? {
+  light: { circle: createNeuralNodeProgram(NodeCircleProgram, "light") },
+  dark: { circle: createNeuralNodeProgram(NodeCircleProgram, "dark") },
+} : undefined;
 
 /* ── Graph theme ── */
 
@@ -124,41 +128,40 @@ function getGraphMotionDuration(duration: number) {
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : duration;
 }
 
-function animateGraphNodeFocus(sigma: SigmaLib, slug: string, duration: number) {
-  const position = sigma.getNodeDisplayData(slug);
-  if (!position) return;
+function graphChromeBounds(selector: string): GraphBounds | undefined {
+  const element = document.querySelector<HTMLElement>(`.graph-shell ${selector}`);
+  if (!element || element.offsetWidth === 0 || element.offsetHeight === 0) return;
+  const rect = element.getBoundingClientRect();
+  return {left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom};
+}
 
-  const camera = sigma.getCamera();
-  const dimensions = sigma.getDimensions();
-  const searchBottom =
-    document.getElementById("graph-search-controls")?.getBoundingClientRect().bottom ?? 120;
-  const detailPanelTop = document
-    .querySelector<HTMLElement>("aside[aria-labelledby='graph-node-details-title']")
-    ?.getBoundingClientRect().top;
-  const viewportTarget = getGraphNodeFocusViewportPoint(
-    dimensions.width,
-    dimensions.height,
-    searchBottom,
-    detailPanelTop,
-  );
-  const centeredState = {
-    x: position.x,
-    y: position.y,
-    ratio: 0.55,
-    angle: camera.getState().angle,
-  };
-  const framedPositionAtTarget = sigma.viewportToFramedGraph(viewportTarget, {
-    cameraState: centeredState,
+function graphUsableViewport(sigma: SigmaLib) {
+  const {width, height} = sigma.getDimensions();
+  return getGraphUsableViewport({
+    width, height,
+    headerBottom: graphChromeBounds("header")?.bottom,
+    searchBottom: graphChromeBounds("#graph-search-controls")?.bottom,
+    details: graphChromeBounds("aside[aria-labelledby='graph-node-details-title']"),
+    legend: graphChromeBounds(".graph-color-controls"),
+    toolbar: graphChromeBounds(".graph-toolbar-stack"),
   });
-  const cameraCenter = getGraphCameraCenterForViewportTarget(
-    position,
-    framedPositionAtTarget,
-  );
+}
 
-  void camera.animate(
-    { ...cameraCenter, ratio: centeredState.ratio },
-    { duration: getGraphMotionDuration(duration) },
-  );
+/** Project at a known camera, fit the whole neighborhood, then offset for chrome. */
+function animateGraphFrame(sigma: SigmaLib, slugs: string[], duration: number) {
+  const camera = sigma.getCamera();
+  const reference = {...camera.getState(), x: .5, y: .5, ratio: 1};
+  const points = slugs.flatMap(slug => {
+    const node = sigma.getNodeDisplayData(slug);
+    return node ? [sigma.framedGraphToViewport(node, {cameraState: reference})] : [];
+  });
+  const fit = getGraphFitGeometry(points, graphUsableViewport(sigma));
+  if (!fit) return;
+  const center = sigma.viewportToFramedGraph(fit.center, {cameraState: reference});
+  const centered = {...reference, ...center, ratio: fit.ratio};
+  const framedTarget = sigma.viewportToFramedGraph(fit.target, {cameraState: centered});
+  const target = {...centered, ...getGraphCameraCenterForViewportTarget(center, framedTarget)};
+  void camera.animate(target, {duration: getGraphMotionDuration(duration), easing: "quadraticInOut"});
 }
 
 function getCategoryColor(
@@ -191,7 +194,7 @@ export function applyGraphThemeColors(
   graph.forEachEdge((edge) => graph.mergeEdgeAttributes(edge, { color: colors.edgeDefault }));
 }
 
-function createGraphLabelDrawer(colors: GraphThemeColors): NodeLabelDrawingFunction {
+function createGraphLabelDrawer(colors: GraphThemeColors, hitAreas?: Map<string, GraphBounds>): NodeLabelDrawingFunction {
   return (context, data, settings) => {
     if (!data.label) return;
 
@@ -200,26 +203,27 @@ function createGraphLabelDrawer(colors: GraphThemeColors): NodeLabelDrawingFunct
     context.save();
     context.globalAlpha *= typeof data.entranceLabelOpacity === "number" ? data.entranceLabelOpacity : 1;
     context.font = `${settings.labelWeight} ${settings.labelSize}px ${settings.labelFont}`;
-    const labelWidth = context.measureText(data.label).width;
-    const x =
-      data.labelPlacement === "left"
-        ? data.x - data.size - 5 - labelWidth
-        : data.x + data.size + 5;
-    const y = data.y + settings.labelSize / 3;
+    const bounds = getGraphLabelBounds({x:data.x,y:data.y,nodeSize:data.size,
+      labelWidth:context.measureText(data.label).width+4,labelHeight:settings.labelSize+8}, data.labelPlacement ?? "right");
+    const x = bounds.left + 2;
+    const y = bounds.top + settings.labelSize + 1;
     context.lineJoin = "round";
     context.lineWidth = 4;
     context.strokeStyle = colors.background;
     context.strokeText(data.label, x, y);
     context.fillStyle = labelColor ?? colors.label;
     context.fillText(data.label, x, y);
+    if (hitAreas && typeof data.graphSlug === "string" && context.globalAlpha > .2) {
+      hitAreas.set(data.graphSlug, bounds);
+    }
     context.restore();
   };
 }
 
-function createGraphHoverDrawer(colors: GraphThemeColors): NodeHoverDrawingFunction {
+function createGraphHoverDrawer(colors: GraphThemeColors, hitAreas?: Map<string, GraphBounds>): NodeHoverDrawingFunction {
   // Sigma uses this layer for both hovered and highlighted (selected) nodes.
   // The node program owns the glow; an opaque canvas disk here masks it.
-  return createGraphLabelDrawer(colors);
+  return createGraphLabelDrawer(colors, hitAreas);
 }
 
 interface GraphThemeRenderer {
@@ -371,14 +375,16 @@ export function updateGraphThemeInPlace(
   aliases: Record<string, TopicAliasConfig>,
   colors: GraphThemeColors,
   resolvedMode: ResolvedThemeMode,
+  hitAreas?: Map<string, GraphBounds>,
 ) {
   applyGraphThemeColors(graph, aliases, colors, resolvedMode);
   sigma.setSettings({
-    defaultDrawNodeLabel: createGraphLabelDrawer(colors),
-    defaultDrawNodeHover: createGraphHoverDrawer(colors),
+    defaultDrawNodeLabel: createGraphLabelDrawer(colors, hitAreas),
+    defaultDrawNodeHover: createGraphHoverDrawer(colors, hitAreas),
     labelColor: { color: colors.label },
     defaultEdgeColor: colors.edgeDefault,
     defaultNodeColor: colors.nodeDefault,
+    ...(neuralNodePrograms ? {nodeProgramClasses: neuralNodePrograms[resolvedMode]} : {}),
   });
   sigma.refresh();
 }
@@ -482,7 +488,7 @@ function startGraphLayoutWorker(graph: Graph, onComplete: () => void) {
   return worker;
 }
 
-function updateCollisionAwareGraphLabels(sigma: SigmaLib, graph: Graph) {
+function updateCollisionAwareGraphLabels(sigma: SigmaLib, graph: Graph, focused: string | null, activeGroup: string | null, assignments: Map<string, GraphColorGroup>) {
   const dimensions = sigma.getDimensions();
   const viewportSettings = getGraphViewportSettings(dimensions.width, dimensions.height);
 
@@ -493,9 +499,11 @@ function updateCollisionAwareGraphLabels(sigma: SigmaLib, graph: Graph) {
 
   const candidates: Parameters<typeof getCollisionAwareGraphLabelPlacements>[0] = [];
   graph.forEachNode((slug, attributes) => {
-    if (!attributes.persistentLabel) return;
+    if (!attributes.persistentLabel && !focused) return;
     const displayData = sigma.getNodeDisplayData(slug);
-    if (!displayData) return;
+    if (!displayData || displayData.hidden) return;
+    if (focused && slug !== focused && !graph.areNeighbors(focused, slug)) return;
+    if (!focused && activeGroup !== null && assignments.get(slug)?.id !== activeGroup) return;
     const point = sigma.framedGraphToViewport({ x: displayData.x, y: displayData.y });
     const label = String(
       viewportSettings.compact ? attributes.compactLabel ?? attributes.label ?? "" : attributes.label ?? "",
@@ -508,7 +516,7 @@ function updateCollisionAwareGraphLabels(sigma: SigmaLib, graph: Graph) {
       labelWidth: context.measureText(label).width + 4,
       labelHeight: viewportSettings.labelSize + 8,
       priority:
-        Number(attributes.connectionCount ?? 0) * 100_000 + Number(attributes.wordCount ?? 0),
+        (slug === focused ? 1e12 : 0) + Number(attributes.connectionCount ?? 0) * 100_000 + Number(attributes.wordCount ?? 0),
     });
   });
 
@@ -516,11 +524,12 @@ function updateCollisionAwareGraphLabels(sigma: SigmaLib, graph: Graph) {
     ...dimensions,
     padding: Math.min(24, viewportSettings.stagePadding / 2),
     gap: 5,
+    obstacles: ["header", "#graph-search-controls", "aside[aria-labelledby='graph-node-details-title']", ".graph-color-controls", ".graph-toolbar-stack"]
+      .flatMap(selector => {const bounds=graphChromeBounds(selector);return bounds ? [bounds] : [];}),
   });
   let changed = false;
 
   graph.forEachNode((slug, attributes) => {
-    if (!attributes.persistentLabel) return;
     const nextForceLabel = placements.has(slug);
     const nextPlacement = placements.get(slug) ?? "right";
     if (
@@ -544,11 +553,13 @@ function GraphViewportControls({
   compactPanelOpen,
   detailPanelHeight,
   onCameraSettled,
+  onFit,
 }: {
   sigmaRef: React.RefObject<SigmaLib | null>;
   compactPanelOpen: boolean;
   detailPanelHeight: number;
   onCameraSettled: () => void;
+  onFit: () => void;
 }) {
   const zoomIn = () => {
     const camera = sigmaRef.current?.getCamera();
@@ -566,13 +577,6 @@ function GraphViewportControls({
       .then(onCameraSettled);
   };
 
-  const fitGraph = () => {
-    const camera = sigmaRef.current?.getCamera();
-    if (!camera) return;
-    void camera
-      .animatedReset({ duration: getGraphMotionDuration(180) })
-      .then(onCameraSettled);
-  };
 
   const controlClass =
     "grid h-11 w-11 place-items-center text-[var(--graph-muted)] transition-colors hover:bg-[var(--graph-control-hover)] hover:text-[var(--graph-foreground)]";
@@ -602,7 +606,7 @@ function GraphViewportControls({
         <button type="button" onClick={zoomOut} className={controlClass} aria-label="Zoom out">
           <Minus aria-hidden="true" className="h-4 w-4" />
         </button>
-        <button type="button" onClick={fitGraph} className={controlClass} aria-label="Fit graph">
+        <button type="button" onClick={onFit} className={controlClass} aria-label="Fit graph">
           <Scan aria-hidden="true" className="h-4 w-4" />
         </button>
         <button type="button" onClick={zoomIn} className={controlClass} aria-label="Zoom in">
@@ -710,7 +714,7 @@ function InfoPanel({
   return (
     <aside
       ref={panelRef}
-      className="graph-surface-raised absolute bottom-[max(0.75rem,env(safe-area-inset-bottom))] left-3 right-3 top-auto z-20 flex max-h-[52dvh] flex-col overflow-hidden rounded-xl sm:bottom-auto sm:left-auto sm:right-4 sm:top-[calc(env(safe-area-inset-top)+4.75rem)] sm:max-h-[calc(100dvh-6rem)] sm:w-80"
+      className="graph-surface-raised absolute bottom-[max(0.75rem,env(safe-area-inset-bottom))] left-3 right-3 top-auto z-20 flex max-h-[52dvh] flex-col overflow-hidden rounded-xl lg:bottom-auto lg:left-auto lg:right-4 lg:top-[calc(env(safe-area-inset-top)+4.75rem)] lg:max-h-[calc(100dvh-6rem)] lg:w-80"
       aria-labelledby="graph-node-details-title"
       data-collapsed={collapsed ? "true" : "false"}
     >
@@ -989,7 +993,7 @@ function GraphView({ data }: { data: ColoredGraphData }) {
   const navigate = useNavigate();
   const containerRef = useRef<HTMLDivElement>(null);
   const finishEntranceRef = useRef<(() => void) | null>(null);
-  const entranceShownRef = useRef(Boolean(savedView));
+  const entranceShownRef = useRef(false);
   const sigmaRef = useRef<SigmaLib | null>(null);
   const graphRef = useRef<Graph | null>(null);
   const graphThemeRef = useRef<GraphThemeColors | null>(null);
@@ -998,12 +1002,18 @@ function GraphView({ data }: { data: ColoredGraphData }) {
   const neuralSelectionCallbackRef = useRef<((slug: string) => void) | null>(null);
   const neuralFallbackWarningShownRef = useRef(false);
   const hoveredRef = useRef<string | null>(null);
+  const cameraMovingRef = useRef(false);
   const focusedRef = useRef<string | null>(savedView?.focusedSlug ?? null);
   const linkedHoverRef = useRef<string | null>(null);
   const linkedPulseScaleRef = useRef(1);
   const linkedPulseFrameRef = useRef<number | null>(null);
+  const linkedPulseGenerationRef = useRef(0);
   const focusIsolationCallbackRef = useRef<((slug: string | null) => void) | null>(null);
-  const mobileFocusTimerRef = useRef<number | null>(null);
+  const shellRef = useRef<HTMLElement>(null);
+  const frameGraphCallbackRef = useRef<(() => void) | null>(null);
+  const labelHitAreasRef = useRef(new Map<string, GraphBounds>());
+  const pointerTargetRef = useRef<((point: {x:number;y:number}) => string | null) | null>(null);
+  const hoverNodeCallbackRef = useRef<((slug:string|null) => void) | null>(null);
   const labelLayoutCallbackRef = useRef<(() => void) | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const detailPanelRef = useRef<HTMLElement>(null);
@@ -1050,37 +1060,18 @@ function GraphView({ data }: { data: ColoredGraphData }) {
   }, [focusedNode]);
 
   useEffect(() => {
-    if (restoringCameraRef.current || !focusedSlug || detailPanelHeight <= 0 || window.innerWidth >= 640) return;
-
-    if (mobileFocusTimerRef.current !== null) {
-      window.clearTimeout(mobileFocusTimerRef.current);
-    }
-    mobileFocusTimerRef.current = window.setTimeout(() => {
-      mobileFocusTimerRef.current = null;
-      const sigma = sigmaRef.current;
-      if (sigma && focusedRef.current === focusedSlug) {
-        animateGraphNodeFocus(sigma, focusedSlug, 240);
-      }
-    }, 64);
-
-    return () => {
-      if (mobileFocusTimerRef.current !== null) {
-        window.clearTimeout(mobileFocusTimerRef.current);
-        mobileFocusTimerRef.current = null;
-      }
-    };
-  }, [detailPanelHeight, focusedSlug]);
+    if (!restoringCameraRef.current) frameGraphCallbackRef.current?.();
+  }, [focusedSlug, activeGroup, detailPanelHeight, detailPanelCollapsed, colorGroups]);
 
   const handleSearchSelect = useCallback((slug: string) => {
+    restoringCameraRef.current = false;
     neuralSelectionCallbackRef.current?.(slug);
     focusedRef.current = slug;
     focusIsolationCallbackRef.current?.(slug);
     setFocusedSlug(slug);
     setDetailPanelCollapsed(false);
     sigmaRef.current?.refresh();
-    if (sigmaRef.current && window.innerWidth >= 640) {
-      animateGraphNodeFocus(sigmaRef.current, slug, 280);
-    }
+
   }, []);
 
   const handleCompactSearchInteraction = useCallback(() => {
@@ -1102,27 +1093,24 @@ function GraphView({ data }: { data: ColoredGraphData }) {
     setFocusedSlug(null);
     setDetailPanelCollapsed(false);
     sigma?.refresh();
-    if (sigma && shouldResetGraphCameraAfterDetailClose(window.innerWidth)) {
-      void sigma
-        .getCamera()
-        .animatedReset({ duration: getGraphMotionDuration(220) })
-        .then(() => labelLayoutCallbackRef.current?.());
-    }
-    requestAnimationFrame(() => searchInputRef.current?.focus());
+    restoringCameraRef.current = false;
+    hoveredRef.current = null;
+    setTooltip(null);
+    shellRef.current?.focus({preventScroll:true});
   }, []);
 
   const handleInfoNeighborClick = useCallback((slug: string) => {
+    restoringCameraRef.current = false;
     neuralSelectionCallbackRef.current?.(slug);
     focusedRef.current = slug;
     focusIsolationCallbackRef.current?.(slug);
     setFocusedSlug(slug);
     sigmaRef.current?.refresh();
-    if (sigmaRef.current && window.innerWidth >= 640) {
-      animateGraphNodeFocus(sigmaRef.current, slug, 240);
-    }
+
   }, []);
 
   const handleInfoNeighborHover = useCallback((slug: string | null) => {
+    const generation = ++linkedPulseGenerationRef.current;
     const previousSlug = linkedHoverRef.current;
     if (linkedPulseFrameRef.current !== null) {
       cancelAnimationFrame(linkedPulseFrameRef.current);
@@ -1158,7 +1146,7 @@ function GraphView({ data }: { data: ColoredGraphData }) {
 
     const startedAt = performance.now();
     const animatePulse = (timestamp: number) => {
-      if (linkedHoverRef.current !== slug) return;
+      if (linkedHoverRef.current !== slug || generation !== linkedPulseGenerationRef.current) return;
       linkedPulseScaleRef.current = getGraphLinkedNodePulseScale(timestamp - startedAt, false);
       sigmaRef.current?.refresh({
         partialGraph: { nodes: [slug] },
@@ -1172,6 +1160,7 @@ function GraphView({ data }: { data: ColoredGraphData }) {
 
   useEffect(
     () => () => {
+      linkedPulseGenerationRef.current += 1;
       if (linkedPulseFrameRef.current !== null) {
         cancelAnimationFrame(linkedPulseFrameRef.current);
       }
@@ -1225,8 +1214,8 @@ function GraphView({ data }: { data: ColoredGraphData }) {
         ...GRAPH_MOVEMENT_RENDERING_SETTINGS,
         renderLabels: true,
         renderEdgeLabels: false,
-        defaultDrawNodeLabel: createGraphLabelDrawer(graphTheme),
-        defaultDrawNodeHover: createGraphHoverDrawer(graphTheme),
+        defaultDrawNodeLabel: createGraphLabelDrawer(graphTheme, labelHitAreasRef.current),
+        defaultDrawNodeHover: createGraphHoverDrawer(graphTheme, labelHitAreasRef.current),
         labelColor: { color: graphTheme.label },
         labelFont: '"Urbanist", -apple-system, BlinkMacSystemFont, sans-serif',
         labelSize: viewportSettings.labelSize,
@@ -1238,7 +1227,7 @@ function GraphView({ data }: { data: ColoredGraphData }) {
         defaultEdgeType: "line",
         defaultNodeColor: graphTheme.nodeDefault,
         edgeProgramClasses,
-        ...(NeuralNodeProgram ? { nodeProgramClasses: { circle: NeuralNodeProgram } } : {}),
+        ...(neuralNodePrograms ? { nodeProgramClasses: neuralNodePrograms[resolvedMode] } : {}),
         minEdgeThickness: 0.65,
         stagePadding: viewportSettings.stagePadding,
         edgeReducer(edge, data) {
@@ -1250,7 +1239,7 @@ function GraphView({ data }: { data: ColoredGraphData }) {
           const tgt = graph.target(edge);
 
           if (focused && (src === focused || tgt === focused)) {
-            res.color = focusLinkColor(focused);
+            res.color = src === focused ? colors.edgeOutgoing : colors.edgeIncoming;
             res.size = focused ? 1.45 : 1.15;
             res.type = "arrow";
           } else if (hovered && !focused) {
@@ -1265,8 +1254,9 @@ function GraphView({ data }: { data: ColoredGraphData }) {
             ? neuralSnapshot?.edges.get(edge)
             : undefined;
           if (neuralFrame && neuralSnapshot?.activeSlug) {
-            const neuralColor =
-              focusLinkColor(neuralSnapshot.activeSlug);
+            const neuralColor = focused
+              ? (src === focused ? colors.edgeOutgoing : colors.edgeIncoming)
+              : focusLinkColor(neuralSnapshot.activeSlug);
             const neuralAttributes = getGraphNeuralEdgeDisplayAttributes(
               neuralFrame,
               neuralColor,
@@ -1292,12 +1282,14 @@ function GraphView({ data }: { data: ColoredGraphData }) {
               res.type = "neural";
               res.neuralDelayMs = (entranceDelays.get(src) ?? 0) > (entranceDelays.get(tgt) ?? 0) ? -(delay + 1) : delay;
             } else {
-              res.color = mixGraphColors(colors.background, res.color, Math.max(0, Math.min(1, (entranceElapsed - delay - 200) / 600)));
+              res.color = mixGraphColors(colors.background, res.color, Math.max(0, Math.min(1, (entranceElapsed - delay - GRAPH_ENTRANCE_TIMING.edgeStartMs) / GRAPH_ENTRANCE_TIMING.edgeTravelMs)));
             }
           }
           const visibility = edgeVisibility.get(edge) ?? 1;
           res.color = mixGraphColors(colors.background, res.color, visibility);
-          res.hidden = visibility <= 0;
+          // Sigma renders synchronously before the entrance shader clock exists.
+          // Keep edges hidden during that first render and the layout-worker wait.
+          res.hidden = visibility <= 0 || entranceElapsed === 0;
           return res;
         },
         nodeReducer(node, data) {
@@ -1309,6 +1301,7 @@ function GraphView({ data }: { data: ColoredGraphData }) {
           const assignment = colorGroupsRef.current.assignments.get(node);
           const groupColor = assignment ? adaptGraphCategoryColor(assignment.color, resolvedModeRef.current) : colors.nodeDefault;
           const res = { ...data };
+          res.graphSlug = node;
           res.color = groupColor;
           if (!active && activeGroupRef.current !== null && assignment?.id !== activeGroupRef.current) {
             res.color = colors.nodeMuted;
@@ -1331,7 +1324,6 @@ function GraphView({ data }: { data: ColoredGraphData }) {
             } else if (isNeighbor) {
               res.zIndex = 1;
               if (focused) {
-                res.forceLabel = true;
                 res.size = (res.size ?? 4) * 1.02;
               }
             } else {
@@ -1419,6 +1411,13 @@ function GraphView({ data }: { data: ColoredGraphData }) {
     const sigma = runtime.renderer;
     const neuralEnabled = runtime.neuralEnabled;
     const neuralController = runtime.neuralController;
+    const initialCamera = sigma.getCamera();
+    const motionCamera = new GraphMotionCamera(initialCamera.getState());
+    motionCamera.minRatio = initialCamera.minRatio;
+    motionCamera.maxRatio = initialCamera.maxRatio;
+    motionCamera.clean = initialCamera.clean;
+    motionCamera.setReducedMotion(motionQuery.matches);
+    sigma.setCamera(motionCamera);
     sigmaRef.current = sigma;
     if (restored) sigma.getCamera().setState(restored.camera);
     neuralControllerRef.current = neuralController;
@@ -1446,7 +1445,7 @@ function GraphView({ data }: { data: ColoredGraphData }) {
       const fromNodes = new Map(nodeVisibility);
       const fromEdges = new Map(edgeVisibility);
       const visibleNodes = nextSlug ? new Set([nextSlug, ...graph.neighbors(nextSlug)]) : null;
-      const duration = getGraphMotionDuration(nextSlug ? 420 : 860);
+      const duration = getGraphMotionDuration(nextSlug ? 280 : 360);
       const startedAt = performance.now();
       const animate = (timestamp: number) => {
         const progress = duration === 0 ? 1 : Math.min(1, (timestamp - startedAt) / duration);
@@ -1470,8 +1469,8 @@ function GraphView({ data }: { data: ColoredGraphData }) {
     };
     focusIsolationCallbackRef.current = animateFocusIsolation;
     if (focusedRef.current) {
-      // Restore isolation before replaying effects: partial repaints cannot run
-      // until Sigma has indexed the restored arrow/hidden edge membership.
+      // Restore isolation now, but defer selection pulses until the entrance
+      // finishes so the two animations never compete for the shader clock.
       const selected = focusedRef.current;
       const visible = new Set([selected, ...graph.neighbors(selected)]);
       for (const node of nodeVisibility.keys()) nodeVisibility.set(node, visible.has(node) ? 1 : 0);
@@ -1479,17 +1478,59 @@ function GraphView({ data }: { data: ColoredGraphData }) {
         edgeVisibility.set(edge, graph.source(edge) === selected || graph.target(edge) === selected ? 1 : 0);
       }
       sigma.refresh();
-      neuralSelectionCallbackRef.current(selected);
     }
     let labelLayoutFrame: number | null = null;
     const schedulePersistentLabelLayout = () => {
       if (labelLayoutFrame !== null) cancelAnimationFrame(labelLayoutFrame);
       labelLayoutFrame = requestAnimationFrame(() => {
         labelLayoutFrame = null;
-        if (updateCollisionAwareGraphLabels(sigma, graph)) sigma.refresh();
+        if (updateCollisionAwareGraphLabels(sigma, graph, focusedRef.current, activeGroupRef.current, colorGroupsRef.current.assignments)) sigma.refresh();
       });
     };
     labelLayoutCallbackRef.current = schedulePersistentLabelLayout;
+    let framingFrame: number | null = null;
+    const scheduleGraphFrame = (duration = 360) => {
+      if (!layoutReady) return;
+      if (framingFrame !== null) cancelAnimationFrame(framingFrame);
+      framingFrame = requestAnimationFrame(() => {
+        framingFrame = null;
+        const focused = focusedRef.current;
+        const group = activeGroupRef.current;
+        const nodes = focused ? [focused, ...graph.neighbors(focused)] : graph.nodes().filter(slug =>
+          group === null || colorGroupsRef.current.assignments.get(slug)?.id === group);
+        animateGraphFrame(sigma, nodes, duration);
+        schedulePersistentLabelLayout();
+      });
+    };
+    frameGraphCallbackRef.current = scheduleGraphFrame;
+    const clearHover = () => {
+      hoveredRef.current = null;
+      neuralController?.releaseHover();
+      setTooltip(null);
+      containerRef.current!.style.cursor = "default";
+    };
+    const cameraSettler = createGraphCameraSettler(
+      () => {cameraMovingRef.current=true;clearHover();},
+      () => {cameraMovingRef.current=false;schedulePersistentLabelLayout();},
+    );
+    sigma.getCamera().on("updated", cameraSettler.updated);
+    sigma.on("beforeRender", () => labelHitAreasRef.current.clear());
+    pointerTargetRef.current = point => findGraphPointerTarget(point, graph.nodes().flatMap(slug => {
+      const node = sigma.getNodeDisplayData(slug);
+      if (!node || node.hidden) return [];
+      return [{slug, ...sigma.framedGraphToViewport(node), radius:sigma.scaleSize(node.size), label:labelHitAreasRef.current.get(slug)}];
+    }));
+    hoverNodeCallbackRef.current = slug => {
+      if (slug === hoveredRef.current) return;
+      hoveredRef.current = slug;
+      if (slug && !focusedRef.current) {
+        finishEntranceRef.current?.();
+        activateNeural(slug, "hover");
+      }
+      else if (!slug) neuralController?.releaseHover();
+      sigma.refresh();
+      containerRef.current!.style.cursor = slug ? "pointer" : "default";
+    };
     const entranceRefreshOptions = {
       partialGraph: { nodes: graph.nodes(), ...(neuralEnabled ? {} : { edges: graph.edges() }) },
       skipIndexation: true,
@@ -1500,22 +1541,38 @@ function GraphView({ data }: { data: ColoredGraphData }) {
       entranceElapsed = elapsed;
       if (elapsed < GRAPH_ENTRANCE_MS) {
         setGraphNeuralRendererAnimationState(sigma, { elapsedMs: elapsed, mode: "entrance", releaseOpacity: 1, reducedMotion: false });
-        sigma.refresh(entranceRefreshOptions);
-        if (previousElapsed < 1300 && elapsed >= 1300) schedulePersistentLabelLayout();
+        // Unhide/reindex edges once, then update only nodes and the shader clock.
+        sigma.refresh(previousElapsed === 0 && elapsed > 0 ? { schedule: true } : entranceRefreshOptions);
+        if (previousElapsed < GRAPH_ENTRANCE_TIMING.labelStartMs && elapsed >= GRAPH_ENTRANCE_TIMING.labelStartMs) schedulePersistentLabelLayout();
       } else {
         entranceShownRef.current = true;
         clearGraphNeuralRendererAnimationState(sigma);
         sigma.refresh();
         schedulePersistentLabelLayout();
+        if (focusedRef.current) activateNeural(focusedRef.current, "selection");
       }
     }});
     finishEntranceRef.current = entrance.finish;
-    const onMotionChange = () => { if (motionQuery.matches) entrance.finish(); };
+    const onMotionChange = () => {
+      entrance.setReducedMotion(motionQuery.matches);
+      neuralController?.setReducedMotion(motionQuery.matches);
+      motionCamera.setReducedMotion(motionQuery.matches);
+      if (!motionQuery.matches) return;
+      window.clearTimeout(entranceFallback);
+      linkedPulseGenerationRef.current += 1;
+      if (linkedPulseFrameRef.current !== null) cancelAnimationFrame(linkedPulseFrameRef.current);
+      linkedPulseFrameRef.current = null;
+      linkedPulseScaleRef.current = linkedHoverRef.current ? getGraphLinkedNodePulseScale(0, true) : 1;
+      animateFocusIsolation(focusedRef.current);
+      for (const animation of detailPanelRef.current?.getAnimations?.() ?? []) animation.finish();
+      sigma.refresh();
+    };
     motionQuery.addEventListener("change", onMotionChange);
     // Never leave the graph waiting indefinitely for a layout worker.
     const entranceFallback = window.setTimeout(() => entrance.start(motionQuery.matches || entranceShownRef.current), 1000);
     const layoutWorker = layoutReady ? null : startGraphLayoutWorker(graph, () => {
       layoutReady = true;
+      if (!restored) scheduleGraphFrame(0);
       window.clearTimeout(entranceFallback);
       entrance.start(motionQuery.matches || entranceShownRef.current);
       sigma.refresh();
@@ -1523,15 +1580,23 @@ function GraphView({ data }: { data: ColoredGraphData }) {
     });
     if (!layoutWorker) {
       layoutReady = true;
+      if (!restored) scheduleGraphFrame(0);
       window.clearTimeout(entranceFallback);
       entrance.start(motionQuery.matches || entranceShownRef.current);
     }
     schedulePersistentLabelLayout();
 
+    let observedDimensions = sigma.getDimensions();
     const resizeObserver = new ResizeObserver(([entry]) => {
+      const {width, height} = entry.contentRect;
+      const resized = width !== observedDimensions.width || height !== observedDimensions.height;
+      observedDimensions = {width, height};
+      // Preserve a restored camera on the observer's initial delivery, not on
+      // later resizes that can move the details card into the graph's bounds.
+      if (resized) restoringCameraRef.current = false;
       viewportSettings = getGraphViewportSettings(
-        entry.contentRect.width,
-        entry.contentRect.height,
+        width,
+        height,
       );
       sigma.setSettings({
         labelSize: viewportSettings.labelSize,
@@ -1540,10 +1605,12 @@ function GraphView({ data }: { data: ColoredGraphData }) {
         stagePadding: viewportSettings.stagePadding,
       });
       schedulePersistentLabelLayout();
+      if (!restoringCameraRef.current) scheduleGraphFrame();
     });
     resizeObserver.observe(containerRef.current);
 
     sigma.on("enterNode", ({ node }) => {
+      if (cameraMovingRef.current) return;
       entrance.finish();
       hoveredRef.current = node;
       if (!focusedRef.current) activateNeural(node, "hover");
@@ -1559,30 +1626,24 @@ function GraphView({ data }: { data: ColoredGraphData }) {
       containerRef.current!.style.cursor = "default";
     });
 
-    sigma.on("clickNode", ({ node }) => {
+    const selectNode = (node: string) => {
+      shellRef.current?.focus({preventScroll:true});
       const selection = getGraphNodeClickSelection(focusedRef.current, node);
-      if (selection.shouldReplayNeural) {
-        neuralSelectionCallbackRef.current?.(selection.focusedSlug);
-      }
+      if (selection.shouldReplayNeural) neuralSelectionCallbackRef.current?.(node);
       if (!selection.shouldCenter) return;
-
-      focusedRef.current = selection.focusedSlug;
-      focusIsolationCallbackRef.current?.(selection.focusedSlug);
-      setFocusedSlug(selection.focusedSlug);
+      restoringCameraRef.current = false;
+      focusedRef.current = node;
+      focusIsolationCallbackRef.current?.(node);
+      setFocusedSlug(node);
+      setDetailPanelCollapsed(false);
+      clearHover();
       sigma.refresh();
-
-      if (window.innerWidth >= 640) animateGraphNodeFocus(sigma, node, 240);
-    });
-
-    sigma.on("clickStage", () => {
-      neuralController?.clearSelection();
-      if (focusedRef.current) {
-        focusedRef.current = null;
-        focusIsolationCallbackRef.current?.(null);
-        setFocusedSlug(null);
-        setDetailPanelCollapsed(false);
-        sigma.refresh();
-      }
+    };
+    sigma.on("clickNode", ({node}) => selectNode(node));
+    sigma.on("clickStage", ({event}) => {
+      const node = pointerTargetRef.current?.(event);
+      if (node) selectNode(node);
+      else if (focusedRef.current) handleInfoClose();
     });
 
     return () => {
@@ -1594,6 +1655,15 @@ function GraphView({ data }: { data: ColoredGraphData }) {
           x: graph.getNodeAttribute(node, "x"), y: graph.getNodeAttribute(node, "y"),
         }])),
       });
+      if (framingFrame !== null) cancelAnimationFrame(framingFrame);
+      frameGraphCallbackRef.current = null;
+      cameraSettler.destroy();
+      motionCamera.destroy();
+      sigma.getCamera().off("updated", cameraSettler.updated);
+      pointerTargetRef.current = null;
+      hoverNodeCallbackRef.current = null;
+      labelHitAreasRef.current.clear();
+      cameraMovingRef.current = false;
       entrance.destroy();
       finishEntranceRef.current = null;
       window.clearTimeout(entranceFallback);
@@ -1624,7 +1694,7 @@ function GraphView({ data }: { data: ColoredGraphData }) {
 
     const colors = getGraphThemeColors(container);
     graphThemeRef.current = colors;
-    updateGraphThemeInPlace(graph, sigma, config.categories.aliases, colors, resolvedMode);
+    updateGraphThemeInPlace(graph, sigma, config.categories.aliases, colors, resolvedMode, labelHitAreasRef.current);
   }, [colorTheme, resolvedMode, config.categories.aliases]);
 
   useEffect(() => {
@@ -1647,6 +1717,10 @@ function GraphView({ data }: { data: ColoredGraphData }) {
 
       tooltipFrame = requestAnimationFrame(() => {
         tooltipFrame = null;
+        if (cameraMovingRef.current || sigmaRef.current?.getCamera().isAnimated()) return;
+        const rect = container.getBoundingClientRect();
+        const target = pointerTargetRef.current?.({x:pointerPosition.x-rect.left,y:pointerPosition.y-rect.top}) ?? null;
+        hoverNodeCallbackRef.current?.(target);
         const hovered = hoveredRef.current;
         if (!hovered || !graphRef.current) {
           setTooltip(null);
@@ -1666,15 +1740,30 @@ function GraphView({ data }: { data: ColoredGraphData }) {
       });
     };
 
+    const handleMouseLeave = () => {
+      if (tooltipFrame !== null) cancelAnimationFrame(tooltipFrame);
+      tooltipFrame = null;
+      hoverNodeCallbackRef.current?.(null);
+      setTooltip(null);
+    };
     container.addEventListener("mousemove", handleMouseMove);
+    container.addEventListener("mouseleave", handleMouseLeave);
     return () => {
       container.removeEventListener("mousemove", handleMouseMove);
+      container.removeEventListener("mouseleave", handleMouseLeave);
       if (tooltipFrame !== null) cancelAnimationFrame(tooltipFrame);
     };
   }, []);
 
   return (
     <main
+      ref={shellRef}
+      tabIndex={-1}
+      onKeyDown={event => {
+        if (event.key !== "Escape" || event.defaultPrevented) return;
+        if (focusedRef.current) {event.preventDefault();handleInfoClose();}
+        else if (activeGroupRef.current !== null) {event.preventDefault();setActiveGroup(null);}
+      }}
       className="app-route-shell graph-shell fixed inset-0"
       aria-label="Knowledge graph"
       onPointerDownCapture={() => { restoringCameraRef.current = false; finishEntranceRef.current?.(); }}
@@ -1698,19 +1787,19 @@ function GraphView({ data }: { data: ColoredGraphData }) {
           : "Graph overview active."}
       </div>
       {/* Header */}
-      <header className="app-route-header absolute left-0 right-0 top-0 z-10 flex items-center justify-between gap-2 px-4 pb-[4.5rem] pt-[calc(env(safe-area-inset-top)+1.5rem)] sm:h-16 sm:px-4 sm:py-0 md:px-5">
+      <header className="app-route-header absolute left-0 right-0 top-0 z-10 flex items-center justify-between gap-2 px-4 pb-[4.5rem] pt-[calc(env(safe-area-inset-top)+1.5rem)] lg:h-16 lg:px-4 lg:py-0 lg:px-5">
         <Link
           to="/"
           aria-label="Back to wiki home"
-          className="app-route-header-brand hidden min-h-11 flex-col justify-center rounded-md px-1 py-1 text-left sm:flex"
+          className="app-route-header-brand hidden min-h-11 flex-col justify-center rounded-md px-1 py-1 text-left lg:flex"
         >
           <div className="mt-0.5 flex items-center gap-2">
             <House className="app-route-header-meta h-4 w-4" />
             <h1 className="text-base font-semibold">Graph</h1>
           </div>
         </Link>
-        <div className="relative z-20 ml-auto flex items-center gap-1.5 sm:gap-2.5">
-          <span className="app-route-header-meta hidden items-center gap-1.5 text-xs sm:flex">
+        <div className="relative z-20 ml-auto flex items-center gap-1.5 lg:gap-2.5">
+          <span className="app-route-header-meta hidden items-center gap-1.5 text-xs lg:flex">
             <span className="font-semibold tabular-nums">
               {data.nodes.length}
             </span>
@@ -1723,7 +1812,7 @@ function GraphView({ data }: { data: ColoredGraphData }) {
           </span>
           <Link
             to="/"
-            className="app-route-header-control hidden min-h-11 items-center justify-center rounded-md px-3.5 py-2 text-sm font-medium sm:inline-flex sm:px-4"
+            className="app-route-header-control hidden min-h-11 items-center justify-center rounded-md px-3.5 py-2 text-sm font-medium lg:inline-flex lg:px-4"
           >
             {config.navigation.backToWikiLabel}
           </Link>
@@ -1748,11 +1837,15 @@ function GraphView({ data }: { data: ColoredGraphData }) {
             groups={colorGroups.groups.map(group => ({ ...group, color: adaptGraphCategoryColor(group.color, resolvedMode) }))}
             activeGroup={activeGroup} onChange={changeColorPreferences}
             onHighlight={id => {
+              restoringCameraRef.current = false;
               neuralControllerRef.current?.clearSelection();
               focusedRef.current = null;
               focusIsolationCallbackRef.current?.(null);
               setFocusedSlug(null);
               setActiveGroup(id);
+              // All is also an explicit recovery action after manual pan/zoom,
+              // even if the overview state itself has not changed.
+              frameGraphCallbackRef.current?.();
             }} />
           {/* Hover details remain available while exploring an isolated neighborhood. */}
             <NodeTooltip
@@ -1784,6 +1877,7 @@ function GraphView({ data }: { data: ColoredGraphData }) {
             compactPanelOpen={Boolean(focusedNode)}
             detailPanelHeight={detailPanelHeight}
             onCameraSettled={() => labelLayoutCallbackRef.current?.()}
+            onFit={() => { restoringCameraRef.current=false; frameGraphCallbackRef.current?.(); }}
           />
 
           {/* Sigma canvas is a visual duplicate of the semantic node index. */}

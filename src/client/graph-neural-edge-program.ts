@@ -1,6 +1,7 @@
 import type { EdgeProgram as SigmaEdgeProgram, ProgramInfo } from "sigma/rendering";
 import type { EdgeDisplayData, NodeDisplayData, RenderParams } from "sigma/types";
 import { floatColor } from "sigma/utils";
+import { GRAPH_ENTRANCE_TIMING } from "./graph-entrance";
 
 import {
   GRAPH_NEURAL_TIMING,
@@ -129,7 +130,7 @@ void main(void) {
   if (u_mode > 1.5) {
     float delay = v_delayMs < 0.0 ? -v_delayMs - 1.0 : v_delayMs;
     float pathPosition = v_delayMs < 0.0 ? 1.0 - v_pathPosition : v_pathPosition;
-    float progress = clamp((u_elapsedMs - delay - 200.0) / 600.0, 0.0, 1.0);
+    float progress = clamp((u_elapsedMs - delay - ${GRAPH_ENTRANCE_TIMING.edgeStartMs.toFixed(1)}) / ${GRAPH_ENTRANCE_TIMING.edgeTravelMs.toFixed(1)}, 0.0, 1.0);
     float remaining = 1.0 - progress;
     progress = 1.0 - remaining * remaining * remaining;
     float trace = 1.0 - smoothstep(progress - 0.025, progress, pathPosition);
@@ -312,7 +313,7 @@ export class NeuralEdgeProgram extends EdgeProgram<NeuralEdgeUniform> {
   }
 }
 
-// A separate small quad rides the same per-edge clock as the filament.
+// The signal head follows one per-edge clock, then remains as a target direction cue.
 export const NEURAL_ARROW_VERTEX_SHADER = /* glsl */ `
 attribute vec2 a_positionStart;
 attribute vec2 a_positionEnd;
@@ -332,16 +333,16 @@ varying vec4 v_color;
 varying vec2 v_arrow;
 void main() {
   float travelStart = ${GRAPH_NEURAL_TIMING.chargeMs.toFixed(1)} + ${GRAPH_NEURAL_TIMING.ignitionMs.toFixed(1)} + a_delayMs;
-  float progress = clamp((u_elapsedMs - travelStart) / ${GRAPH_NEURAL_TIMING.selectionTravelMs.toFixed(1)}, 0.0, 1.0);
-  float opacity = smoothstep(0.0, 0.10, progress) * (1.0 - smoothstep(0.78, 1.0, progress));
-  if (u_reducedMotion > 0.5) {
-    progress = 0.90;
-    opacity = 1.0;
-  }
+  float travelProgress = clamp((u_elapsedMs - travelStart) / ${GRAPH_NEURAL_TIMING.selectionTravelMs.toFixed(1)}, 0.0, 1.0);
+  if (u_reducedMotion > 0.5) travelProgress = 1.0;
+  float settled = smoothstep(0.86, 1.0, travelProgress);
+  float progress = min(travelProgress, 0.90);
+  float opacity = smoothstep(0.0, 0.10, travelProgress) * mix(1.0, 0.72, settled);
+  float signalSize = mix(1.0, 0.72, settled);
   float normalLength = length(a_normal);
   vec2 normal = a_normal / max(normalLength, 0.00001);
   vec2 direction = vec2(normal.y, -normal.x);
-  float thickness = max(normalLength, u_minEdgeThickness * u_sizeRatio) * u_correctionRatio / u_sizeRatio;
+  float thickness = max(normalLength, u_minEdgeThickness * u_sizeRatio) * u_correctionRatio / u_sizeRatio * signalSize;
   vec2 center = mix(a_positionStart, a_positionEnd, progress);
   vec2 position = center + direction * (a_positionCoef - 1.0) * thickness * 10.0
     + normal * a_normalCoef * thickness * 3.0;

@@ -1,6 +1,7 @@
 import type { NodeCircleProgram as CircleProgram } from 'sigma/rendering';
 
-export const NEURAL_NODE_FRAGMENT_SHADER = /* glsl */ `
+function createNodeFragmentShader(mode: "light" | "dark") {
+  return /* glsl */ `
 precision highp float;
 varying vec4 v_color;
 varying vec2 v_diffVector;
@@ -13,20 +14,21 @@ void main() {
     if (d > 1.0) discard;
     gl_FragColor = v_color;
   #else
-    float feather = min(0.18, u_correctionRatio / radius);
-    float core = 1.0 - smoothstep(0.40 - feather, 0.40 + feather, d);
-    float halo = (1.0 - smoothstep(0.35, 1.0, d)) * 0.20;
+    float feather = min(0.08, u_correctionRatio / radius);
+    float core = 1.0 - smoothstep(0.60 - feather, 0.60 + feather, d);
+    float halo = ${mode === "dark" ? "(1.0 - smoothstep(0.52, 1.0, d)) * 0.10" : "0.0"};
     float alpha = max(core, halo) * v_color.a;
-    vec3 color = mix(v_color.rgb, vec3(1.0), (1.0 - smoothstep(0.0, 0.34, d)) * 0.22);
-    gl_FragColor = vec4(color * alpha, alpha);
+    gl_FragColor = vec4(v_color.rgb * alpha, alpha);
   #endif
 }
 `;
+}
 
-export function createNeuralNodeProgram(Base: typeof CircleProgram) {
+export function createNeuralNodeProgram(Base: typeof CircleProgram, mode: "light" | "dark") {
+  const fragmentShader = createNodeFragmentShader(mode);
   return class NeuralNodeProgram extends Base {
     getDefinition() {
-      return { ...super.getDefinition(), FRAGMENT_SHADER_SOURCE: NEURAL_NODE_FRAGMENT_SHADER };
+      return { ...super.getDefinition(), FRAGMENT_SHADER_SOURCE: fragmentShader };
     }
   };
 }

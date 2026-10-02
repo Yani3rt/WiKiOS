@@ -1,3 +1,7 @@
+// Camera interpolation is covered against real Sigma in graph-motion-camera.test.ts.
+vi.mock("../src/client/graph-motion-camera", () => ({ GraphMotionCamera: class {
+  setReducedMotion() {} destroy() {}
+} }));
 import { describe, expect, it, vi } from "vitest";
 import Graph from "graphology";
 
@@ -616,8 +620,8 @@ describe("graph overview model", () => {
     expect(hoverContext.shadowColor).not.toBe("#000");
     expect(hoverContext.strokeStyle).toBe(colors.background);
     expect(hoverContext.fillStyle).toBe(colors.label);
-    expect(hoverContext.strokeText).toHaveBeenCalledWith("Research Queue", 117, 84);
-    expect(hoverContext.fillText).toHaveBeenCalledWith("Research Queue", 117, 84);
+    expect(hoverContext.strokeText).toHaveBeenCalledWith("Research Queue", 119, 83);
+    expect(hoverContext.fillText).toHaveBeenCalledWith("Research Queue", 119, 83);
     expect(sigma.refresh).toHaveBeenCalledOnce();
     expect(sigma.getCamera).not.toHaveBeenCalled();
     expect(sigma.kill).not.toHaveBeenCalled();
@@ -681,7 +685,7 @@ describe("graph overview model", () => {
     );
 
     expect(placements.get("primary")).toBe("right");
-    expect(placements.has("crowded")).toBe(false);
+    expect(placements.get("crowded")).toMatch(/above|below/);
     expect(placements.get("right-edge")).toBe("left");
   });
 
@@ -848,21 +852,21 @@ describe("graph overview model", () => {
   it("closes the node index after mobile selections but preserves the desktop browsing flow", () => {
     expect(shouldCloseGraphNodeIndexAfterSelection(390)).toBe(true);
     expect(shouldCloseGraphNodeIndexAfterSelection(639)).toBe(true);
-    expect(shouldCloseGraphNodeIndexAfterSelection(640)).toBe(false);
+    expect(shouldCloseGraphNodeIndexAfterSelection(1024)).toBe(false);
     expect(shouldCloseGraphNodeIndexAfterSelection(1_243)).toBe(false);
   });
 
   it("folds an active detail card for mobile search interactions only", () => {
     expect(shouldCollapseGraphDetailPanelOnSearchInteraction(390, true)).toBe(true);
     expect(shouldCollapseGraphDetailPanelOnSearchInteraction(639, true)).toBe(true);
-    expect(shouldCollapseGraphDetailPanelOnSearchInteraction(640, true)).toBe(false);
+    expect(shouldCollapseGraphDetailPanelOnSearchInteraction(1024, true)).toBe(false);
     expect(shouldCollapseGraphDetailPanelOnSearchInteraction(390, false)).toBe(false);
   });
 
   it("closes the mobile node index when folded details expand", () => {
     expect(shouldCloseGraphNodeIndexOnDetailExpand(390, true, false)).toBe(true);
     expect(shouldCloseGraphNodeIndexOnDetailExpand(639, true, false)).toBe(true);
-    expect(shouldCloseGraphNodeIndexOnDetailExpand(640, true, false)).toBe(false);
+    expect(shouldCloseGraphNodeIndexOnDetailExpand(1024, true, false)).toBe(false);
     expect(shouldCloseGraphNodeIndexOnDetailExpand(390, false, false)).toBe(false);
     expect(shouldCloseGraphNodeIndexOnDetailExpand(390, true, true)).toBe(false);
   });
@@ -870,14 +874,14 @@ describe("graph overview model", () => {
   it("recenters the graph after closing mobile details only", () => {
     expect(shouldResetGraphCameraAfterDetailClose(390)).toBe(true);
     expect(shouldResetGraphCameraAfterDetailClose(639)).toBe(true);
-    expect(shouldResetGraphCameraAfterDetailClose(640)).toBe(false);
+    expect(shouldResetGraphCameraAfterDetailClose(1024)).toBe(false);
     expect(shouldResetGraphCameraAfterDetailClose(1_243)).toBe(false);
   });
 
   it("places mobile selections below search while keeping desktop selections centered", () => {
     expect(getGraphNodeFocusViewportPoint(470, 1_494, 168)).toEqual({ x: 235, y: 272 });
     expect(getGraphNodeFocusViewportPoint(390, 844, 120)).toEqual({ x: 195, y: 192 });
-    expect(getGraphNodeFocusViewportPoint(844, 390, 120)).toEqual({ x: 422, y: 195 });
+    expect(getGraphNodeFocusViewportPoint(1280, 720, 120)).toEqual({ x: 640, y: 360 });
   });
 
   it("centers mobile selections between the search controls and detail card", () => {
@@ -889,9 +893,9 @@ describe("graph overview model", () => {
       x: 195,
       y: 375,
     });
-    expect(getGraphNodeFocusViewportPoint(844, 390, 120, 300)).toEqual({
-      x: 422,
-      y: 195,
+    expect(getGraphNodeFocusViewportPoint(660, 800, 120, 440)).toEqual({
+      x: 330,
+      y: 280,
     });
   });
 
@@ -992,7 +996,7 @@ describe("graph overview model", () => {
       getGraphDetailHeightAnimation({
         previousHeight: 240,
         nextHeight: 420,
-        viewportWidth: 640,
+        viewportWidth: 1024,
         reducedMotion: false,
       }),
     ).toBeNull();

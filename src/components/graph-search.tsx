@@ -1,3 +1,4 @@
+import { GRAPH_COMPACT_WIDTH } from "@/client/graph-camera";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowLeft, X } from "lucide-react";
@@ -82,7 +83,7 @@ export function GraphSearch({
   }, []);
 
   const restoreFocus = useCallback(() => {
-    if (window.innerWidth < 640) {
+    if (window.innerWidth < GRAPH_COMPACT_WIDTH) {
       searchInputRef.current?.blur();
       rootRef.current?.focus({preventScroll:true});
     } else {
@@ -167,7 +168,7 @@ export function GraphSearch({
       onBlur={event => {
         if (panelOpen && event.relatedTarget instanceof Node && !event.currentTarget.contains(event.relatedTarget)) closeIndex(false);
       }}
-      className="graph-search absolute left-4 right-4 z-10 sm:left-6 sm:right-auto sm:w-80">
+      className="graph-search absolute left-4 right-4 z-10 lg:left-6 lg:right-auto lg:w-80">
       {panelOpen && <div className="graph-search-dismiss" aria-hidden="true" onPointerDown={event => {
         event.preventDefault();
         event.stopPropagation();
@@ -233,7 +234,7 @@ export function GraphSearch({
 
           <p className="sr-only">Use the arrow keys to move between notes and Enter to select.</p>
           {results.length > 0 ? (
-            <ul className="graph-node-index-list max-h-[14.25rem] sm:max-h-[min(62vh,34rem)] overflow-y-auto py-1">
+            <ul className="graph-node-index-list max-h-[14.25rem] lg:max-h-[min(62vh,34rem)] overflow-y-auto py-1">
               {visibleResults.map((node, index) => {
                 const connectionCount = node.neighbors.length;
                 return (
