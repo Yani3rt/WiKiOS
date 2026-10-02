@@ -5,6 +5,7 @@ import {
   type GraphNeuralAnimationSnapshot,
 } from "../src/client/graph-neural-animation";
 import {
+  createGraphNeuralActivationIndex,
   getGraphNeuralSignalFrame,
   GRAPH_NEURAL_TIMING,
   type GraphNeuralEdgeActivation,
@@ -113,6 +114,18 @@ function setup() {
 }
 
 describe("graph neural animation controller", () => {
+  it('encodes incoming signal direction without changing its positive response delay',()=>{
+    const {controller,scheduler}=setup();
+    const incoming=createGraphNeuralActivationIndex([{source:'related',target:'active',weight:1}]).get('active')!;
+    controller.activate({activeSlug:'active',edges:incoming,mode:'selection',reducedMotion:false});
+    expect(controller.getSnapshot().edgeDelays.get('related->active')).toBe(-incoming[0].delayMs-1);
+    const arrival=GRAPH_NEURAL_TIMING.chargeMs+GRAPH_NEURAL_TIMING.ignitionMs+GRAPH_NEURAL_TIMING.selectionTravelMs+incoming[0].delayMs;
+    scheduler.runNextFrame(arrival+GRAPH_NEURAL_TIMING.arrivalMs/2);
+    expect(controller.getSnapshot().nodeScales.get('related')).toBeGreaterThan(1);
+    expect(controller.getSnapshot().nodeScales.has('active')).toBe(false);
+    scheduler.runNextFrame(arrival+GRAPH_NEURAL_TIMING.arrivalMs);
+    expect(scheduler.frameCount).toBe(0);
+  });
   it("owns hover intent and publishes one snapshot with maximum receiving-node scale", () => {
     const { controller, scheduler, snapshots } = setup();
 

@@ -75,7 +75,7 @@ function createSnapshot(
       input.reducedMotion,
     );
     edgeFrames.set(edge.edgeKey, frame);
-    edgeDelays.set(edge.edgeKey, edge.delayMs);
+    edgeDelays.set(edge.edgeKey, edge.direction === 'incoming' ? -edge.delayMs - 1 : edge.delayMs);
     nodeScales.set(
       edge.receivingNode,
       Math.max(nodeScales.get(edge.receivingNode) ?? 1, frame.arrivalScale),
@@ -222,7 +222,7 @@ export function createGraphNeuralAnimationController(
           complete: false,
         };
         edgeFrames.set(edge.edgeKey, fadedFrame);
-        edgeDelays.set(edge.edgeKey, edge.delayMs);
+        edgeDelays.set(edge.edgeKey, edge.direction === 'incoming' ? -edge.delayMs - 1 : edge.delayMs);
         nodeScales.set(
           edge.receivingNode,
           Math.max(nodeScales.get(edge.receivingNode) ?? 1, fadedFrame.arrivalScale),

@@ -130,9 +130,11 @@ void main(void) {
   if (u_mode > 1.5) {
     float delay = v_delayMs < 0.0 ? -v_delayMs - 1.0 : v_delayMs;
     float pathPosition = v_delayMs < 0.0 ? 1.0 - v_pathPosition : v_pathPosition;
-    float progress = clamp((u_elapsedMs - delay - ${GRAPH_ENTRANCE_TIMING.edgeStartMs.toFixed(1)}) / ${GRAPH_ENTRANCE_TIMING.edgeTravelMs.toFixed(1)}, 0.0, 1.0);
-    float remaining = 1.0 - progress;
-    progress = 1.0 - remaining * remaining * remaining;
+    float progress = u_mode > 2.5 ? clamp(delay, 0.0, 1.0) : clamp((u_elapsedMs - delay - ${GRAPH_ENTRANCE_TIMING.edgeStartMs.toFixed(1)}) / ${GRAPH_ENTRANCE_TIMING.edgeTravelMs.toFixed(1)}, 0.0, 1.0);
+    if (u_mode < 2.5) {
+      float remaining = 1.0 - progress;
+      progress = 1.0 - remaining * remaining * remaining;
+    }
     float trace = 1.0 - smoothstep(progress - 0.025, progress, pathPosition);
     if (progress >= 1.0) trace = 1.0;
     if (progress <= 0.0) trace = 0.0;
@@ -142,6 +144,8 @@ void main(void) {
   }
   float selectionMode = step(0.5, u_mode);
   float staticMode = step(0.5, u_reducedMotion);
+  float delay = v_delayMs < 0.0 ? -v_delayMs - 1.0 : v_delayMs;
+  float pathPosition = v_delayMs < 0.0 ? 1.0 - v_pathPosition : v_pathPosition;
   float travelMs = mix(
     ${GRAPH_NEURAL_TIMING.hoverTravelMs.toFixed(1)},
     ${GRAPH_NEURAL_TIMING.selectionTravelMs.toFixed(1)},
@@ -150,7 +154,7 @@ void main(void) {
   float travelStart =
     ${GRAPH_NEURAL_TIMING.chargeMs.toFixed(1)} +
     ${GRAPH_NEURAL_TIMING.ignitionMs.toFixed(1)} +
-    v_delayMs;
+    delay;
   float primaryRaw = (u_elapsedMs - travelStart) / travelMs;
   float primaryProgress = clamp(primaryRaw, 0.0, 1.0);
   float primaryActive =
@@ -158,12 +162,12 @@ void main(void) {
     (1.0 - step(1.0, primaryRaw)) *
     (1.0 - staticMode);
   float primaryVisibility = 1.0 - smoothstep(0.9, 1.0, primaryProgress);
-  float primaryDelta = (v_pathPosition - primaryProgress) / 0.085;
+  float primaryDelta = (pathPosition - primaryProgress) / 0.085;
   float primaryHead =
     exp(-(primaryDelta * primaryDelta)) * primaryActive * primaryVisibility;
   float primaryTail =
-    smoothstep(primaryProgress - 0.16, primaryProgress, v_pathPosition) *
-    (1.0 - step(primaryProgress, v_pathPosition)) *
+    smoothstep(primaryProgress - 0.16, primaryProgress, pathPosition) *
+    (1.0 - step(primaryProgress, pathPosition)) *
     primaryActive *
     primaryVisibility;
   float ignitionProgress = clamp(
@@ -198,7 +202,7 @@ void main(void) {
 
 export interface GraphNeuralRendererAnimationState {
   elapsedMs: number;
-  mode: GraphNeuralActivationMode | "entrance";
+  mode: GraphNeuralActivationMode | "entrance" | "disclosure";
   releaseOpacity: number;
   reducedMotion: boolean;
 }
@@ -234,6 +238,8 @@ export function clearGraphNeuralRendererAnimationState(renderer: object) {
 
 export interface NeuralEdgeDisplayData extends EdgeDisplayData {
   neuralDelayMs?: number;
+  neuralRevealProgress?: number;
+  neuralRevealReversed?: boolean;
 }
 
 type NeuralEdgeUniform = (typeof UNIFORMS)[number];
@@ -288,7 +294,12 @@ export class NeuralEdgeProgram extends EdgeProgram<NeuralEdgeUniform> {
     array[startIndex++] = normalY;
     array[startIndex++] = floatColor(data.color);
     array[startIndex++] = edgeIndex;
-    array[startIndex] = data.neuralDelayMs ?? 0;
+    // Disclosure uses normalized trace progress in the same signal slot. This
+    // keeps the shader within WebGL1's eight vertex attributes, without a new buffer.
+    if (data.neuralRevealProgress !== undefined) {
+      const progress = Math.max(0, Math.min(1, data.neuralRevealProgress));
+      array[startIndex] = data.neuralRevealReversed ? -(progress + 1) : progress;
+    } else array[startIndex] = data.neuralDelayMs ?? 0;
   }
 
   setUniforms(params: RenderParams, programInfo: ProgramInfo<NeuralEdgeUniform>) {
@@ -306,7 +317,7 @@ export class NeuralEdgeProgram extends EdgeProgram<NeuralEdgeUniform> {
     gl.uniform1f(uniformLocations.u_elapsedMs, animationState?.elapsedMs ?? 0);
     gl.uniform1f(
       uniformLocations.u_mode,
-      animationState?.mode === "entrance" ? 2 : animationState?.mode === "selection" ? 1 : 0,
+      animationState?.mode === "disclosure" ? 3 : animationState?.mode === "entrance" ? 2 : animationState?.mode === "selection" ? 1 : 0,
     );
     gl.uniform1f(uniformLocations.u_releaseOpacity, animationState?.releaseOpacity ?? 0);
     gl.uniform1f(uniformLocations.u_reducedMotion, animationState?.reducedMotion ? 1 : 0);
@@ -332,11 +343,12 @@ uniform float u_reducedMotion;
 varying vec4 v_color;
 varying vec2 v_arrow;
 void main() {
-  float travelStart = ${GRAPH_NEURAL_TIMING.chargeMs.toFixed(1)} + ${GRAPH_NEURAL_TIMING.ignitionMs.toFixed(1)} + a_delayMs;
+  float delay = a_delayMs < 0.0 ? -a_delayMs - 1.0 : a_delayMs;
+  float travelStart = ${GRAPH_NEURAL_TIMING.chargeMs.toFixed(1)} + ${GRAPH_NEURAL_TIMING.ignitionMs.toFixed(1)} + delay;
   float travelProgress = clamp((u_elapsedMs - travelStart) / ${GRAPH_NEURAL_TIMING.selectionTravelMs.toFixed(1)}, 0.0, 1.0);
   if (u_reducedMotion > 0.5) travelProgress = 1.0;
   float settled = smoothstep(0.86, 1.0, travelProgress);
-  float progress = min(travelProgress, 0.90);
+  float progress = a_delayMs < 0.0 ? 0.90 : min(travelProgress, 0.90);
   float opacity = smoothstep(0.0, 0.10, travelProgress) * mix(1.0, 0.72, settled);
   float signalSize = mix(1.0, 0.72, settled);
   float normalLength = length(a_normal);

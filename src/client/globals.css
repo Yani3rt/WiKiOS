@@ -2171,3 +2171,80 @@ html {
   .workspace-start {padding:48px 24px 48px;}
   .workspace-start h1 {font-size:25px;}
 }
+
+/* Navigation anchors, never enclosing regions. Motion is driven by graph interactions. */
+.graph-neighborhood-layer { position:absolute; inset:0; z-index:4; pointer-events:none; overflow:hidden; }
+.graph-neighborhood-layer canvas { position:absolute; inset:0; pointer-events:none; }
+.graph-neighborhood-anchor,.graph-memory-hub { position:absolute; left:0; top:0; height:66px; padding:0; display:flex; flex-direction:column; align-items:center; gap:10px; pointer-events:auto; border:0; background:none; color:var(--graph-foreground); cursor:pointer; isolation:isolate; }
+.graph-neighborhood-anchor[hidden],.graph-memory-hub[hidden] { display:none; }
+.graph-anchor-core { display:block; width:14px; height:14px; margin-top:11px; border-radius:50%; background:var(--neighborhood-color); box-shadow:0 0 0 5px color-mix(in srgb,var(--neighborhood-color) 10%,transparent); transition:box-shadow 180ms ease,transform 180ms ease; }
+.graph-anchor-caption { display:flex; align-items:baseline; justify-content:center; gap:7px; max-width:100%; padding:2px 6px; border-radius:4px; background:var(--graph-background); font-size:13px; font-weight:600; line-height:20px; }
+/* Also soften anchors which enter the viewport late in a camera flight.
+   Animate the contents, never the positioned button or its hit area. */
+.graph-anchor-core,.graph-anchor-caption { animation:graph-anchor-arrive 280ms cubic-bezier(.22,1,.36,1) backwards; }
+@keyframes graph-anchor-arrive { from {opacity:0;scale:.88;} to {opacity:1;scale:1;} }
+.graph-anchor-name { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.graph-anchor-count { font-size:11px; font-weight:500; font-variant-numeric:tabular-nums; color:var(--graph-muted); }
+.graph-neighborhood-anchor:hover .graph-anchor-core { transform:scale(1.2); box-shadow:0 0 0 8px color-mix(in srgb,var(--neighborhood-color) 12%,transparent); }
+.graph-memory-hub { height:72px; gap:13px; font-size:16px; font-weight:600; letter-spacing:-.02em; }
+.graph-memory-hub > span:last-child { padding:0 6px; background:var(--graph-background); border-radius:4px; }
+.graph-memory-mark { --memory-spread:.72; --memory-dot-scale:1.388889; position:relative; display:block; width:34px; height:34px; flex-shrink:0; color:var(--graph-foreground); transform:rotate(0deg); }
+.graph-memory-mark::before { transition:transform 100ms ease-out; content:""; position:absolute; width:10px; height:10px; left:12px; top:12px; border-radius:50%; background:currentColor; box-shadow:0 0 16px color-mix(in srgb,currentColor 20%,transparent); }
+.graph-memory-mark i { --memory-angle:30deg; position:absolute; left:16px; top:0; width:1px; height:34px; background:color-mix(in srgb,currentColor 25%,transparent); transform:rotate(var(--memory-angle)) scaleY(var(--memory-spread)); }
+.graph-memory-mark i:nth-child(2) { --memory-angle:90deg; }
+.graph-memory-mark i:nth-child(3) { --memory-angle:150deg; }
+.graph-memory-mark i::before,.graph-memory-mark i::after { transform:scaleY(var(--memory-dot-scale)); content:""; position:absolute; width:4px; height:4px; left:-1.5px; border-radius:50%; background:currentColor; }
+.graph-memory-mark i::after { bottom:0; }
+.graph-memory-hub.is-expanded .graph-memory-mark { --memory-spread:1; --memory-dot-scale:1; transform:rotate(180deg); }
+.graph-memory-hub.has-mode-transition .graph-memory-mark,
+.graph-memory-hub.has-mode-transition .graph-memory-mark i,
+.graph-memory-hub.has-mode-transition .graph-memory-mark i::before,
+.graph-memory-hub.has-mode-transition .graph-memory-mark i::after { transition:transform 350ms cubic-bezier(.22,1,.36,1); }
+.graph-memory-hub.has-mode-transition.is-expanded .graph-memory-mark,
+.graph-memory-hub.has-mode-transition.is-expanded .graph-memory-mark i,
+.graph-memory-hub.has-mode-transition.is-expanded .graph-memory-mark i::before,
+.graph-memory-hub.has-mode-transition.is-expanded .graph-memory-mark i::after { transition:transform 450ms cubic-bezier(.22,1,.36,1); }
+.graph-memory-hub:active .graph-memory-mark::before { transform:scale(.9); }
+@media (prefers-reduced-motion:reduce) {
+  .graph-memory-mark::before,
+  .graph-memory-hub.has-mode-transition .graph-memory-mark,
+  .graph-memory-hub.has-mode-transition .graph-memory-mark i,
+  .graph-memory-hub.has-mode-transition .graph-memory-mark i::before,
+  .graph-memory-hub.has-mode-transition .graph-memory-mark i::after { transition:none !important; }
+}
+.graph-memory-hub.is-docked { flex-direction:row; justify-content:flex-start; height:40px; gap:4px; font-size:12px; letter-spacing:0; }
+.graph-memory-hub.is-docked .graph-memory-mark { display:none; }
+.graph-memory-hub.is-docked::before { content:"←"; font-size:17px; }
+.graph-memory-hub.is-docked > span:last-child { padding:5px 7px; }
+.graph-memory-hub:hover > span:last-child { color:var(--graph-foreground); text-decoration:underline; text-underline-offset:4px; }
+.graph-neighborhood-anchor:focus-visible,.graph-memory-hub:focus-visible { outline:2px solid var(--graph-foreground); outline-offset:4px; border-radius:6px; }
+@media (prefers-reduced-motion:reduce) {
+  .graph-anchor-core { transition:none; }
+  .graph-anchor-core,.graph-anchor-caption { animation:none; }
+}
+.graph-search-neighborhoods { display:flex; flex-wrap:wrap; gap:4px; max-height:100px; overflow:auto; padding:8px; border-bottom:1px solid var(--graph-border); }
+.graph-search-neighborhoods button { min-height:36px; max-width:100%; padding:0 10px; border:1px solid var(--graph-border); border-radius:6px; color:var(--graph-foreground); font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.graph-search-neighborhoods button:is(:hover,:focus-visible) { background:var(--graph-control-hover); outline:2px solid var(--graph-foreground); outline-offset:-2px; }
+
+/* Quiet, data-backed peeks; hover never moves or expands the graph. */
+.graph-neighborhood-preview {
+  position:absolute; z-index:10; box-sizing:border-box; padding:16px;
+  border:1px solid var(--graph-border); border-radius:12px;
+  background:var(--graph-surface); color:var(--graph-foreground);
+  box-shadow:0 8px 28px #00000024; pointer-events:auto; overflow:auto; overscroll-behavior:contain;
+  font-size:12px; line-height:1.5; animation:graph-preview-in 120ms ease-out;
+}
+.graph-neighborhood-preview[hidden] {display:none;}
+.graph-preview-header {display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 10px; margin-bottom:12px;}
+.graph-preview-title {font-size:14px; font-weight:600; overflow-wrap:anywhere;}
+.graph-preview-meta {flex-shrink:0; color:var(--graph-muted); font-size:11px; font-variant-numeric:tabular-nums;}
+.graph-preview-section + .graph-preview-section {border-top:1px solid var(--graph-border); margin-top:12px; padding-top:12px;}
+.graph-preview-heading {margin-bottom:6px; color:var(--graph-muted); font-size:11px; font-weight:500;}
+.graph-preview-list {margin:0; padding:0; list-style:none;}
+.graph-preview-row {display:flex; flex-wrap:wrap; align-items:baseline; gap:3px 10px; padding:5px 0;}
+.graph-preview-name {flex:1; min-width:80px; overflow-wrap:anywhere;}
+.graph-preview-row[aria-current] .graph-preview-name {font-weight:600;}
+.graph-preview-current {color:var(--graph-foreground); font-size:10px; padding:0 5px; border:1px solid var(--graph-border); border-radius:4px;}
+.graph-preview-more {margin-top:5px; color:var(--graph-muted); font-size:11px;}
+@keyframes graph-preview-in {from {opacity:0;} to {opacity:1;}}
+@media (prefers-reduced-motion:reduce) {.graph-neighborhood-preview {animation:none;}}

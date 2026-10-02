@@ -1,7 +1,31 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { createGraphCameraSettler, findGraphPointerTarget, getGraphFitGeometry, getGraphUsableViewport } from '../src/client/graph-camera';
+import { createGraphCameraSettler, findGraphPointerTarget, getGraphFitGeometry, getGraphRevealGeometry, getGraphUsableViewport } from '../src/client/graph-camera';
 
 afterEach(() => vi.useRealTimers());
+it('keeps the exploration camera anchored when all related notes are already visible',()=>{
+  expect(getGraphRevealGeometry([{x:300,y:200},{x:600,y:400}],{left:20,top:80,right:900,bottom:600})).toBeNull();
+});
+it('pans only as far as needed to uncover a note without changing zoom',()=>{
+  const reveal=getGraphRevealGeometry([{x:600,y:200},{x:900,y:300}],{left:20,top:80,right:800,bottom:600})!;
+  expect(reveal.scale).toBe(1);
+  expect(reveal.target).toEqual({x:476,y:200});
+});
+it('zooms out around the selected note only when the related-note span cannot fit',()=>{
+  const points=[{x:400,y:300},{x:-100,y:100},{x:1100,y:700}];
+  const bounds={left:20,top:80,right:900,bottom:600};
+  const reveal=getGraphRevealGeometry(points,bounds)!;
+  expect(reveal.scale).toBeGreaterThan(1);
+  expect(reveal.anchor).toEqual(points[0]);
+  for(const point of points) {
+    const projected={x:reveal.target.x+(point.x-reveal.anchor.x)/reveal.scale,y:reveal.target.y+(point.y-reveal.anchor.y)/reveal.scale};
+    expect(projected.x).toBeGreaterThanOrEqual(bounds.left);
+    expect(projected.x).toBeLessThanOrEqual(bounds.right);
+    expect(projected.y).toBeGreaterThanOrEqual(bounds.top);
+    expect(projected.y).toBeLessThanOrEqual(bounds.bottom);
+  }
+  expect(getGraphRevealGeometry([],bounds)).toBeNull();
+  expect(getGraphRevealGeometry([{x:NaN,y:0}],bounds)).toBeNull();
+});
 it('reserves desktop details, header and legend instead of centering underneath them', () => {
   expect(getGraphUsableViewport({ width:1280, height:720, headerBottom:64, searchBottom:54,
     details:{left:944,top:76,right:1264,bottom:600}, legend:{left:20,top:580,right:640,bottom:698},
@@ -60,4 +84,15 @@ it('keeps selected-neighborhood labels readable on a narrow canvas with vertical
   ],{width:300,height:400,padding:20,gap:5});
   expect(placements.size).toBe(2);
   expect(['above-right','below-right']).toContain(placements.get('neighbor'));
+});
+it('leaves room above the highest note for a quiet neighborhood heading',()=>{
+  const bounds={left:20,top:84,right:1260,bottom:550};
+  const fit=getGraphFitGeometry([{x:400,y:0},{x:800,y:600}],bounds)!;
+  const top=fit.target.y+(0-fit.center.y)/fit.ratio;
+  expect(top-46).toBeGreaterThanOrEqual(bounds.top);
+});
+it('uses the available detail space for a small neighborhood inside a much larger map',()=>{
+  const fit=getGraphFitGeometry([{x:0,y:0},{x:70,y:60}],{left:20,top:84,right:1260,bottom:496})!;
+  expect(60/fit.ratio).toBeGreaterThan(247);
+  expect(fit.ratio).toBeGreaterThanOrEqual(.18);
 });

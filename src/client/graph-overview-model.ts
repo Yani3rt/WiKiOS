@@ -36,7 +36,7 @@ export interface GraphNeuralEdgeActivation {
 }
 
 export interface GraphNeuralSignalFrame {
-  phase: "charging" | "transmitting" | "selected";
+  phase: "charging" | "transmitting" | "responding" | "selected";
   primaryProgress: number | null;
   echoProgress: number | null;
   chargeProgress: number;
@@ -68,6 +68,7 @@ export interface GraphLayoutEdgeInput {
 }
 
 export interface GraphLayoutRequest {
+  neighborhoods?: import("./graph-neighborhoods").GraphNeighborhood[];
   nodes: GraphLayoutNodeInput[];
   edges: GraphLayoutEdgeInput[];
   iterations: number;
@@ -122,7 +123,7 @@ export const GRAPH_NEURAL_TIMING = {
   chargeMs: 100,
   ignitionMs: 120,
   hoverTravelMs: 520,
-  selectionTravelMs: 850,
+  selectionTravelMs: 520,
   arrivalMs: 140,
   releaseMs: 180,
   maximumStaggerMs: 100,
@@ -166,7 +167,7 @@ export function createGraphNeuralActivationIndex(
 
     addActivation(edge.source, { ...baseActivation, direction: "outgoing" });
     if (edge.target !== edge.source) {
-      addActivation(edge.target, { ...baseActivation, direction: "incoming" });
+      addActivation(edge.target, { ...baseActivation, receivingNode: edge.source, direction: "incoming" });
     }
   }
 
@@ -220,7 +221,7 @@ export function getGraphNeuralSignalFrame(
     (elapsed - GRAPH_NEURAL_TIMING.chargeMs) / GRAPH_NEURAL_TIMING.ignitionMs,
   );
   const activeNodeScale =
-    1 + chargeProgress * (1 - ignitionProgress) * (mode === "selection" ? 0.12 : 0);
+    1 + chargeProgress * (1 - ignitionProgress) * (mode === "selection" ? 0.06 : 0);
   const travelMs =
     mode === "selection"
       ? GRAPH_NEURAL_TIMING.selectionTravelMs
@@ -230,7 +231,7 @@ export function getGraphNeuralSignalFrame(
   const primaryStarted = elapsed >= travelStart;
   const echoProgress = null;
   const terminalTravelEnd = travelStart + travelMs;
-  const complete = elapsed >= terminalTravelEnd;
+  const complete = elapsed >= terminalTravelEnd + (mode === "selection" ? GRAPH_NEURAL_TIMING.arrivalMs : 0);
 
   if (complete && mode === "selection") {
     return {
@@ -262,13 +263,8 @@ export function getGraphNeuralSignalFrame(
     };
   }
 
-  const arrivalProgress = primaryStarted
-    ? clampGraphNeuralProgress(
-        (primaryProgress - (1 - GRAPH_NEURAL_TIMING.arrivalMs / travelMs)) /
-          (GRAPH_NEURAL_TIMING.arrivalMs / travelMs),
-      )
-    : 0;
-  const arrivalScale = 1 + Math.sin(arrivalProgress * Math.PI) * (mode === "selection" ? 0.10 : 0);
+  const arrivalProgress = clampGraphNeuralProgress((elapsed - terminalTravelEnd) / GRAPH_NEURAL_TIMING.arrivalMs);
+  const arrivalScale = 1 + Math.sin(arrivalProgress * Math.PI) * (mode === "selection" ? 0.045 : 0);
   const targetIntensity = mode === "selection" ? 1 : 0.7;
   const hoverSettleProgress =
     mode === "hover"
@@ -281,8 +277,8 @@ export function getGraphNeuralSignalFrame(
     targetIntensity * ignitionProgress - hoverSettleProgress * 0.25;
 
   return {
-    phase: primaryStarted ? "transmitting" : "charging",
-    primaryProgress: primaryStarted ? primaryProgress : null,
+    phase: elapsed >= terminalTravelEnd ? "responding" : primaryStarted ? "transmitting" : "charging",
+    primaryProgress: primaryStarted && elapsed < terminalTravelEnd ? primaryProgress : null,
     echoProgress,
     chargeProgress,
     ignitionProgress,
@@ -535,10 +531,12 @@ export function getGraphDetailPanelToggleState(collapsed: boolean) {
   };
 }
 
+export const GRAPH_LINKED_NODE_PULSE_MS = 320;
+
 export function getGraphLinkedNodePulseScale(elapsedMs: number, reducedMotion: boolean) {
-  if (reducedMotion) return 1.16;
-  const phase = ((Math.max(0, elapsedMs) % 480) / 480) * Math.PI * 2;
-  return 1.13 + Math.sin(phase) * 0.05;
+  if (reducedMotion || elapsedMs >= GRAPH_LINKED_NODE_PULSE_MS) return 1;
+  const progress = Math.max(0, elapsedMs) / GRAPH_LINKED_NODE_PULSE_MS;
+  return 1 + Math.sin(progress * Math.PI) * 0.06;
 }
 
 export function getGraphDisconnectedNodeTransition(progress: number) {

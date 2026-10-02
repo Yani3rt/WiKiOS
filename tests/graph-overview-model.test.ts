@@ -325,7 +325,7 @@ describe("graph overview model", () => {
       expect.objectContaining({
         edgeKey: "in->active",
         direction: "incoming",
-        receivingNode: "active",
+        receivingNode: "in",
       }),
     ]);
 
@@ -804,12 +804,13 @@ describe("graph overview model", () => {
     });
   });
 
-  it("provides a restrained linked-node pulse with a static reduced-motion state", () => {
-    expect(getGraphLinkedNodePulseScale(0, false)).toBeCloseTo(1.13);
-    expect(getGraphLinkedNodePulseScale(120, false)).toBeCloseTo(1.18);
-    expect(getGraphLinkedNodePulseScale(360, false)).toBeCloseTo(1.08);
-    expect(getGraphLinkedNodePulseScale(0, true)).toBe(1.16);
-    expect(getGraphLinkedNodePulseScale(360, true)).toBe(1.16);
+  it("previews a linked note once and settles instead of looping", () => {
+    expect(getGraphLinkedNodePulseScale(0, false)).toBe(1);
+    expect(getGraphLinkedNodePulseScale(160, false)).toBeCloseTo(1.06);
+    expect(getGraphLinkedNodePulseScale(320, false)).toBe(1);
+    expect(getGraphLinkedNodePulseScale(600, false)).toBe(1);
+    expect(getGraphLinkedNodePulseScale(0, true)).toBe(1);
+    expect(getGraphLinkedNodePulseScale(160, true)).toBe(1);
   });
 
   it("fades and then hides disconnected nodes without a jarring size collapse", () => {

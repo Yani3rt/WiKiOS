@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // Camera interpolation is covered against real Sigma in graph-motion-camera.test.ts.
 vi.mock("../src/client/graph-motion-camera", () => ({ GraphMotionCamera: class {
-  setReducedMotion() {} destroy() {}
+  setReducedMotion() {} destroy() {} cancel = cancelMotion;
 } }));
 import { StrictMode, act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -14,21 +14,23 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { AppearanceProvider } from "../src/client/appearance-provider";
 import { Component } from "../src/client/routes/graph-route";
 import { getGraphNeuralRendererAnimationState } from "../src/client/graph-neural-edge-program";
+import { getGraphDisclosureVisibility } from "../src/client/graph-disclosure";
 import { graphTopologyKey, graphViewCache } from "../src/client/graph-view-state";
 import type { ColoredGraphData } from "../src/lib/wiki-shared";
 
 type Settings = {
+  edgeProgramClasses?: Record<string,unknown>;
   defaultDrawNodeLabel: NodeLabelDrawingFunction;
   edgeReducer(edge: string, attributes: Attributes): Attributes;
   nodeReducer(node: string, attributes: Attributes): Attributes;
 };
-type RefreshOptions = { partialGraph?: { nodes?: string[]; edges?: string[] } };
+type RefreshOptions = { partialGraph?: { nodes?: string[]; edges?: string[] }; skipIndexation?: boolean };
 type Frame = {
   edges: Attributes[];
   nodes: Attributes[];
   clock: ReturnType<typeof getGraphNeuralRendererAnimationState>;
 };
-const { renderers } = vi.hoisted(() => ({ renderers: [] as Renderer[] }));
+const { renderers, cancelMotion, rendererCapabilities } = vi.hoisted(() => ({ renderers: [] as Renderer[], cancelMotion: vi.fn(),rendererCapabilities:{neural:true} }));
 
 // WebGL is unavailable in jsdom. Record the real route's reducer output and
 // shader clock at Sigma's synchronous first render and subsequent refreshes.
@@ -49,6 +51,7 @@ class Renderer {
     off: (_event: string, callback: () => void) => {this.cameraListeners.delete(callback);},
   };
   constructor(public graph: Graph, _container: HTMLElement, public settings: Settings) {
+    if(!rendererCapabilities.neural && settings.edgeProgramClasses?.neural) throw new Error('Neural WebGL unavailable');
     renderers.push(this);
     this.refresh();
   }
@@ -63,6 +66,7 @@ class Renderer {
       nodes: [...this.nodes.values()], edges: [...this.edges.values()],
       clock: getGraphNeuralRendererAnimationState(this),
     });
+    this.emit('afterRender',undefined);
   }
   setSettings(settings: Partial<Settings>) { Object.assign(this.settings, settings); }
   getCamera() { return this.camera; }
@@ -73,6 +77,9 @@ class Renderer {
     const state=override?.cameraState ?? this.camera.state;
     return {x:600+(point.x-state.x)*600/state.ratio,y:400-(point.y-state.y)*600/state.ratio};
   }
+  graphToViewport(point: {x:number;y:number}, override?: {cameraState:CameraState}) {
+    return this.framedGraphToViewport({x:point.x/240+.5,y:point.y/240+.5},override);
+  }
   viewportToFramedGraph(point: {x:number;y:number}, override?: {cameraState:CameraState}) {
     const state=override?.cameraState ?? this.camera.state;
     return {x:state.x+(point.x-600)*state.ratio/600,y:state.y-(point.y-400)*state.ratio/600};
@@ -80,6 +87,7 @@ class Renderer {
   scaleSize(size: number) {return size;}
   on(event: string, callback: (payload: unknown) => void) {this.listeners.set(event,callback);}
   emit(event: string, payload: unknown) {this.listeners.get(event)?.(payload);}
+  off(event: string) {this.listeners.delete(event);}
   kill() {}
 }
 vi.mock("sigma", () => ({ default: class {
@@ -97,6 +105,7 @@ let time: number;
 let frames: Map<number, FrameRequestCallback>;
 let nextFrame: number;
 let completeLayout: () => void;
+let failLayout: () => void;
 let reducedMotion: boolean;
 let motionChange: () => void;
 let resizeGraph: () => void;
@@ -104,7 +113,7 @@ let resizeGraph: () => void;
 beforeEach(() => {
   vi.useFakeTimers();
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  time = 0; nextFrame = 0; frames = new Map(); renderers.length = 0; reducedMotion = false;
+  time = 0; nextFrame = 0; frames = new Map(); renderers.length = 0; reducedMotion = false; cancelMotion.mockClear();rendererCapabilities.neural=true;
   vi.spyOn(performance, "now").mockImplementation(() => time);
   vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
     frames.set(++nextFrame, callback); return nextFrame;
@@ -129,6 +138,7 @@ beforeEach(() => {
   vi.stubGlobal("Worker", class {
     addEventListener(event: string, listener: (event: { data: { positions: [] } }) => void) {
       if (event === "message") completeLayout = () => listener({ data: { positions: [] } });
+      if (event === "error") failLayout = () => listener({ data: { positions: [] } });
     }
     postMessage() {}
     terminate() {}
@@ -160,8 +170,12 @@ async function mount(strict = false) {
 }
 async function tick(elapsed: number) {
   time = elapsed;
-  const pending = [...frames.values()]; frames.clear();
-  await act(async () => { for (const callback of pending) callback(time); });
+  const pending = [...frames.keys()];
+  await act(async () => {
+    for (const id of pending) {
+      const callback=frames.get(id);frames.delete(id);callback?.(time);
+    }
+  });
 }
 const latest = () => renderers.at(-1)!;
 const frame = () => latest().frames.at(-1)!;
@@ -212,9 +226,9 @@ it("replays on every Home to Graph visit without losing the cached camera or lay
 
 it("keeps restored selection pulses from replacing the entrance clock", async () => {
   graphViewCache.save(data.vaultId, graphTopologyKey(data), {
-    focusedSlug: "a", detailPanelCollapsed: true, activeGroup: null,
+    allNotes:false, focusedSlug: "a", detailPanelCollapsed: true, activeGroup: null,
     search: { query: "", indexOpen: false, visibleResultCount: 10 }, layoutReady: true,
-    positions: {}, camera: { x: 0.5, y: 0.5, ratio: 1, angle: 0 },
+    detailLevel: "overview", expandedNeighborhood:null, positions: {}, camera: { x: 0.5, y: 0.5, ratio: 1, angle: 0 },
   });
   await mount();
   expect(frame().clock?.mode).toBe("entrance");
@@ -362,7 +376,7 @@ it("keeps a dragging camera from recreating a stale hover tooltip",async()=>{
   const point=latest().framedGraphToViewport(node);
   await act(async()=>host.querySelector(".graph-canvas")!.dispatchEvent(new MouseEvent("mousemove",{clientX:point.x,clientY:point.y,bubbles:true})));
   await tick(time+1);
-  expect(host.querySelector('[role="tooltip"]')).toBeNull();
+  expect(host.querySelector('[role="tooltip"]:not([hidden])')).toBeNull();
 });
 it("fallback pointer hover finishes entrance before starting a neural signal",async()=>{
   await mount();
@@ -382,12 +396,679 @@ it("clears custom label hover when leaving the canvas, including queued pointer 
   const move = () => canvas.dispatchEvent(new MouseEvent("mousemove", {clientX:point.x+12,clientY:point.y,bubbles:true}));
   await act(async () => {move();});
   await tick(100);
-  expect(host.querySelector('[role="tooltip"]')).not.toBeNull();
+  expect(host.querySelector('[role="tooltip"]:not([hidden])')).not.toBeNull();
   await act(async () => canvas.dispatchEvent(new MouseEvent("mouseleave")));
-  expect(host.querySelector('[role="tooltip"]')).toBeNull();
+  expect(host.querySelector('[role="tooltip"]:not([hidden])')).toBeNull();
   expect(canvas.style.cursor).toBe("default");
   await act(async () => {move();canvas.dispatchEvent(new MouseEvent("mouseleave"));});
   await tick(200);
-  expect(host.querySelector('[role="tooltip"]')).toBeNull();
+  expect(host.querySelector('[role="tooltip"]:not([hidden])')).toBeNull();
   expect(canvas.style.cursor).toBe("default");
+});
+
+function useNeighborhoodFixture() {
+  data.edges=[{source:'a',target:'b',weight:1},{source:'b',target:'isolated',weight:1},{source:'isolated',target:'a',weight:1}];
+  data.colorSources=Object.fromEntries(data.nodes.map(node=>[node.slug,{topics:['Research'],folder:null}]));
+}
+it('offers the same real neighborhood through keyboard browsing and fits it without selecting a note',async()=>{
+  useNeighborhoodFixture(); reducedMotion=true;await mount();await act(async()=>completeLayout());await tick(1);
+  const input=host.querySelector<HTMLInputElement>('[aria-label="Find a concept"]')!;
+  await act(async()=>input.focus());
+  const button=host.querySelector<HTMLButtonElement>('.graph-search-neighborhoods button')!;
+  expect(button.textContent).toBe('Research');
+  latest().camera.animate.mockClear();
+  await act(async()=>button.click());await tick(2);
+  expect(latest().camera.animate).toHaveBeenCalled();
+  expect(host.querySelector('#graph-node-details-title')).toBeNull();
+  expect(host.querySelector('#graph-node-index')).toBeNull();
+  expect(document.activeElement).toBe(host.querySelector('main'));
+});
+it('semantic camera changes leave positions and community membership fixed',async()=>{
+  useNeighborhoodFixture();reducedMotion=true;await mount();await act(async()=>completeLayout());await tick(1);
+  const positions=()=>latest().graph.nodes().map(slug=>{const node=latest().graph.getNodeAttributes(slug);return [slug,node.x,node.y,node.neighborhoodId];});
+  const before=positions();
+  latest().camera.setState({ratio:.2});await act(async()=>vi.advanceTimersByTime(100));await tick(2);
+  expect(positions()).toEqual(before);
+  expect([...latest().nodes.values()].every(node=>node.label===node.fullLabel)).toBe(true);
+  latest().camera.setState({ratio:2});await act(async()=>vi.advanceTimersByTime(100));await tick(3);
+  expect(positions()).toEqual(before);
+});
+it('frames the completed worker layout after StrictMode saved an unfinished fallback',async()=>{
+  await mount(true); latest().camera.animate.mockClear();
+  await act(async()=>completeLayout());await tick(1);
+  expect(latest().camera.animate).toHaveBeenCalled();
+});
+
+it('preserves semantic hysteresis and full labels when returning at the same zoom',async()=>{
+  data.nodes[0].title='A detailed research note with a sufficiently long title';
+  reducedMotion=true;await mount();await act(async()=>completeLayout());await tick(1);await tick(2);
+  const overviewRatio=latest().camera.state.ratio;
+  latest().camera.setState({ratio:overviewRatio/3});
+  await act(async()=>vi.advanceTimersByTime(100));await tick(3);
+  latest().camera.setState({ratio:overviewRatio/2.3});
+  await act(async()=>vi.advanceTimersByTime(100));await tick(4);
+  expect(latest().nodes.get('a')?.label).toBe(data.nodes[0].title);
+  const camera={...latest().camera.state};
+  await act(async()=>router.navigate('/'));
+  await act(async()=>router.navigate('/graph'));await tick(5);
+  expect(latest().camera.state).toEqual(camera);
+  expect(latest().nodes.get('a')?.label).toBe(data.nodes[0].title);
+});
+
+it('keeps every note and usable neighborhood framing when the layout worker errors',async()=>{
+  useNeighborhoodFixture();await mount();
+  const positions=latest().graph.nodes().map(slug=>latest().graph.getNodeAttributes(slug));
+  expect(positions).toHaveLength(data.nodes.length);
+  expect(positions.every(point=>Number.isFinite(point.x) && Number.isFinite(point.y))).toBe(true);
+  await act(async()=>failLayout());await tick(1);await tick(2000);
+  expect(latest().camera.animate).toHaveBeenCalled();
+  expect(frame().nodes.every(node=>node.hidden)).toBe(true);
+  await act(async()=>host.querySelector<HTMLButtonElement>('.graph-neighborhood-anchor')!.click());await tick(time+400);await tick(time+1);
+  expect(frame().nodes.every(node=>!node.hidden && node.entranceLabelOpacity===1)).toBe(true);
+  expect(latest().graph.order).toBe(data.nodes.length);
+});
+
+function useTwoNeighborhoods() {
+  data.nodes=['a','b','c','d','e','f','alone'].map(slug=>({...data.nodes[0],slug,title:slug,neighbors:[]}));
+  data.edges=[['a','b'],['b','c'],['c','a'],['d','e'],['e','f'],['f','d'],['c','d']].map(([source,target],i)=>({source,target,weight:i===6?.01:3}));
+  data.colorSources=Object.fromEntries(data.nodes.map(node=>[node.slug,{topics:[node.slug<'d'?'Alpha':'Beta'],folder:null}]));
+}
+const visibleSlugs=()=>[...latest().nodes].filter(([,node])=>!node.hidden).map(([slug])=>slug).sort();
+async function arrangeVisibleNeighborhood() {
+  useTwoNeighborhoods();reducedMotion=true;await mount();await act(async()=>completeLayout());await tick(1);await tick(2);
+  for(const [index,slug] of ['a','b','c'].entries()) latest().graph.mergeNodeAttributes(slug,{x:index*20,y:index*10});
+  latest().refresh();latest().camera.setState({x:.5,y:.5,ratio:1});
+  latest().camera.animate.mockClear();
+}
+it('keeps the camera fixed while recalling already-visible notes and their neighbors',async()=>{
+  await arrangeVisibleNeighborhood();const camera={...latest().camera.state};
+  await act(async()=>latest().emit('clickNode',{node:'a'}));await tick(time+1);
+  expect(latest().camera.state).toEqual(camera);expect(latest().camera.animate).not.toHaveBeenCalled();
+  await act(async()=>latest().emit('clickNode',{node:'b'}));await tick(time+1);
+  expect(latest().camera.state).toEqual(camera);expect(latest().camera.animate).not.toHaveBeenCalled();
+});
+it('only pans when selection needs more room and keeps explicit Fit available',async()=>{
+  await arrangeVisibleNeighborhood();latest().graph.mergeNodeAttributes('b',{x:300,y:10});latest().refresh();
+  await act(async()=>latest().emit('clickNode',{node:'a'}));await tick(time+1);
+  expect(latest().camera.state.ratio).toBe(1);expect(latest().camera.state.x).not.toBe(.5);
+  latest().camera.animate.mockClear();
+  await act(async()=>host.querySelector<HTMLButtonElement>('[aria-label="Fit graph"]')!.click());await tick(time+1);
+  expect(latest().camera.animate).toHaveBeenCalled();
+});
+it('cancels superseded camera motion even when the replacement note needs no reveal',async()=>{
+  await arrangeVisibleNeighborhood();
+  latest().camera.isAnimated=()=>true;
+  latest().camera.animate.mockImplementation(async()=>{});
+  await act(async()=>host.querySelector<HTMLButtonElement>('[aria-label="Fit graph"]')!.click());await tick(time+1);
+  expect(latest().camera.animate).toHaveBeenCalled();
+  latest().camera.animate.mockClear();cancelMotion.mockClear();
+  const camera={...latest().camera.state};
+  await act(async()=>latest().emit('clickNode',{node:'b'}));await tick(time+1);
+  expect(cancelMotion).toHaveBeenCalled();
+  expect(latest().camera.animate).not.toHaveBeenCalled();
+  expect(latest().camera.state).toEqual(camera);
+});
+it('preserves explicit neighborhood Fit when clearing a selection schedules reactive framing',async()=>{
+  await arrangeVisibleNeighborhood();reducedMotion=false;
+  await act(async()=>latest().emit('clickNode',{node:'a'}));await tick(time+1);
+  latest().camera.animate.mockClear();
+  await act(async()=>host.querySelector<HTMLInputElement>('[aria-label="Find a concept"]')!.focus());
+  const button=host.querySelector<HTMLButtonElement>('#graph-node-index [aria-label="Explore Alpha neighborhood, 3 notes"]')!;
+  await act(async()=>button.click());await tick(time+1);
+  expect(latest().camera.animate).toHaveBeenCalledWith(expect.any(Object),expect.objectContaining({duration:480}));
+  expect(latest().camera.state.ratio).toBeLessThan(1);
+});
+it('keeps an explicit neighborhood Fit running through later viewport measurement updates',async()=>{
+  await arrangeVisibleNeighborhood();reducedMotion=false;
+  let completeFit!:()=>void;
+  latest().camera.isAnimated=()=>true;
+  latest().camera.animate.mockImplementation(()=>new Promise<void>(resolve=>{completeFit=resolve;}));
+  await act(async()=>host.querySelector<HTMLButtonElement>('.graph-neighborhood-anchor[aria-label="Explore Alpha neighborhood, 3 notes"]')!.click());
+  await tick(time+1);cancelMotion.mockClear();latest().camera.animate.mockClear();
+  // ResizeObserver/React can issue another reveal after the fit's first RAF.
+  await act(async()=>resizeGraph());await tick(time+1);
+  expect(cancelMotion).not.toHaveBeenCalled();
+  expect(latest().camera.animate).not.toHaveBeenCalled();
+  await act(async()=>completeFit());
+});
+it('does not queue a deferred reveal after leaving during a neighborhood Fit',async()=>{
+  await arrangeVisibleNeighborhood();reducedMotion=false;
+  let completeFit!:()=>void;
+  latest().camera.animate.mockImplementation(()=>new Promise<void>(resolve=>{completeFit=resolve;}));
+  await act(async()=>host.querySelector<HTMLButtonElement>('.graph-neighborhood-anchor[aria-label="Explore Alpha neighborhood, 3 notes"]')!.click());
+  await tick(time+1);await act(async()=>resizeGraph());
+  await act(async()=>router.navigate('/'));
+  expect(frames.size).toBe(0);
+  await act(async()=>completeFit());
+  expect(frames.size).toBe(0);
+});
+it('stops the linked-note preview clock after its single response',async()=>{
+  await arrangeVisibleNeighborhood();reducedMotion=false;
+  await act(async()=>latest().emit('clickNode',{node:'a'}));await tick(time+1);await tick(time+2000);await tick(time+1);
+  const linked=host.querySelector<HTMLButtonElement>('[aria-label="a links to b, 3 mentions"]')!;
+  const start=time;
+  await act(async()=>linked.focus());await tick(start+160);await tick(start+320);
+  const refresh=vi.spyOn(latest(),'refresh');
+  await tick(start+1320);
+  expect(refresh).not.toHaveBeenCalled();
+});
+it('does not restart a neighborhood handoff when camera movement clears an empty hover',async()=>{
+  useTwoNeighborhoods();await mount();await act(async()=>completeLayout());await tick(2000);await tick(2001);
+  const start=time;
+  await act(async()=>host.querySelector<HTMLButtonElement>('.graph-neighborhood-anchor[aria-label="Explore Alpha neighborhood, 3 notes"]')!.click());
+  await tick(start+1);await tick(start+200);
+  const visibility=getGraphDisclosureVisibility(0,1,200,400);
+  expect(latest().nodes.get('a')?.entranceLabelOpacity).toBeCloseTo(Math.max(0,(visibility-.35)/.65));
+  await tick(start+400);
+  expect(latest().nodes.get('a')?.entranceLabelOpacity).toBe(1);
+});
+async function clickNeighborhood(label:string) {
+  const button=host.querySelector<HTMLButtonElement>(`.graph-neighborhood-anchor[aria-label="Explore ${label} neighborhood, 3 notes"]`)!;
+  await act(async()=>button.click());await tick(time+400);await tick(time+1);
+}
+it('starts with counted anchors instead of every grouped note, without synthetic graph records',async()=>{
+  useTwoNeighborhoods();reducedMotion=true;await mount();await act(async()=>completeLayout());await tick(1);await tick(2);
+  expect(visibleSlugs()).toEqual(['alone']);
+  expect(latest().graph.order).toBe(7);expect(latest().graph.size).toBe(7);
+  expect(host.querySelectorAll('.graph-neighborhood-anchor')).toHaveLength(2);
+  expect(host.querySelector('.graph-memory-hub')?.textContent).toContain('My Memory');
+});
+it('expands a neighborhood and shows all notes through the hub without selecting a note',async()=>{
+  useTwoNeighborhoods();reducedMotion=true;await mount();await act(async()=>completeLayout());await tick(1);await tick(2);
+  await clickNeighborhood('Alpha');expect(visibleSlugs()).toEqual(['a','b','c']);
+  expect(host.querySelector('#graph-node-details-title')).toBeNull();
+  await act(async()=>host.querySelector<HTMLButtonElement>('.graph-memory-hub')!.click());await tick(time+1);await tick(time+1);
+  expect(visibleSlugs()).toEqual(['a','alone','b','c','d','e','f']);
+  expect(document.activeElement).toBe(host.querySelector('main'));
+});
+it('returns to the full memory overview when clicking empty neighborhood background',async()=>{
+  useTwoNeighborhoods();reducedMotion=true;await mount();await act(async()=>completeLayout());await tick(1);await tick(2);
+  await clickNeighborhood('Alpha');await act(async()=>vi.advanceTimersByTime(100));
+  latest().camera.animate.mockClear();
+  await act(async()=>latest().emit('clickStage',{event:{x:0,y:0}}));await tick(time+1);await tick(time+1);
+  expect(visibleSlugs()).toEqual(['alone']);
+  expect(host.querySelector('[aria-live="polite"]')?.textContent).toBe('Graph overview active.');
+  expect(latest().camera.animate).toHaveBeenCalled();
+  expect(host.querySelector('.graph-memory-hub')).not.toBeNull();
+});
+it.each(['background','escape','legend','close-details'] as const)('keeps other neighborhoods folded throughout the %s return camera flight',async action=>{
+  await startMemoryOverview();
+  if(action==='close-details') {await act(async()=>latest().emit('clickNode',{node:'a'}));await tick(time+1);await tick(time+1);}
+  else await clickNeighborhood('Alpha');
+  // The real camera retains a close-up ratio while its return flight interpolates.
+  latest().camera.setState({ratio:latest().camera.state.ratio*.05});await act(async()=>vi.advanceTimersByTime(100));await tick(time+1);
+  reducedMotion=false;
+  let destination:Partial<CameraState>|undefined,completeFlight!:()=>void;
+  let flying=false;
+  vi.spyOn(latest().camera,'isAnimated').mockImplementation(()=>flying);
+  latest().camera.animate.mockImplementation(target=>{destination=target;flying=true;return new Promise<void>(resolve=>{completeFlight=resolve;});});
+  if(action==='background') await act(async()=>latest().emit('clickStage',{event:{x:0,y:0}}));
+  else if(action==='escape') await act(async()=>host.querySelector('main')!.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true})));
+  else if(action==='close-details') await act(async()=>host.querySelector<HTMLButtonElement>('[aria-label="Close node details"]')!.click());
+  else await act(async()=>[...host.querySelectorAll<HTMLButtonElement>('.graph-color-legend button')].find(button=>button.textContent==='All')!.click());
+  const start=time;
+  for(const elapsed of [16,32,80,160,280,360,420]) {
+    await tick(start+elapsed);
+    for(const slug of ['d','e','f']) expect(latest().nodes.get(slug)!.hidden,`${slug} flashed at ${elapsed}ms`).toBe(true);
+  }
+  expect(destination).toBeDefined();
+  await act(async()=>{flying=false;latest().camera.setState(destination!);completeFlight();vi.advanceTimersByTime(100);});
+  await tick(start+500);await tick(start+800);
+  expect(visibleSlugs()).toEqual(['alone']);
+  expect(host.querySelectorAll('.graph-neighborhood-anchor:not([hidden])')).toHaveLength(2);
+});
+it('crossfades counted anchors with neighborhood disclosure instead of switching them instantly',async()=>{
+  await startMemoryOverview();reducedMotion=false;
+  const anchors=()=>[...host.querySelectorAll<HTMLButtonElement>('.graph-neighborhood-anchor')];
+  await act(async()=>anchors()[0].click());const start=time;
+  expect(anchors().every(anchor=>!anchor.hidden && anchor.inert)).toBe(true);
+  await tick(start+90);
+  expect(anchors().every(anchor=>Number(anchor.style.opacity)>0 && Number(anchor.style.opacity)<1)).toBe(true);
+  await tick(start+400);await tick(start+401);await act(async()=>vi.advanceTimersByTime(100));
+  expect(anchors().every(anchor=>anchor.hidden)).toBe(true);
+  await act(async()=>latest().emit('clickStage',{event:{x:0,y:0}}));const back=time;
+  expect(anchors().every(anchor=>anchor.hidden)).toBe(true);
+  await tick(back+16);await tick(back+100);
+  expect(anchors().some(anchor=>!anchor.hidden && Number(anchor.style.opacity)>0 && Number(anchor.style.opacity)<1)).toBe(true);
+  await tick(back+350);await tick(back+351);
+  expect(anchors().every(anchor=>!anchor.hidden && !anchor.inert && Number(anchor.style.opacity)===1)).toBe(true);
+});
+it('reverses neighborhood entry into a folded return from the current anchor opacity',async()=>{
+  await startMemoryOverview();reducedMotion=false;
+  const anchor=host.querySelector<HTMLButtonElement>('.graph-neighborhood-anchor')!;
+  await act(async()=>anchor.click());await tick(time+90);
+  const opacity=anchor.style.opacity;
+  await act(async()=>host.querySelector('main')!.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true})));
+  expect(anchor.style.opacity).toBe(opacity);
+  await tick(time+350);await tick(time+1);expect(visibleSlugs()).toEqual(['alone']);
+  expect(anchor.hidden).toBe(false);expect(anchor.style.opacity).toBe('1');
+});
+it('settles both anchor and note disclosure when reduced motion interrupts a folded return',async()=>{
+  await startMemoryOverview();await clickNeighborhood('Alpha');reducedMotion=false;
+  await act(async()=>host.querySelector('main')!.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true})));
+  await tick(time+100);reducedMotion=true;await act(async()=>motionChange());await tick(time+1);
+  expect(visibleSlugs()).toEqual(['alone']);
+  for(const anchor of host.querySelectorAll<HTMLButtonElement>('.graph-neighborhood-anchor')) {
+    expect(anchor.hidden).toBe(false);expect(anchor.inert).toBe(false);expect(anchor.style.opacity).toBe('1');
+  }
+});
+it('clears a selected note and the expanded neighborhood with one background click',async()=>{
+  useTwoNeighborhoods();reducedMotion=true;await mount();await act(async()=>completeLayout());await tick(1);await tick(2);await clickNeighborhood('Alpha');
+  await act(async()=>latest().emit('clickNode',{node:'a'}));await tick(time+1);await act(async()=>vi.advanceTimersByTime(100));
+  await act(async()=>latest().emit('clickStage',{event:{x:0,y:0}}));await tick(time+1);await tick(time+1);
+  expect(host.querySelector('#graph-node-details-title')).toBeNull();
+  expect(visibleSlugs()).toEqual(['alone']);
+});
+it('keeps an expanded neighborhood when clicking a note label instead of the background',async()=>{
+  useTwoNeighborhoods();reducedMotion=true;await mount();await act(async()=>completeLayout());await tick(1);await tick(2);await clickNeighborhood('Alpha');
+  await act(async()=>vi.advanceTimersByTime(100));
+  const context={save(){},restore(){},measureText:()=>({width:100}),strokeText(){},fillText(){},globalAlpha:1} as unknown as CanvasRenderingContext2D;
+  latest().settings.defaultDrawNodeLabel(context,{x:30,y:200,size:10,label:'a',color:'#abcdef',graphSlug:'a',labelPlacement:'right'},latest().settings as never);
+  await act(async()=>latest().emit('clickStage',{event:{x:80,y:200}}));await tick(time+1);
+  expect(host.querySelector('#graph-node-details-title')?.textContent).toBe('a');
+  await act(async()=>host.querySelector<HTMLButtonElement>('[aria-label="Close node details"]')!.click());await tick(time+1);
+  expect(visibleSlugs()).toEqual(['a','b','c']);
+});
+it('does not exit a neighborhood on a background click while the camera is moving',async()=>{
+  useTwoNeighborhoods();reducedMotion=true;await mount();await act(async()=>completeLayout());await tick(1);await tick(2);await clickNeighborhood('Alpha');
+  latest().camera.setState({x:latest().camera.state.x+.01});
+  await act(async()=>latest().emit('clickStage',{event:{x:0,y:0}}));await tick(time+1);
+  expect(visibleSlugs()).toEqual(['a','b','c']);
+});
+it('searches into a collapsed group and reveals real neighbors across group boundaries',async()=>{
+  useTwoNeighborhoods();reducedMotion=true;await mount();await act(async()=>completeLayout());await tick(1);await tick(2);
+  const input=host.querySelector<HTMLInputElement>('[aria-label="Find a concept"]')!;
+  await act(async()=>input.focus());
+  const button=[...host.querySelectorAll<HTMLButtonElement>('#graph-node-index button')].find(button=>button.getAttribute('aria-label')==='d, 0 connections')!;
+  await act(async()=>button.click());await tick(time+1);
+  expect(visibleSlugs()).toEqual(['c','d','e','f']);
+  expect(latest().edges.get('c->d')?.hidden).toBe(false);
+});
+it('reindexes focus transition edges instead of repainting potentially invalidated program slots',async()=>{
+  useTwoNeighborhoods();await mount();await act(async()=>completeLayout());await tick(2000);
+  const refresh=vi.spyOn(latest(),'refresh');
+  await act(async()=>latest().emit('clickNode',{node:'d'}));await tick(time+100);
+  const focusFrames=refresh.mock.calls.map(([options])=>options).filter(options=>options?.partialGraph?.edges?.length===data.edges.length);
+  expect(focusFrames.length).toBeGreaterThan(0);
+  // Sigma clears program indexes during scheduled full refreshes. Focus also
+  // changes edge programs, so its frames must never take the repaint-only path.
+  expect(focusFrames.every(options=>options?.skipIndexation!==true)).toBe(true);
+  await tick(time+400);
+  expect(visibleSlugs()).toEqual(['c','d','e','f']);
+});
+it('restores the expanded neighborhood and its camera after route return',async()=>{
+  useTwoNeighborhoods();reducedMotion=true;await mount();await act(async()=>completeLayout());await tick(1);await tick(2);await clickNeighborhood('Alpha');
+  const camera={...latest().camera.state};await act(async()=>router.navigate('/'));await act(async()=>router.navigate('/graph'));await tick(time+1);
+  expect(visibleSlugs()).toEqual(['a','b','c']);expect(latest().camera.state).toEqual(camera);
+});
+
+it('reveals grouped notes on zoom and collapses them again on zoom out',async()=>{
+  useTwoNeighborhoods();reducedMotion=true;await mount();await act(async()=>completeLayout());await tick(1);await tick(2);
+  const ratio=latest().camera.state.ratio;
+  latest().camera.setState({ratio:ratio/3});await act(async()=>vi.advanceTimersByTime(100));await tick(3);await tick(4);
+  expect(visibleSlugs()).toHaveLength(7);
+  latest().camera.setState({ratio});await act(async()=>vi.advanceTimersByTime(100));await tick(5);await tick(6);
+  expect(visibleSlugs()).toEqual(['alone']);
+});
+it('keeps an expanded neighborhood revealed when resized',async()=>{
+  useTwoNeighborhoods();reducedMotion=true;await mount();await act(async()=>completeLayout());await tick(1);await tick(2);await clickNeighborhood('Alpha');
+  latest().dimensions={width:390,height:844};await act(async()=>resizeGraph());await tick(time+1);await tick(time+1);
+  expect(visibleSlugs()).toEqual(['a','b','c']);
+});
+it('does not interpret the in-flight expansion camera as a user zoom-out',async()=>{
+  useTwoNeighborhoods();await mount();await act(async()=>completeLayout());await tick(2000);await tick(2001);
+  // A real camera animates over multiple render frames rather than jumping instantly.
+  latest().camera.isAnimated=()=>true;
+  latest().camera.animate.mockImplementation(async()=>{});
+  await clickNeighborhood('Alpha');await tick(time+400);
+  expect(visibleSlugs()).toEqual(['a','b','c']);
+});
+it('can zoom back to the hub after restoring an expanded neighborhood',async()=>{
+  useTwoNeighborhoods();reducedMotion=true;await mount();await act(async()=>completeLayout());await tick(1);await tick(2);
+  const overviewRatio=latest().camera.state.ratio;await clickNeighborhood('Alpha');
+  await act(async()=>router.navigate('/'));await act(async()=>router.navigate('/graph'));await tick(time+1);
+  latest().camera.setState({ratio:overviewRatio*1.25});await act(async()=>vi.advanceTimersByTime(100));await tick(time+1);await tick(time+1);
+  expect(visibleSlugs()).toEqual(['alone']);
+});
+it('recovers to a usable overview when same-vault revalidation removes the expanded group',async()=>{
+  useTwoNeighborhoods();reducedMotion=true;await mount();await act(async()=>completeLayout());await tick(1);await tick(2);await clickNeighborhood('Alpha');
+  data={...data,edges:[]};await act(async()=>router.revalidate());
+  await act(async()=>completeLayout());await tick(time+1);await tick(time+1);
+  expect(visibleSlugs()).toEqual(['a','alone','b','c','d','e','f']);
+  expect(host.querySelector('[aria-live="polite"]')?.textContent).toBe('Graph overview active.');
+});
+it('completes the deterministic fallback so a silent worker cannot disable expansion',async()=>{
+  useTwoNeighborhoods();reducedMotion=true;await mount();
+  await act(async()=>vi.advanceTimersByTime(1001));await tick(1001);await tick(1002);
+  latest().camera.animate.mockClear();await clickNeighborhood('Alpha');
+  expect(visibleSlugs()).toEqual(['a','b','c']);
+  expect(latest().camera.animate).toHaveBeenCalled();
+});
+it('uses the deterministic fallback when the browser cannot construct a worker',async()=>{
+  useTwoNeighborhoods();reducedMotion=true;
+  vi.stubGlobal('Worker',class {constructor(){throw new Error('Worker unavailable');}});
+  await mount();await tick(1);await tick(2);await clickNeighborhood('Alpha');
+  expect(visibleSlugs()).toEqual(['a','b','c']);
+  expect(host.querySelector('[role="alert"]')).toBeNull();
+});
+it('ignores a late worker response after falling back to the usable layout',async()=>{
+  useTwoNeighborhoods();reducedMotion=true;await mount();
+  await act(async()=>vi.advanceTimersByTime(1001));await tick(1001);await tick(1002);
+  latest().camera.animate.mockClear();await act(async()=>completeLayout());await tick(1003);
+  expect(latest().camera.animate).not.toHaveBeenCalled();
+});
+
+
+async function startMemoryOverview() {
+  useTwoNeighborhoods();reducedMotion=true;await mount();await act(async()=>completeLayout());await tick(1);await tick(2);
+}
+async function clickMemory() {
+  await act(async()=>host.querySelector<HTMLButtonElement>('.graph-memory-hub')!.click());await tick(time+601);await tick(time+1);
+}
+const allMemorySlugs=['a','alone','b','c','d','e','f'];
+const notePositions=()=>Object.fromEntries(latest().graph.nodes().map(slug=>[slug,{x:latest().graph.getNodeAttribute(slug,'x'),y:latest().graph.getNodeAttribute(slug,'y')}]));
+it.each([['pointerdown',true],['keydown',true],['pointerdown',false],['keydown',false]] as const)('hands entrance appearance to memory continuously through %s capture (all notes: %s)',async(input,allNotes)=>{
+  await startMemoryOverview();if(allNotes) await clickMemory();
+  await act(async()=>router.navigate('/'));reducedMotion=false;
+  await act(async()=>router.navigate('/graph'));await tick(time+400);
+  expect(frame().clock?.mode).toBe('entrance');
+  const before={...latest().nodes.get('alone')};
+  const edge=[...latest().edges.values()].find(edge=>Number(edge.neuralDelayMs)<0)!;
+  expect(edge).toBeDefined();
+  const delay=-(Number(edge.neuralDelayMs)+1);
+  const progress=1-Math.pow(1-Math.max(0,Math.min(1,(400-delay-120)/560)),3);
+  const frameCount=latest().frames.length;
+  const hub=host.querySelector<HTMLButtonElement>('.graph-memory-hub')!;
+  await act(async()=>{
+    hub.dispatchEvent(input==='keydown' ? new KeyboardEvent('keydown',{key:'Enter',bubbles:true}) : new Event('pointerdown',{bubbles:true}));
+    hub.click();
+  });
+  expect(latest().nodes.get('alone')).toMatchObject({size:before.size,color:before.color,entranceLabelOpacity:before.entranceLabelOpacity});
+  for(const next of latest().frames.slice(frameCount)) {
+    const node=next.nodes.find(node=>node.graphSlug==='alone')!;
+    expect(node).toMatchObject({size:before.size,color:before.color,entranceLabelOpacity:before.entranceLabelOpacity});
+  }
+  if(allNotes) expect([...latest().edges.values()].find(next=>next.neuralRevealReversed)).toMatchObject({neuralRevealProgress:progress,color:edge.color});
+  else expect([...latest().edges.values()].every(next=>next.hidden)).toBe(true);
+  expect(frame().clock?.mode).toBe('disclosure');
+  await tick(time+(allNotes ? 350 : 600));expect(visibleSlugs()).toEqual(allNotes ? ['alone'] : allMemorySlugs);
+  await tick(time+1000);expect(frame().clock).toBeNull();
+});
+it('does not apply isolation twice when reopening memory halfway through a selection fade',async()=>{
+  await startMemoryOverview();await clickMemory();reducedMotion=false;
+  await act(async()=>latest().emit('clickNode',{node:'a'}));await tick(time+140);
+  const before={...latest().nodes.get('alone')};
+  expect(before.color).toMatch(/,0\.5\)$/);
+  const frameCount=latest().frames.length;
+  await act(async()=>host.querySelector<HTMLButtonElement>('.graph-memory-hub')!.click());
+  for(const next of latest().frames.slice(frameCount)) {
+    const node=next.nodes.find(node=>node.graphSlug==='alone')!;
+    expect(node).toMatchObject({size:before.size,color:before.color,entranceLabelOpacity:before.entranceLabelOpacity});
+  }
+  await tick(time+600);expect(visibleSlugs()).toEqual(allMemorySlugs);
+  expect(latest().nodes.get('alone')!.entranceLabelOpacity).toBe(1);
+});
+it('opens memory with notes before real-edge traces and labels, without replaying entrance',async()=>{
+  await startMemoryOverview();reducedMotion=false;const positions=notePositions();
+  await act(async()=>host.querySelector<HTMLButtonElement>('.graph-memory-hub')!.click());const start=time;
+  expect(frame().clock?.mode).toBe('disclosure');expect([...latest().edges.values()].every(edge=>edge.hidden)).toBe(true);
+  await tick(start+100);
+  expect(visibleSlugs().length).toBeGreaterThan(1);
+  expect([...latest().edges.values()].every(edge=>edge.hidden)).toBe(true);
+  expect(latest().nodes.get('a')!.entranceLabelOpacity).toBe(0);
+  await tick(start+300);
+  expect([...latest().edges.values()].some(edge=>Number(edge.neuralRevealProgress)>0 && Number(edge.neuralRevealProgress)<1)).toBe(true);
+  expect(latest().nodes.get('a')!.entranceLabelOpacity).toBe(0);
+  await tick(start+600);
+  expect(frame().clock?.mode).not.toBe('disclosure');expect(visibleSlugs()).toEqual(allMemorySlugs);
+  expect([...latest().nodes.values()].every(node=>node.entranceLabelOpacity===1)).toBe(true);
+  expect(notePositions()).toEqual(positions);expect(latest().graph.order).toBe(7);expect(latest().graph.size).toBe(7);
+});
+it('closes real links before notes retract and leaves the independent note steady',async()=>{
+  await startMemoryOverview();await clickMemory();reducedMotion=false;
+  const alone={...latest().nodes.get('alone')};
+  await act(async()=>host.querySelector<HTMLButtonElement>('.graph-memory-hub')!.click());const start=time;
+  await tick(start+160);
+  expect([...latest().edges.values()].every(edge=>edge.hidden)).toBe(true);
+  expect(visibleSlugs().length).toBeGreaterThan(1);expect(latest().nodes.get('a')!.entranceLabelOpacity).toBe(0);
+  expect(latest().nodes.get('alone')).toMatchObject({size:alone.size,color:alone.color,entranceLabelOpacity:alone.entranceLabelOpacity});
+  await tick(start+350);expect(visibleSlugs()).toEqual(['alone']);expect(frame().clock?.mode).not.toBe('disclosure');
+});
+it('samples memory appearance from the original snapshot rather than compounding each frame',async()=>{
+  await startMemoryOverview();reducedMotion=false;
+  await act(async()=>host.querySelector<HTMLButtonElement>('.graph-memory-hub')!.click());const start=time;
+  const base=latest().graph.getNodeAttribute('c','size');
+  await tick(start+100);expect(latest().nodes.get('c')!.size/base).toBeCloseTo(.62875,5);
+  await tick(start+200);expect(latest().nodes.get('c')!.size/base).toBeCloseTo(.9466436,5);
+});
+it('fades real links on the static fallback without requiring the neural trace clock',async()=>{
+  rendererCapabilities.neural=false;vi.spyOn(console,'warn').mockImplementation(()=>{});
+  await startMemoryOverview();reducedMotion=false;
+  await act(async()=>host.querySelector<HTMLButtonElement>('.graph-memory-hub')!.click());const start=time;
+  await tick(start+100);expect([...latest().edges.values()].every(edge=>edge.hidden)).toBe(true);
+  await tick(start+300);expect([...latest().edges.values()].some(edge=>!edge.hidden)).toBe(true);
+  expect([...latest().edges.values()].every(edge=>edge.type!=='neural')).toBe(true);expect(frame().clock).toBeNull();
+  await tick(start+600);expect(visibleSlugs()).toEqual(allMemorySlugs);expect([...latest().edges.values()].every(edge=>!edge.hidden)).toBe(true);
+});
+it('reverses a memory trace from its current node and edge appearance',async()=>{
+  await startMemoryOverview();reducedMotion=false;
+  const hub=host.querySelector<HTMLButtonElement>('.graph-memory-hub')!;
+  await act(async()=>hub.click());await tick(time+280);
+  const appearance=()=>({nodes:[...latest().nodes.values()].map(({size,color,entranceLabelOpacity})=>({size,color,entranceLabelOpacity})),edges:[...latest().edges.values()].map(edge=>edge.neuralRevealProgress)});
+  const opening=appearance();await act(async()=>hub.click());expect(appearance()).toEqual(opening);
+  await tick(time+90);const closing=appearance();await act(async()=>hub.click());expect(appearance()).toEqual(closing);
+  await tick(time+600);expect(visibleSlugs()).toEqual(allMemorySlugs);expect(frame().clock?.mode).not.toBe('disclosure');
+});
+it('does not restart memory choreography for camera updates or allow hover to steal its shader clock',async()=>{
+  await startMemoryOverview();reducedMotion=false;
+  await act(async()=>host.querySelector<HTMLButtonElement>('.graph-memory-hub')!.click());const start=time;
+  await tick(start+280);await act(async()=>latest().emit('enterNode',{node:'a'}));
+  expect(frame().clock?.mode).toBe('disclosure');
+  latest().camera.setState({x:latest().camera.state.x+.01});await act(async()=>resizeGraph());
+  await tick(start+600);expect(frame().clock?.mode).not.toBe('disclosure');
+  expect([...latest().nodes.values()].every(node=>node.entranceLabelOpacity===1)).toBe(true);
+});
+it('gives a selected note ownership of the renderer when it interrupts memory opening',async()=>{
+  await startMemoryOverview();reducedMotion=false;
+  await act(async()=>host.querySelector<HTMLButtonElement>('.graph-memory-hub')!.click());await tick(time+280);
+  expect(frame().clock?.mode).toBe('disclosure');
+  await act(async()=>latest().emit('clickNode',{node:'a'}));await tick(time+300);
+  expect(frame().clock?.mode).toBe('selection');expect(visibleSlugs()).toEqual(['a','b','c']);
+  await tick(time+800);expect(frame().clock?.mode).toBe('selection');expect(visibleSlugs()).toEqual(['a','b','c']);
+});
+it('settles memory choreography immediately when reduced motion changes mid-flight',async()=>{
+  await startMemoryOverview();reducedMotion=false;
+  await act(async()=>host.querySelector<HTMLButtonElement>('.graph-memory-hub')!.click());await tick(time+100);
+  expect(frame().clock?.mode).toBe('disclosure');
+  reducedMotion=true;await act(async()=>motionChange());
+  expect(frame().clock?.mode).not.toBe('disclosure');expect(visibleSlugs()).toEqual(allMemorySlugs);
+  expect([...latest().nodes.values()].every(node=>node.entranceLabelOpacity===1)).toBe(true);
+  await tick(time+800);expect(frame().clock?.mode).not.toBe('disclosure');
+});
+it('cancels the memory frame and shader clock on route teardown',async()=>{
+  await startMemoryOverview();reducedMotion=false;
+  await act(async()=>host.querySelector<HTMLButtonElement>('.graph-memory-hub')!.click());await tick(time+180);
+  const renderer=latest();expect(getGraphNeuralRendererAnimationState(renderer)?.mode).toBe('disclosure');
+  await act(async()=>router.navigate('/'));const count=renderer.frames.length;
+  await tick(time+800);expect(renderer.frames).toHaveLength(count);expect(getGraphNeuralRendererAnimationState(renderer)).toBeNull();
+});
+it.each(['filter','neighborhood'] as const)('lets %s exploration replace a memory trace without a late reveal',async destination=>{
+  await startMemoryOverview();reducedMotion=false;
+  await act(async()=>host.querySelector<HTMLButtonElement>('.graph-memory-hub')!.click());await tick(time+280);
+  expect(frame().clock?.mode).toBe('disclosure');
+  if(destination==='filter') {
+    await act(async()=>[...host.querySelectorAll<HTMLButtonElement>('.graph-color-legend button')].find(button=>button.textContent?.startsWith('Alpha'))!.click());
+  } else {
+    await act(async()=>host.querySelector<HTMLInputElement>('[aria-label="Find a concept"]')!.focus());
+    await act(async()=>host.querySelector<HTMLButtonElement>('#graph-node-index [aria-label="Explore Alpha neighborhood, 3 notes"]')!.click());
+  }
+  await tick(time+500);expect(frame().clock?.mode).not.toBe('disclosure');
+  const visible=visibleSlugs();await tick(time+800);expect(visibleSlugs()).toEqual(visible);
+  if(destination==='neighborhood') expect(visible).toEqual(['a','b','c']);
+  else expect([...host.querySelectorAll<HTMLButtonElement>('.graph-color-legend button')].find(button=>button.textContent?.startsWith('Alpha'))?.getAttribute('aria-pressed')).toBe('true');
+});
+it('toggles all notes and real links without adding records or moving the layout',async()=>{
+  await startMemoryOverview();const positions=notePositions();
+  await clickMemory();expect(visibleSlugs()).toEqual(allMemorySlugs);
+  expect([...latest().edges.values()].filter(edge=>!edge.hidden)).toHaveLength(7);
+  expect(latest().graph.order).toBe(7);expect(latest().graph.size).toBe(7);expect(notePositions()).toEqual(positions);
+  expect(host.querySelector('.graph-memory-hub')?.getAttribute('aria-label')).toBe('Show neighborhoods');
+  expect([...host.querySelectorAll<HTMLButtonElement>('.graph-neighborhood-anchor')].every(button=>button.hidden)).toBe(true);
+  await clickMemory();expect(visibleSlugs()).toEqual(['alone']);expect(notePositions()).toEqual(positions);
+  expect(host.querySelector('.graph-memory-hub')?.getAttribute('aria-label')).toBe('Show all notes');
+});
+it('keeps all-notes mode through zoom-out, resize and route return without rerunning layout',async()=>{
+  await startMemoryOverview();await clickMemory();
+  latest().camera.setState({ratio:latest().camera.state.ratio*3});await act(async()=>vi.advanceTimersByTime(100));await tick(time+1);await tick(time+1);
+  expect(visibleSlugs()).toEqual(allMemorySlugs);
+  latest().dimensions={width:660,height:800};await act(async()=>resizeGraph());await tick(time+1);
+  expect(visibleSlugs()).toEqual(allMemorySlugs);
+  const camera={...latest().camera.state},positions=notePositions();
+  await act(async()=>router.navigate('/'));await act(async()=>router.navigate('/graph'));await tick(time+1);await tick(time+1);
+  expect(visibleSlugs()).toEqual(allMemorySlugs);expect(latest().camera.state).toEqual(camera);expect(notePositions()).toEqual(positions);
+  expect(graphViewCache.read(data.vaultId,graphTopologyKey(data))?.allNotes).toBe(true);
+  expect(latest().camera.animate).not.toHaveBeenCalled();
+});
+it('returns selection and filters to all notes rather than collapsing an already active all-notes mode',async()=>{
+  await startMemoryOverview();await clickMemory();
+  await act(async()=>latest().emit('clickNode',{node:'a'}));await tick(time+1);
+  expect(visibleSlugs()).toEqual(['a','b','c']);
+  await clickMemory();expect(visibleSlugs()).toEqual(allMemorySlugs);expect(host.querySelector('#graph-node-details-title')).toBeNull();
+  await act(async()=>[...host.querySelectorAll<HTMLButtonElement>('.graph-color-legend button')].find(button=>button.textContent?.startsWith('Alpha'))!.click());await tick(time+1);
+  await clickMemory();expect(visibleSlugs()).toEqual(allMemorySlugs);
+  expect([...host.querySelectorAll<HTMLButtonElement>('.graph-color-legend button')].find(button=>button.textContent==='All')?.getAttribute('aria-pressed')).toBe('true');
+});
+it('closing note details or clicking empty background does not collapse all notes',async()=>{
+  await startMemoryOverview();await clickMemory();
+  await act(async()=>latest().emit('clickNode',{node:'d'}));await tick(time+1);
+  await act(async()=>host.querySelector<HTMLButtonElement>('[aria-label="Close node details"]')!.click());await tick(time+1);
+  expect(visibleSlugs()).toEqual(allMemorySlugs);
+  await act(async()=>latest().emit('clickStage',{event:{x:0,y:0}}));await tick(time+1);expect(visibleSlugs()).toEqual(allMemorySlugs);
+});
+it('keeps the camera anchored when opening all notes already inside the usable viewport',async()=>{
+  await startMemoryOverview();
+  for(const [i,slug] of latest().graph.nodes().entries()) latest().graph.mergeNodeAttributes(slug,{x:i*10,y:i*5});
+  latest().refresh();latest().camera.setState({x:.5,y:.5,ratio:1});latest().camera.animate.mockClear();
+  const camera={...latest().camera.state};await clickMemory();
+  expect(visibleSlugs()).toEqual(allMemorySlugs);expect(latest().camera.state).toEqual(camera);expect(latest().camera.animate).not.toHaveBeenCalled();
+});
+it('reveals offscreen notes and explicit Fit includes the outermost real notes',async()=>{
+  await startMemoryOverview();latest().camera.setState({x:2,y:2,ratio:.2});
+  await clickMemory();expect(visibleSlugs()).toEqual(allMemorySlugs);
+  for(const slug of allMemorySlugs) {
+    const p=latest().framedGraphToViewport(latest().getNodeDisplayData(slug)!);
+    expect(p.x).toBeGreaterThanOrEqual(20);expect(p.x).toBeLessThanOrEqual(1180);
+    expect(p.y).toBeGreaterThanOrEqual(84);expect(p.y).toBeLessThanOrEqual(780);
+  }
+  latest().graph.mergeNodeAttributes('a',{x:900,y:0});latest().refresh();
+  await act(async()=>host.querySelector<HTMLButtonElement>('[aria-label="Fit graph"]')!.click());await tick(time+1);
+  const outer=latest().framedGraphToViewport(latest().getNodeDisplayData('a')!);
+  expect(outer.x).toBeLessThanOrEqual(1180);expect(outer.x).toBeGreaterThanOrEqual(20);
+});
+it('settles rapid show-hide-show at the last choice without a recall pulse',async()=>{
+  await startMemoryOverview();reducedMotion=false;
+  const hub=host.querySelector<HTMLButtonElement>('.graph-memory-hub')!;
+  await act(async()=>hub.click());await tick(time+80);
+  await act(async()=>hub.click());await tick(time+80);
+  await act(async()=>hub.click());await tick(time+400);await tick(time+1);
+  expect(visibleSlugs()).toEqual(allMemorySlugs);expect(frame().clock?.mode).not.toBe('selection');
+  expect(host.querySelector('.graph-memory-hub')?.getAttribute('aria-label')).toBe('Show neighborhoods');
+});
+it('applies the all-notes reveal immediately with reduced motion and ignores focus alone',async()=>{
+  await startMemoryOverview();const hub=host.querySelector<HTMLButtonElement>('.graph-memory-hub')!;
+  await act(async()=>hub.focus());expect(visibleSlugs()).toEqual(['alone']);
+  await act(async()=>hub.click());expect(visibleSlugs()).toEqual(allMemorySlugs);
+  expect([...latest().nodes.values()].every(node=>node.entranceLabelOpacity===1)).toBe(true);
+  expect(frame().clock?.mode).not.toBe('selection');
+});
+it('lets a neighborhood selection leave explicit all-notes mode',async()=>{
+  await startMemoryOverview();await clickMemory();
+  await act(async()=>host.querySelector<HTMLInputElement>('[aria-label="Find a concept"]')!.focus());
+  await act(async()=>host.querySelector<HTMLButtonElement>('#graph-node-index [aria-label="Explore Alpha neighborhood, 3 notes"]')!.click());await tick(time+1);
+  expect(visibleSlugs()).toEqual(['a','b','c']);
+  await clickMemory();expect(visibleSlugs()).toEqual(allMemorySlugs);
+});
+
+it.each([false,true])('keeps an already suitable camera when collapsing all notes back to neighborhoods (reduced motion: %s)',async motion=>{
+  await startMemoryOverview();await clickMemory();reducedMotion=motion;const camera={...latest().camera.state};latest().camera.animate.mockClear();
+  await act(async()=>host.querySelector<HTMLButtonElement>('.graph-memory-hub')!.click());await tick(time+16);await tick(time+600);expect(visibleSlugs()).toEqual(['alone']);
+  expect(latest().camera.state).toEqual(camera);expect(latest().camera.animate).not.toHaveBeenCalled();
+});
+it('does not let an earlier compact Fit capture the next all-notes reveal',async()=>{
+  await startMemoryOverview();reducedMotion=false;
+  let completeFit!:()=>void;
+  latest().camera.animate.mockImplementation(()=>new Promise<void>(resolve=>{completeFit=resolve;}));
+  await act(async()=>host.querySelector<HTMLButtonElement>('[aria-label="Fit graph"]')!.click());await tick(time+1);
+  const oldFit=completeFit;cancelMotion.mockClear();
+  await clickMemory();expect(visibleSlugs()).toEqual(allMemorySlugs);expect(cancelMotion).toHaveBeenCalled();
+  await act(async()=>oldFit());await tick(time+1);expect(visibleSlugs()).toEqual(allMemorySlugs);
+});
+it('keeps explicit all-notes Fit running through a reactive viewport measurement',async()=>{
+  await startMemoryOverview();await clickMemory();reducedMotion=false;
+  let completeFit!:()=>void;
+  latest().camera.animate.mockImplementation(()=>new Promise<void>(resolve=>{completeFit=resolve;}));
+  await act(async()=>host.querySelector<HTMLButtonElement>('[aria-label="Fit graph"]')!.click());await tick(time+1);
+  cancelMotion.mockClear();latest().camera.animate.mockClear();
+  await act(async()=>resizeGraph());await tick(time+1);
+  expect(cancelMotion).not.toHaveBeenCalled();expect(latest().camera.animate).not.toHaveBeenCalled();
+  await act(async()=>completeFit());await tick(time+1);expect(visibleSlugs()).toEqual(allMemorySlugs);
+});
+it('keeps graphs with no neighborhoods fully visible without a synthetic hub record',async()=>{
+  reducedMotion=true;data.edges=[];await mount();await act(async()=>completeLayout());await tick(1);await tick(2);
+  expect(visibleSlugs()).toEqual(['a','b','isolated']);expect(latest().graph.order).toBe(3);expect(latest().graph.size).toBe(0);
+  expect(host.querySelector<HTMLButtonElement>('.graph-memory-hub')!.hidden).toBe(true);
+});
+it('keeps an empty graph usable without a meaningless all-notes action',async()=>{
+  data.nodes=[];data.edges=[];await mount();
+  expect(host.textContent).toContain('No notes to map yet');expect(host.querySelector('.graph-memory-hub')).toBeNull();
+});
+
+it('restores usable neighborhood controls when collapsing from a far zoomed-out all-notes view',async()=>{
+  await startMemoryOverview();
+  expect(host.querySelectorAll('.graph-neighborhood-anchor:not([hidden])')).toHaveLength(2);
+  await clickMemory();
+  const zoomedOut=latest().camera.state.ratio*10;
+  latest().camera.setState({ratio:zoomedOut});await act(async()=>vi.advanceTimersByTime(100));await tick(time+1);
+  await clickMemory();
+  expect(visibleSlugs()).toEqual(['alone']);
+  expect(host.querySelectorAll('.graph-neighborhood-anchor:not([hidden])')).toHaveLength(2);
+  expect(latest().camera.state.ratio).toBeLessThan(zoomedOut);
+});
+
+it.each([
+  {name:'horizontal desktop',width:1200,height:800,x:900,y:0},
+  {name:'vertical desktop',width:1200,height:800,x:0,y:900},
+  {name:'horizontal narrow',width:390,height:844,x:900,y:0},
+])('keeps the complete hub and off-center notes in view during reveal and Fit ($name)',async({width,height,x,y})=>{
+  await startMemoryOverview();
+  latest().dimensions={width,height};
+  for(const [i,slug] of latest().graph.nodes().entries()) latest().graph.mergeNodeAttributes(slug,{x:x+i*2,y:y+i*3});
+  latest().refresh();const positions=notePositions();
+  await clickMemory();
+  const assertFullMemory=()=>{
+    const hub=latest().graphToViewport({x:0,y:0});
+    expect(hub.x).toBeGreaterThanOrEqual(84);expect(hub.x).toBeLessThanOrEqual(width-84);
+    expect(hub.y).toBeGreaterThanOrEqual(102);expect(hub.y).toBeLessThanOrEqual(height-74);
+    for(const slug of allMemorySlugs) {
+      const node=latest().framedGraphToViewport(latest().getNodeDisplayData(slug)!);
+      expect(node.x).toBeGreaterThanOrEqual(20);expect(node.x).toBeLessThanOrEqual(width-20);
+      expect(node.y).toBeGreaterThanOrEqual(84);expect(node.y).toBeLessThanOrEqual(height-20);
+    }
+    expect(host.querySelector('.graph-memory-hub')?.classList.contains('is-docked')).toBe(false);
+    expect(notePositions()).toEqual(positions);expect(latest().graph.order).toBe(7);expect(latest().graph.size).toBe(7);
+  };
+  assertFullMemory();
+  latest().camera.setState({x:2,y:2,ratio:.3});
+  await act(async()=>host.querySelector<HTMLButtonElement>('[aria-label="Fit graph"]')!.click());await tick(time+1);await tick(time+1);
+  assertFullMemory();
+});
+
+it('preserves a suitable overview camera when closing an independent note opened from folded mode',async()=>{
+  await startMemoryOverview();
+  latest().camera.setState({x:latest().camera.state.x+.005,y:latest().camera.state.y+.005,ratio:latest().camera.state.ratio*1.04});latest().refresh();
+  await act(async()=>latest().emit('clickNode',{node:'alone'}));await tick(time+1);await tick(time+1);
+  const camera={...latest().camera.state};latest().camera.animate.mockClear();
+  await act(async()=>host.querySelector<HTMLButtonElement>('[aria-label="Close node details"]')!.click());await tick(time+1);await tick(time+1);
+  expect(latest().camera.state).toEqual(camera);expect(latest().camera.animate).not.toHaveBeenCalled();
+  expect(visibleSlugs()).toEqual(['alone']);
 });

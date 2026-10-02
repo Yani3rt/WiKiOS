@@ -1,3 +1,4 @@
+import type { GraphNeighborhood } from "@/client/graph-neighborhoods";
 import { GRAPH_COMPACT_WIDTH } from "@/client/graph-camera";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
@@ -10,6 +11,8 @@ import { getGraphIndexNodes, getNextGraphIndex, GRAPH_INDEX_INITIAL_VISIBLE_COUN
 
 export function GraphSearch({
   nodes,
+  neighborhoods = [],
+  onSelectNeighborhood,
   onSelect,
   onCompactSearchInteraction,
   detailPanelCollapsed,
@@ -19,6 +22,8 @@ export function GraphSearch({
   setSearch,
 }: {
   nodes: GraphNode[];
+  neighborhoods?: readonly GraphNeighborhood[];
+  onSelectNeighborhood?: (group:GraphNeighborhood) => void;
   onSelect: (slug: string) => void;
   onCompactSearchInteraction: () => void;
   detailPanelCollapsed: boolean;
@@ -232,6 +237,15 @@ export function GraphSearch({
             </button>
           </div>
 
+          {neighborhoods.length > 0 && onSelectNeighborhood && !query.trim() && (
+            <div className="graph-search-neighborhoods" aria-label="Knowledge neighborhoods">
+              {neighborhoods.map(group => <button type="button" key={group.id}
+                aria-label={`Explore ${group.label} neighborhood, ${group.members.length} notes`}
+                onClick={() => {searchInputRef.current?.blur();closeIndex(false);onSelectNeighborhood(group);}}>
+                {group.label}
+              </button>)}
+            </div>
+          )}
           <p className="sr-only">Use the arrow keys to move between notes and Enter to select.</p>
           {results.length > 0 ? (
             <ul className="graph-node-index-list max-h-[14.25rem] lg:max-h-[min(62vh,34rem)] overflow-y-auto py-1">

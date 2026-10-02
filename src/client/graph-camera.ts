@@ -2,6 +2,24 @@ export const GRAPH_COMPACT_WIDTH = 1024;
 export interface GraphPoint { x: number; y: number; }
 export interface GraphBounds { left: number; top: number; right: number; bottom: number; }
 
+/** Minimum camera correction, expressed around the selected note in viewport space. */
+export function getGraphRevealGeometry(points: GraphPoint[], bounds: GraphBounds) {
+  const valid=points.filter(point=>Number.isFinite(point.x)&&Number.isFinite(point.y));
+  if(!valid.length) return null;
+  const width=Math.max(1,bounds.right-bounds.left),height=Math.max(1,bounds.bottom-bounds.top);
+  const paddingX=Math.min(24,width*.1),paddingY=Math.min(24,height*.1);
+  const safe={left:bounds.left+paddingX,right:bounds.right-paddingX,top:bounds.top+paddingY,bottom:bounds.bottom-paddingY};
+  let left=Infinity,right=-Infinity,top=Infinity,bottom=-Infinity;
+  for(const point of valid) {left=Math.min(left,point.x);right=Math.max(right,point.x);top=Math.min(top,point.y);bottom=Math.max(bottom,point.y);}
+  const scale=Math.max(1,(right-left)/(safe.right-safe.left),(bottom-top)/(safe.bottom-safe.top));
+  const anchor=valid[0];
+  const correction=(low:number,high:number,min:number,max:number)=>low<min?min-low:high>max?max-high:0;
+  const dx=correction(anchor.x+(left-anchor.x)/scale,anchor.x+(right-anchor.x)/scale,safe.left,safe.right);
+  const dy=correction(anchor.y+(top-anchor.y)/scale,anchor.y+(bottom-anchor.y)/scale,safe.top,safe.bottom);
+  if(scale<=1.001 && Math.abs(dx)<.5 && Math.abs(dy)<.5) return null;
+  return {anchor,scale,target:{x:anchor.x+dx,y:anchor.y+dy}};
+}
+
 /** Coordinates are relative to the full-screen canvas; chrome never owns its center. */
 export function getGraphUsableViewport({width, height, headerBottom = 64, searchBottom = 0, details, legend, toolbar}: {
   width: number; height: number; headerBottom?: number; searchBottom?: number;
@@ -22,7 +40,7 @@ export function getGraphUsableViewport({width, height, headerBottom = 64, search
 }
 
 /** Fit points projected at camera ratio 1, leaving room for node cores and labels. */
-export function getGraphFitGeometry(points: GraphPoint[], bounds: GraphBounds) {
+export function getGraphFitGeometry(points: GraphPoint[], bounds: GraphBounds, minimumPadding: GraphPoint = {x:0,y:0}) {
   const valid = points.filter(point => Number.isFinite(point.x) && Number.isFinite(point.y));
   if (!valid.length) return null;
   let left=Infinity, right=-Infinity, top=Infinity, bottom=-Infinity;
@@ -31,11 +49,14 @@ export function getGraphFitGeometry(points: GraphPoint[], bounds: GraphBounds) {
     top=Math.min(top,point.y); bottom=Math.max(bottom,point.y);
   }
   const width=Math.max(1,bounds.right-bounds.left), height=Math.max(1,bounds.bottom-bounds.top);
-  const paddingX=Math.min(92,width*.14), paddingY=Math.min(32,height*.14);
+  // Fixed-size navigation controls need their full extents even on narrow screens.
+  // Keep a finite projection when the viewport is too small to fit the control.
+  const paddingX=Math.min((width-1)/2,Math.max(minimumPadding.x,Math.min(92,width*.14)));
+  const paddingY=Math.min((height-1)/2,Math.max(minimumPadding.y,Math.min(52,height*.14)));
   return {
     center:{x:(left+right)/2,y:(top+bottom)/2},
     target:{x:(bounds.left+bounds.right)/2,y:(bounds.top+bounds.bottom)/2},
-    ratio:Math.max(.55,(right-left)/(width-2*paddingX),(bottom-top)/(height-2*paddingY)),
+    ratio:Math.max(valid.length===1 ? .55 : .18,(right-left)/(width-2*paddingX),(bottom-top)/(height-2*paddingY)),
   };
 }
 

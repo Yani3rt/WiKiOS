@@ -1,9 +1,9 @@
 import { expect, it } from 'vitest';
 import { createGraphViewCache, graphTopologyKey } from '../src/client/graph-view-state';
 
-const data = {nodes:[{slug:'a'},{slug:'b'}], edges:[{source:'a',target:'b'}]};
+const data = {nodes:[{slug:'a'},{slug:'b'}], edges:[{source:'a',target:'b',weight:1}]};
 const state = {
-  layoutReady:true, focusedSlug:'a', detailPanelCollapsed:true, activeGroup:'topic:ai',
+  allNotes:false, expandedNeighborhood:null, detailLevel:'overview' as const, layoutReady:true, focusedSlug:'a', detailPanelCollapsed:true, activeGroup:'topic:ai',
   search:{query:'a',indexOpen:true,visibleResultCount:20},
   camera:{x:.4,y:.6,ratio:.7,angle:0},
   positions:{a:{x:10,y:20},b:{x:30,y:40}},
@@ -18,7 +18,7 @@ it('restores the full exploration state only for the same vault and topology', (
 });
 it('ignores response ordering but invalidates changed relationships', () => {
   expect(graphTopologyKey(data)).toBe(graphTopologyKey({...data,nodes:[...data.nodes].reverse()}));
-  expect(graphTopologyKey(data)).not.toBe(graphTopologyKey({...data,edges:[{source:'b',target:'a'}]}));
+  expect(graphTopologyKey(data)).not.toBe(graphTopologyKey({...data,edges:[{source:'b',target:'a',weight:1}]}));
 });
 it('replaces old snapshots on each departure', () => {
   const cache=createGraphViewCache();
@@ -32,4 +32,11 @@ it('retains whether layout finished so a StrictMode cleanup cannot skip the work
   const cache=createGraphViewCache();
   cache.save('v','key',{...state,layoutReady:false});
   expect(cache.read('v','key')?.layoutReady).toBe(false);
+});
+
+it('invalidates completed layouts when link strengths change without changing endpoints', () => {
+  const cache=createGraphViewCache();
+  cache.save('v',graphTopologyKey(data),state);
+  const changed={...data,edges:data.edges.map(edge=>({...edge,weight:10}))};
+  expect(cache.read('v',graphTopologyKey(changed))).toBeNull();
 });

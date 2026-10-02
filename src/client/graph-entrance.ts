@@ -8,12 +8,12 @@ export const GRAPH_ENTRANCE_TIMING = {
   edgeTravelMs: 560,
 } as const;
 
-const ease = (value: number) => 1 - Math.pow(1 - Math.max(0, Math.min(1, value)), 3);
+export const graphRevealEase = (value: number) => 1 - Math.pow(1 - Math.max(0, Math.min(1, value)), 3);
 
 export function entranceFrame(elapsed: number, delay: number) {
   return {
-    node: ease((elapsed - delay) / GRAPH_ENTRANCE_TIMING.nodeRevealMs),
-    label: ease((elapsed - GRAPH_ENTRANCE_TIMING.labelStartMs) / GRAPH_ENTRANCE_TIMING.labelRevealMs),
+    node: graphRevealEase((elapsed - delay) / GRAPH_ENTRANCE_TIMING.nodeRevealMs),
+    label: graphRevealEase((elapsed - GRAPH_ENTRANCE_TIMING.labelStartMs) / GRAPH_ENTRANCE_TIMING.labelRevealMs),
   };
 }
 
