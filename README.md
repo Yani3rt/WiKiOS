@@ -4,6 +4,12 @@ WikiOS turns an Obsidian vault into a local web app with a tabbed reading worksp
 
 Originally released as WikiOS under the MIT License. [Ansub/wiki-os.git](https://github.com/Ansub/wiki-os.git); this fork is maintained at [Yani3rt/WiKiOS](https://github.com/Yani3rt/WiKiOS).
 
+## Watch the introduction
+
+A 36-second tour of WikiOS: your local-first Obsidian workspace, read-only vault access, private access over Tailscale, fast search, and an interactive knowledge graph. Recorded with demo notes.
+
+https://github.com/user-attachments/assets/f95fb462-5b2a-40c5-b796-7e942d32fad3
+
 ## App previews
 
 ### Notes workspace
