@@ -115,13 +115,21 @@ export function createGraphNeighborhoodLayer({container,sigma,groups,previews,ge
       const point=sigma.graphToViewport(anchor);
       const buttonWidth=Math.min(180,Math.max(72,group.label.length*7+String(group.members.length).length*7+22));
       const box={left:point.x-buttonWidth/2,right:point.x+buttonWidth/2,top:point.y-18,bottom:point.y+48};
-      if(!inside(box,state.bounds) || [...state.obstacles,...placementBounds].some(other=>overlaps(box,other))) {obstructedAnchors=true;button.hidden=true;return;}
+      const compact=!inside(box,state.bounds) || [...state.obstacles,...placementBounds].some(other=>overlaps(box,other));
+      obstructedAnchors ||= compact;
+      // Cull crowded captions, not the zone itself. The layer naturally clips
+      // offscreen dots, so panning and zooming never remove their hit targets.
+      const placedBox=compact ? {left:point.x-18,right:point.x+18,top:point.y-18,bottom:point.y+18} : box;
+      button.classList.toggle('is-compact',compact);
+      button.querySelector<HTMLElement>('.graph-anchor-caption')!.hidden=compact;
+      // Real chrome still owns its hit area even when a zone dot is underneath it.
+      if(state.obstacles.some(other=>overlaps(placedBox,other))) {button.hidden=true;return;}
       // Opacity is not a layout obstruction: fitting must work before entry fades
       // start, without moving an already suitable camera just to reveal controls.
-      placementBounds.push(box);
+      placementBounds.push(placedBox);
       if(opacity<=.002) {button.hidden=true;return;}
       button.style.setProperty('--neighborhood-color',state.anchorColor(group.id));
-      place(button,box,opacity);
+      place(button,placedBox,opacity);
       if(context && !docked) {
         context.save();context.beginPath();context.rect(state.bounds.left,state.bounds.top,state.bounds.right-state.bounds.left,state.bounds.bottom-state.bounds.top);context.clip();
         context.beginPath();context.setLineDash([1,7]);context.lineCap='round';

@@ -74,6 +74,39 @@ it('does not hide nearby anchors behind empty horizontal hub padding',()=>{
   const {container}=setup({x:120,y:38});
   expect(container.querySelector<HTMLButtonElement>('.graph-neighborhood-anchor')!.hidden).toBe(false);
 });
+it('keeps a zone dot visible when its caption crosses the viewport edge and restores the caption on return',()=>{
+  applyHubStyles();
+  const point={x:275,y:-120};
+  const {container,layer,onSelect}=setup(point);
+  const anchor=container.querySelector<HTMLButtonElement>('.graph-neighborhood-anchor')!;
+  const caption=anchor.querySelector<HTMLElement>('.graph-anchor-caption')!;
+  expect(anchor.hidden).toBe(false);
+  expect(getComputedStyle(anchor.querySelector('.graph-anchor-core')!).display).not.toBe('none');
+  expect(getComputedStyle(caption).display).toBe('none');
+  anchor.click();expect(onSelect).toHaveBeenCalledWith(group);
+  point.x=500;layer.invalidate();expect(anchor.hidden).toBe(false);
+  point.x=120;layer.invalidate();
+  expect(anchor.hidden).toBe(false);expect(getComputedStyle(caption).display).toBe('flex');
+});
+it('keeps a zone dot when zooming brings its caption into the memory hub',()=>{
+  applyHubStyles();
+  const point={x:120,y:-120};
+  const {container,layer,onSelect}=setup(point);
+  const anchor=container.querySelector<HTMLButtonElement>('.graph-neighborhood-anchor')!;
+  const caption=anchor.querySelector<HTMLElement>('.graph-anchor-caption')!;
+  point.x=40;point.y=-20;layer.invalidate();
+  expect(anchor.hidden).toBe(false);expect(getComputedStyle(caption).display).toBe('none');
+  expect(anchor.style.width).toBe('36px');
+  anchor.click();expect(onSelect).toHaveBeenCalledWith(group);
+  point.x=120;point.y=-120;layer.invalidate();
+  expect(anchor.hidden).toBe(false);expect(getComputedStyle(caption).display).toBe('flex');
+});
+it('does not interpolate zone hit targets when global reduced-motion styles set a transition duration',()=>{
+  const reduced=document.createElement('style');reduced.textContent='* { transition-duration: .15s !important; }';document.head.append(reduced);
+  applyHubStyles(true);
+  const {container}=setup();
+  expect(getComputedStyle(container.querySelector('.graph-neighborhood-anchor')!).transitionProperty).toBe('none');
+});
 
 function measurePreviews(container:HTMLElement) {
   vi.spyOn(HTMLElement.prototype,'getBoundingClientRect').mockImplementation(function(this:HTMLElement){

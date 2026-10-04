@@ -46,6 +46,7 @@ class Renderer {
     getState: (): CameraState => this.camera.state,
     setState: (state: Partial<CameraState>) => { Object.assign(this.camera.state, state); for (const cb of this.cameraListeners) cb(); },
     animate: vi.fn(async (state: Partial<CameraState>) => { this.camera.setState(state); }),
+    animatedUnzoom: async ({factor}:{factor:number}) => { await this.camera.animate({ratio:this.camera.state.ratio*factor}); },
     isAnimated: () => false,
     on: (_event: string, callback: () => void) => {this.cameraListeners.add(callback);},
     off: (_event: string, callback: () => void) => {this.cameraListeners.delete(callback);},
@@ -73,6 +74,7 @@ class Renderer {
   setCamera() {}
   getDimensions() { return this.dimensions; }
   getNodeDisplayData(node: string) { const attributes=this.nodes.get(node); return attributes && {...attributes,x:Number(attributes.x)/240+.5,y:Number(attributes.y)/240+.5}; }
+  getEdgeDisplayData(edge: string) { return this.edges.get(edge); }
   framedGraphToViewport(point: {x:number;y:number}, override?: {cameraState:CameraState}) {
     const state=override?.cameraState ?? this.camera.state;
     return {x:600+(point.x-state.x)*600/state.ratio,y:400-(point.y-state.y)*600/state.ratio};
@@ -848,13 +850,13 @@ it('fades real links on the static fallback without requiring the neural trace c
   await tick(start+100);expect([...latest().edges.values()].every(edge=>edge.hidden)).toBe(true);
   await tick(start+300);expect([...latest().edges.values()].some(edge=>!edge.hidden)).toBe(true);
   expect([...latest().edges.values()].every(edge=>edge.type!=='neural')).toBe(true);expect(frame().clock).toBeNull();
-  await tick(start+600);expect(visibleSlugs()).toEqual(allMemorySlugs);expect([...latest().edges.values()].every(edge=>!edge.hidden)).toBe(true);
+  await tick(start+600);expect(visibleSlugs()).toEqual(allMemorySlugs);expect([...latest().edges.values()].filter(edge=>!edge.hidden)).toHaveLength(6);
 });
 it('reverses a memory trace from its current node and edge appearance',async()=>{
   await startMemoryOverview();reducedMotion=false;
   const hub=host.querySelector<HTMLButtonElement>('.graph-memory-hub')!;
   await act(async()=>hub.click());await tick(time+280);
-  const appearance=()=>({nodes:[...latest().nodes.values()].map(({size,color,entranceLabelOpacity})=>({size,color,entranceLabelOpacity})),edges:[...latest().edges.values()].map(edge=>edge.neuralRevealProgress)});
+  const appearance=()=>({nodes:[...latest().nodes.values()].map(({size,color,entranceLabelOpacity})=>({size,color,entranceLabelOpacity})),edges:[...latest().edges.values()].map(edge=>edge.hidden?0:edge.neuralRevealProgress)});
   const opening=appearance();await act(async()=>hub.click());expect(appearance()).toEqual(opening);
   await tick(time+90);const closing=appearance();await act(async()=>hub.click());expect(appearance()).toEqual(closing);
   await tick(time+600);expect(visibleSlugs()).toEqual(allMemorySlugs);expect(frame().clock?.mode).not.toBe('disclosure');
@@ -907,10 +909,51 @@ it.each(['filter','neighborhood'] as const)('lets %s exploration replace a memor
   if(destination==='neighborhood') expect(visible).toEqual(['a','b','c']);
   else expect([...host.querySelectorAll<HTMLButtonElement>('.graph-color-legend button')].find(button=>button.textContent?.startsWith('Alpha'))?.getAttribute('aria-pressed')).toBe('true');
 });
-it('toggles all notes and real links without adding records or moving the layout',async()=>{
+it.each([true,false])('reveals only the hovered note’s cross-neighborhood links in open memory (neural: %s)',async neural=>{
+  useTwoNeighborhoods();
+  data.edges.push({source:'a',target:'e',weight:.01});
+  if(!neural) vi.spyOn(console,'warn').mockImplementation(()=>{});
+  rendererCapabilities.neural=neural;reducedMotion=true;
+  await mount();await act(async()=>completeLayout());await tick(1);await tick(2);
+  const positions=notePositions();await clickMemory();await act(async()=>vi.advanceTimersByTime(100));
+  const edge=(source:string,target:string)=>latest().edges.get(latest().graph.edge(source,target)!)!;
+  expect(visibleSlugs()).toEqual(allMemorySlugs);
+  expect([...latest().edges.values()].filter(edge=>!edge.hidden)).toHaveLength(6);
+  expect(edge('c','d').hidden).toBe(true);expect(edge('a','e').hidden).toBe(true);
+  await act(async()=>latest().emit('enterNode',{node:'c'}));
+  expect(edge('c','d').hidden).toBe(false);expect(edge('a','e').hidden).toBe(true);
+  await act(async()=>latest().emit('enterNode',{node:'d'}));
+  expect(edge('c','d').hidden).toBe(false);expect(edge('a','e').hidden).toBe(true);
+  await act(async()=>latest().emit('enterNode',{node:'a'}));
+  expect(edge('c','d').hidden).toBe(true);expect(edge('a','e').hidden).toBe(false);
+  await act(async()=>latest().emit('leaveNode',{}));await tick(time+400);
+  expect(edge('c','d').hidden).toBe(true);expect(edge('a','e').hidden).toBe(true);
+  expect(edge('a','b').hidden).toBe(false);expect(edge('d','e').hidden).toBe(false);
+  expect(visibleSlugs()).toEqual(allMemorySlugs);expect(notePositions()).toEqual(positions);
+  await act(async()=>latest().emit('clickNode',{node:'c'}));await tick(time+400);
+  expect(edge('c','d').hidden).toBe(false);
+  await act(async()=>host.querySelector<HTMLButtonElement>('[aria-label="Close node details"]')!.click());await tick(time+400);
+  expect(edge('c','d').hidden).toBe(true);
+});
+it('keeps cross-neighborhood links hidden throughout memory opening and route restoration',async()=>{
+  await startMemoryOverview();reducedMotion=false;
+  const bridge=latest().graph.edge('c','d')!;
+  await act(async()=>host.querySelector<HTMLButtonElement>('.graph-memory-hub')!.click());const start=time;
+  for(const elapsed of [100,300,600]) {
+    await tick(start+elapsed);expect(latest().edges.get(bridge)?.hidden).toBe(true);
+  }
+  expect([...latest().edges.values()].filter(edge=>!edge.hidden)).toHaveLength(6);
+  await act(async()=>host.querySelector<HTMLButtonElement>('.graph-memory-hub')!.click());
+  expect(latest().edges.get(bridge)?.hidden).toBe(true);
+  await tick(time+601);await clickMemory();
+  reducedMotion=true;await act(async()=>router.navigate('/'));await act(async()=>router.navigate('/graph'));await tick(time+1);await tick(time+1);
+  expect(latest().edges.get(latest().graph.edge('c','d')!)?.hidden).toBe(true);
+  expect(visibleSlugs()).toEqual(allMemorySlugs);
+});
+it('toggles all notes and intra-neighborhood links without adding records or moving the layout',async()=>{
   await startMemoryOverview();const positions=notePositions();
   await clickMemory();expect(visibleSlugs()).toEqual(allMemorySlugs);
-  expect([...latest().edges.values()].filter(edge=>!edge.hidden)).toHaveLength(7);
+  expect([...latest().edges.values()].filter(edge=>!edge.hidden)).toHaveLength(6);
   expect(latest().graph.order).toBe(7);expect(latest().graph.size).toBe(7);expect(notePositions()).toEqual(positions);
   expect(host.querySelector('.graph-memory-hub')?.getAttribute('aria-label')).toBe('Show neighborhoods');
   expect([...host.querySelectorAll<HTMLButtonElement>('.graph-neighborhood-anchor')].every(button=>button.hidden)).toBe(true);
@@ -1033,6 +1076,18 @@ it('restores usable neighborhood controls when collapsing from a far zoomed-out 
   expect(visibleSlugs()).toEqual(['alone']);
   expect(host.querySelectorAll('.graph-neighborhood-anchor:not([hidden])')).toHaveLength(2);
   expect(latest().camera.state.ratio).toBeLessThan(zoomedOut);
+});
+it('keeps zone dots available through repeated Zoom out button clicks and restores their captions on Fit',async()=>{
+  await startMemoryOverview();
+  const anchors=()=>[...host.querySelectorAll<HTMLButtonElement>('.graph-neighborhood-anchor')];
+  for(let i=0;i<6;i++) {
+    await act(async()=>host.querySelector<HTMLButtonElement>('[aria-label="Zoom out"]')!.click());
+    await act(async()=>vi.advanceTimersByTime(100));await tick(time+1);await tick(time+1);
+    expect(anchors().every(button=>!button.hidden)).toBe(true);
+  }
+  expect(anchors().some(button=>button.querySelector<HTMLElement>('.graph-anchor-caption')!.hidden)).toBe(true);
+  await act(async()=>host.querySelector<HTMLButtonElement>('[aria-label="Fit graph"]')!.click());await tick(time+1);await tick(time+1);
+  expect(anchors().every(button=>!button.hidden && !button.querySelector<HTMLElement>('.graph-anchor-caption')!.hidden)).toBe(true);
 });
 
 it.each([

@@ -2177,8 +2177,11 @@ html {
 .graph-neighborhood-layer canvas { position:absolute; inset:0; pointer-events:none; }
 .graph-neighborhood-anchor,.graph-memory-hub { position:absolute; left:0; top:0; height:66px; padding:0; display:flex; flex-direction:column; align-items:center; gap:10px; pointer-events:auto; border:0; background:none; color:var(--graph-foreground); cursor:pointer; isolation:isolate; }
 .graph-neighborhood-anchor[hidden],.graph-memory-hub[hidden] { display:none; }
+.graph-neighborhood-anchor { transition-property:none; }
 .graph-anchor-core { display:block; width:14px; height:14px; margin-top:11px; border-radius:50%; background:var(--neighborhood-color); box-shadow:0 0 0 5px color-mix(in srgb,var(--neighborhood-color) 10%,transparent); transition:box-shadow 180ms ease,transform 180ms ease; }
 .graph-anchor-caption { display:flex; align-items:baseline; justify-content:center; gap:7px; max-width:100%; padding:2px 6px; border-radius:4px; background:var(--graph-background); font-size:13px; font-weight:600; line-height:20px; }
+.graph-neighborhood-anchor.is-compact { height:36px; }
+.graph-anchor-caption[hidden] { display:none; }
 /* Also soften anchors which enter the viewport late in a camera flight.
    Animate the contents, never the positioned button or its hit area. */
 .graph-anchor-core,.graph-anchor-caption { animation:graph-anchor-arrive 280ms cubic-bezier(.22,1,.36,1) backwards; }

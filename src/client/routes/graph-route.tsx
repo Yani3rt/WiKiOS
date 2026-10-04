@@ -1361,9 +1361,15 @@ function GraphView({ data }: { data: ColoredGraphData }) {
           }
           const visibility = memory?.visibility ?? (edgeVisibility.get(edge) ?? 1) * Math.min(disclosureVisibility.get(src) ?? 1,disclosureVisibility.get(tgt) ?? 1);
           res.color = mixGraphColors(colors.background, res.color, visibility);
+          // Open memory shows local links; hovering reveals only that note's bridges.
+          // Explicit selection, filters and neighborhood exploration keep their own visibility.
+          const hiddenCrossNeighborhood = allNotesRef.current && !focused && activeGroupRef.current === null &&
+            expandedNeighborhoodRef.current === null &&
+            neighborhoods.membership.get(src) !== neighborhoods.membership.get(tgt) &&
+            src !== hovered && tgt !== hovered;
           // Sigma renders synchronously before the entrance shader clock exists.
           // Keep edges hidden during that first render and the layout-worker wait.
-          res.hidden = visibility <= 0 || (!memory && entranceElapsed === 0) || memory?.progress===0;
+          res.hidden = hiddenCrossNeighborhood || visibility <= 0 || (!memory && entranceElapsed === 0) || memory?.progress===0;
           return res;
         },
         nodeReducer(node, data) {
@@ -1548,6 +1554,8 @@ function GraphView({ data }: { data: ColoredGraphData }) {
         }];
       })),
       edges:new Map(graph.edges().map(edge=>{
+        // Hidden bridges must not flash when closing or reversing the memory reveal.
+        if(sigma.getEdgeDisplayData(edge)?.hidden) return [edge,{visibility:0,progress:0,reversed:false}];
         const src=graph.source(edge),tgt=graph.target(edge);
         const visibility=(edgeVisibility.get(edge) ?? 1)*Math.min(disclosureVisibility.get(src) ?? 0,disclosureVisibility.get(tgt) ?? 0);
         const delay=Math.max(entranceDelays.get(src) ?? 0,entranceDelays.get(tgt) ?? 0);
