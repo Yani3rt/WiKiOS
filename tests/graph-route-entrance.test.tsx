@@ -1155,6 +1155,27 @@ it.each([
   expect(host.querySelector('.graph-memory-hub')?.getAttribute('aria-label')).toBe('Show neighborhoods');
   expect([...latest().edges.values()].filter(edge=>!edge.hidden)).toHaveLength(6);
 });
+it.each(['folded-memory','close-details'])('fits the complete memory when leaving a selected note via %s',async path=>{
+  await startMemoryOverview();
+  if(path==='close-details') await clickMemory();
+  for(const [index,slug] of latest().graph.nodes().entries()) latest().graph.mergeNodeAttributes(slug,{x:30+index*10,y:10+index*5});
+  latest().refresh();
+  await act(async()=>latest().emit('clickNode',{node:'a'}));await tick(time+1);await tick(time+1);
+  // Containment alone must not preserve a tiny, off-center view.
+  latest().camera.setState({x:.5,y:.5,ratio:8});
+  const positions=notePositions();
+  if(path==='folded-memory') await clickMemory();
+  else {
+    await act(async()=>host.querySelector<HTMLButtonElement>('[aria-label="Close node details"]')!.click());
+    await tick(time+1);await tick(time+601);await tick(time+1);
+  }
+  expect(latest().camera.state.ratio).toBeLessThan(8);
+  const points=[latest().graphToViewport({x:0,y:0}),...latest().graph.nodes().map(slug=>latest().graphToViewport(latest().graph.getNodeAttributes(slug) as {x:number;y:number}))];
+  expect((Math.min(...points.map(p=>p.x))+Math.max(...points.map(p=>p.x)))/2).toBeCloseTo(600);
+  expect((Math.min(...points.map(p=>p.y))+Math.max(...points.map(p=>p.y)))/2).toBeCloseTo(432);
+  expect(visibleSlugs()).toEqual(allMemorySlugs);expect(notePositions()).toEqual(positions);
+  expect(host.querySelector('#graph-node-details-title')).toBeNull();
+});
 it('keeps the return-to-open-memory Fit running through detail-panel viewport updates',async()=>{
   await startMemoryOverview();await clickMemory();
   await act(async()=>latest().emit('clickNode',{node:'a'}));await tick(time+1);await tick(time+1);

@@ -1161,6 +1161,9 @@ function GraphView({ data }: { data: ColoredGraphData }) {
     restoringCameraRef.current = false;
     hoveredRef.current = null;
     setTooltip(null);
+    if (allNotesRef.current && expandedNeighborhoodRef.current===null && activeGroupRef.current===null) {
+      frameGraphCallbackRef.current?.(480,true);
+    }
     shellRef.current?.focus({preventScroll:true});
   }, []);
 
@@ -1829,8 +1832,8 @@ function GraphView({ data }: { data: ColoredGraphData }) {
     const returnToOverview=(forceFit=true)=>setMemoryView(false,forceFit);
     const hasMemoryContext=()=>Boolean(focusedRef.current || activeGroupRef.current!==null || expandedNeighborhoodRef.current);
     const toggleMemory=()=>{
-      const returningToAllNotes=allNotesRef.current && hasMemoryContext();
-      setMemoryView(!allNotesRef.current || hasMemoryContext(),returningToAllNotes);
+      const returningToMemory=hasMemoryContext();
+      setMemoryView(!allNotesRef.current || returningToMemory,returningToMemory);
     };
     overviewCallbackRef.current=returnToOverview;
     neighborhoodLayer=createGraphNeighborhoodLayer({
