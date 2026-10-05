@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest';
 import type { GraphData } from '../src/lib/wiki-shared';
 import type { GraphNeighborhood } from '../src/client/graph-neighborhoods';
-import { buildGraphNeighborhoodPreviews, getGraphPreviewPlacement, limitGraphPreviewItems } from '../src/client/graph-neighborhood-preview-model';
+import { buildGraphNeighborhoodPreviews, getGraphPreviewPlacement, getGraphCompactPreviewPlacement, limitGraphPreviewItems } from '../src/client/graph-neighborhood-preview-model';
 
 function fixture() {
   const nodes=['a','b','c','d','e','f','alone'].map(slug=>({slug,title:slug.toUpperCase(),categories:[],wordCount:0,backlinkCount:0,summary:'',neighbors:[]}));
@@ -59,4 +59,14 @@ it('can align a side preview upward to avoid another nearby anchor',()=>{
 it('moves past an adjacent anchor when all directly adjacent positions are obstructed',()=>{
   const obstacles=[{left:586,top:256,right:715,bottom:328},{left:584,top:426,right:718,bottom:492},{left:770,top:308,right:855,bottom:374},{left:497,top:118,right:604,bottom:184}];
   expect(getGraphPreviewPlacement({left:715,top:118,right:787,bottom:184},{width:288,height:280},{left:20,top:84,right:1260,bottom:496},obstacles)).toEqual({x:865,y:118});
+});
+
+it('centers compact previews above bottom controls rather than beside individual nodes',()=>{
+  expect(getGraphCompactPreviewPlacement({width:288,height:180},{left:20,top:96,right:370,bottom:824},[])).toEqual({x:51,y:644});
+  expect(getGraphCompactPreviewPlacement({width:288,height:180},{left:20,top:96,right:370,bottom:824},[{left:12,top:680,right:290,bottom:824}])).toEqual({x:51,y:490});
+});
+it('rejects compact cards that cannot fit without covering real chrome',()=>{
+  expect(getGraphCompactPreviewPlacement({width:288,height:180},{left:20,top:96,right:300,bottom:480},[])).toBeNull();
+  expect(getGraphCompactPreviewPlacement({width:220,height:180},bounds,[bounds])).toBeNull();
+  expect(getGraphCompactPreviewPlacement({width:NaN,height:180},bounds,[])).toBeNull();
 });

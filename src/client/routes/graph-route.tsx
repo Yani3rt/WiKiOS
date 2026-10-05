@@ -1961,7 +1961,10 @@ function GraphView({ data }: { data: ColoredGraphData }) {
       shellRef.current?.focus({preventScroll:true});
       const selection = getGraphNodeClickSelection(focusedRef.current, node);
       if (selection.shouldReplayNeural) neuralSelectionCallbackRef.current?.(node);
-      if (!selection.shouldCenter) return;
+      if (!selection.shouldCenter) {
+        if(allNotesRef.current) scheduleGraphFrame(480,true);
+        return;
+      }
       restoringCameraRef.current = false;
       focusedRef.current = node;
       focusIsolationCallbackRef.current?.(node);
@@ -1969,6 +1972,8 @@ function GraphView({ data }: { data: ColoredGraphData }) {
       setDetailPanelCollapsed(false);
       clearHover();
       sigma.refresh();
+      // Open memory recalls a local cluster with the same deliberate fit as a neighborhood.
+      if(allNotesRef.current) scheduleGraphFrame(480,true);
     };
     sigma.on("clickNode", ({node}) => selectNode(node));
     sigma.on("clickStage", ({event}) => {

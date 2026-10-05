@@ -769,6 +769,67 @@ async function clickMemory() {
 }
 const allMemorySlugs=['a','alone','b','c','d','e','f'];
 const notePositions=()=>Object.fromEntries(latest().graph.nodes().map(slug=>[slug,{x:latest().graph.getNodeAttribute(slug,'x'),y:latest().graph.getNodeAttribute(slug,'y')}]));
+it.each([
+  {input:'node',reduced:false,width:1200,height:800},
+  {input:'label',reduced:true,width:1200,height:800},
+  {input:'node',reduced:true,width:390,height:844},
+])('fits a small selected cluster from open memory using neighborhood framing ($input, reduced: $reduced, width: $width)',async({input,reduced,width,height})=>{
+  await startMemoryOverview();await clickMemory();
+  latest().dimensions={width,height};
+  for(const [i,slug] of ['a','b','c'].entries()) latest().graph.mergeNodeAttributes(slug,{x:300+i*10,y:20+i*5});
+  for(const [i,slug] of ['d','e','f'].entries()) latest().graph.mergeNodeAttributes(slug,{x:2000+i*100,y:500});
+  vi.spyOn(HTMLElement.prototype,'getBoundingClientRect').mockImplementation(function(this:HTMLElement){
+    const box=this.matches('aside[aria-labelledby="graph-node-details-title"]')
+      ? width<1024 ? {left:12,right:378,top:500,bottom:744} : {left:900,right:1180,top:84,bottom:640}
+      : {left:0,right:0,top:0,bottom:0};
+    return {...box,x:box.left,y:box.top,width:box.right-box.left,height:box.bottom-box.top,toJSON(){}};
+  });
+  // Chrome only participates in framing when it has real layout dimensions.
+  vi.spyOn(HTMLElement.prototype,'offsetWidth','get').mockImplementation(function(this:HTMLElement){return this.matches('aside[aria-labelledby="graph-node-details-title"]') ? width<1024?366:280 : 0;});
+  vi.spyOn(HTMLElement.prototype,'offsetHeight','get').mockImplementation(function(this:HTMLElement){return this.matches('aside[aria-labelledby="graph-node-details-title"]') ? width<1024?244:556 : 0;});
+  latest().refresh();latest().camera.setState({x:.5,y:.5,ratio:4});latest().camera.animate.mockClear();
+  const positions=notePositions();reducedMotion=reduced;
+  if(input==='label') {
+    const context={save(){},restore(){},measureText:()=>({width:100}),strokeText(){},fillText(){},globalAlpha:1} as unknown as CanvasRenderingContext2D;
+    latest().settings.defaultDrawNodeLabel(context,{x:30,y:200,size:10,label:'a',color:'#abcdef',graphSlug:'a',labelPlacement:'right'},latest().settings as never);
+    await act(async()=>latest().emit('clickStage',{event:{x:80,y:200}}));
+  } else await act(async()=>latest().emit('clickNode',{node:'a'}));
+  await tick(time+1);await tick(time+600);await tick(time+1);
+  expect(latest().camera.animate).toHaveBeenCalledWith(expect.any(Object),expect.objectContaining({duration:reduced?0:480,easing:'quadraticInOut'}));
+  expect(latest().camera.state.ratio).toBeLessThan(4);
+  const points=['a','b','c'].map(slug=>latest().framedGraphToViewport(latest().getNodeDisplayData(slug)!));
+  const bounds=width<1024 ? {left:20,right:370,top:84,bottom:480} : {left:20,right:880,top:84,bottom:780};
+  for(const point of points) {
+    expect(point.x).toBeGreaterThanOrEqual(bounds.left);expect(point.x).toBeLessThanOrEqual(bounds.right);
+    expect(point.y).toBeGreaterThanOrEqual(bounds.top);expect(point.y).toBeLessThanOrEqual(bounds.bottom);
+  }
+  expect((Math.min(...points.map(p=>p.x))+Math.max(...points.map(p=>p.x)))/2).toBeCloseTo(width<1024?195:450);
+  expect((Math.min(...points.map(p=>p.y))+Math.max(...points.map(p=>p.y)))/2).toBeCloseTo(width<1024?282:432);
+  expect(visibleSlugs()).toEqual(['a','b','c']);expect(notePositions()).toEqual(positions);
+});
+
+it('refits the current note in open memory after a manual zoom-out',async()=>{
+  await startMemoryOverview();await clickMemory();
+  await act(async()=>latest().emit('clickNode',{node:'a'}));await tick(time+1);await tick(time+1);
+  latest().camera.setState({ratio:8});latest().camera.animate.mockClear();
+  await act(async()=>latest().emit('clickNode',{node:'a'}));await tick(time+1);await tick(time+1);
+  expect(latest().camera.animate).toHaveBeenCalled();expect(latest().camera.state.ratio).toBeLessThan(8);
+  expect(visibleSlugs()).toEqual(['a','b','c']);expect(frame().clock?.mode).toBe('selection');
+});
+
+it('keeps the open-memory note Fit running while viewport measurements update',async()=>{
+  await startMemoryOverview();await clickMemory();reducedMotion=false;
+  let completeFit!:()=>void;
+  latest().camera.isAnimated=()=>true;
+  latest().camera.animate.mockImplementation(()=>new Promise<void>(resolve=>{completeFit=resolve;}));
+  await act(async()=>latest().emit('clickNode',{node:'a'}));await tick(time+1);
+  expect(latest().camera.animate).toHaveBeenCalledWith(expect.any(Object),expect.objectContaining({duration:480}));
+  latest().camera.animate.mockClear();cancelMotion.mockClear();
+  await act(async()=>resizeGraph());await tick(time+1);
+  expect(cancelMotion).not.toHaveBeenCalled();expect(latest().camera.animate).not.toHaveBeenCalled();
+  await act(async()=>completeFit());
+});
+
 it.each([['pointerdown',true],['keydown',true],['pointerdown',false],['keydown',false]] as const)('hands entrance appearance to memory continuously through %s capture (all notes: %s)',async(input,allNotes)=>{
   await startMemoryOverview();if(allNotes) await clickMemory();
   await act(async()=>router.navigate('/'));reducedMotion=false;

@@ -1,4 +1,4 @@
-import type { GraphBounds, GraphPoint } from './graph-camera';
+import { GRAPH_COMPACT_WIDTH, type GraphBounds, type GraphPoint } from './graph-camera';
 import { createGraphNeighborhoodPreview } from './graph-neighborhood-preview';
 import { limitGraphPreviewItems, type GraphNeighborhoodPreview } from './graph-neighborhood-preview-model';
 import type { GraphNeighborhood } from './graph-neighborhoods';
@@ -51,8 +51,13 @@ export function createGraphNeighborhoodLayer({container,sigma,groups,previews,ge
   let previousMemoryAction:ReturnType<typeof getState>['memoryAction']|null=null;
   let canvasWidth=0,canvasHeight=0,pixelRatio=0;
   const preview=createGraphNeighborhoodPreview({
-    container,canShow:()=>!getState().moving,getBounds:()=>getState().bounds,
-    getObstacles:trigger=>[...getState().obstacles,...[hub,...buttons].filter(button=>button!==trigger && !button.hidden).map(button=>button.getBoundingClientRect())],
+    container,canShow:()=>!getState().moving,isCompact:()=>sigma.getDimensions().width<GRAPH_COMPACT_WIDTH,getBounds:()=>getState().bounds,
+    getObstacles:trigger=>[
+      ...getState().obstacles,
+      // Compact previews occupy a shared overlay slot, not space beside a node.
+      // Real chrome remains protected; graph markers must not hide the card.
+      ...(sigma.getDimensions().width<GRAPH_COMPACT_WIDTH ? [] : [hub,...buttons].filter(button=>button!==trigger && !button.hidden).map(button=>button.getBoundingClientRect())),
+    ],
   });
   preview.attach(hub,()=>{
     const current=getState().currentNeighborhood;

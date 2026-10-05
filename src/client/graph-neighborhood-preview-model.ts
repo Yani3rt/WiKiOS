@@ -77,3 +77,15 @@ export function getGraphPreviewPlacement(anchor:GraphBounds, size:{width:number;
       ![anchor,...obstacles].some(other=>box.left<other.right+6 && box.right>other.left-6 && box.top<other.bottom+6 && box.bottom>other.top-6);
   }) ?? null;
 }
+
+/** One bottom-centered reading slot shared by every compact-screen preview. */
+export function getGraphCompactPreviewPlacement(size:{width:number;height:number},bounds:GraphBounds,obstacles:readonly GraphBounds[]):GraphPoint|null {
+  const {width,height}=size;
+  if(!Number.isFinite(width) || !Number.isFinite(height) || width<=0 || height<=0 || width>bounds.right-bounds.left || height>bounds.bottom-bounds.top) return null;
+  const x=(bounds.left+bounds.right-width)/2;
+  let y=bounds.bottom-height;
+  for(const other of [...obstacles].sort((a,b)=>b.top-a.top)) {
+    if(x<other.right+6 && x+width>other.left-6 && y<other.bottom+6 && y+height>other.top-6) y=other.top-height-10;
+  }
+  return y>=bounds.top ? {x,y} : null;
+}

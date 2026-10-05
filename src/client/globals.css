@@ -2231,7 +2231,7 @@ html {
 
 /* Quiet, data-backed peeks; hover never moves or expands the graph. */
 .graph-neighborhood-preview {
-  position:absolute; z-index:10; box-sizing:border-box; padding:16px;
+  transition-property:none; position:absolute; z-index:10; box-sizing:border-box; padding:16px;
   border:1px solid var(--graph-border); border-radius:12px;
   background:var(--graph-surface); color:var(--graph-foreground);
   box-shadow:0 8px 28px #00000024; pointer-events:auto; overflow:auto; overscroll-behavior:contain;

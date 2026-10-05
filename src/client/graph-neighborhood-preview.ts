@@ -1,5 +1,5 @@
 import type { GraphBounds } from './graph-camera';
-import { getGraphPreviewPlacement } from './graph-neighborhood-preview-model';
+import { getGraphCompactPreviewPlacement, getGraphPreviewPlacement } from './graph-neighborhood-preview-model';
 
 export interface GraphPreviewContent {
   title: string;
@@ -10,9 +10,10 @@ interface PreviewBinding {trigger:HTMLElement;getContent():GraphPreviewContent;p
 let nextPreviewId=0;
 
 /** A single, noninteractive description for the existing graph navigation controls. */
-export function createGraphNeighborhoodPreview({container,canShow,getBounds,getObstacles}: {
+export function createGraphNeighborhoodPreview({container,canShow,isCompact,getBounds,getObstacles}: {
   container:HTMLElement;
   canShow():boolean;
+  isCompact():boolean;
   getBounds():GraphBounds;
   getObstacles(trigger:HTMLElement):readonly GraphBounds[];
 }) {
@@ -80,7 +81,10 @@ export function createGraphNeighborhoodPreview({container,canShow,getBounds,getO
     render(active.getContent());
     tooltip.hidden=false;tooltip.style.visibility='hidden';
     const size=tooltip.getBoundingClientRect();
-    const position=getGraphPreviewPlacement(active.trigger.getBoundingClientRect(),size,bounds,getObstacles(active.trigger));
+    const obstacles=getObstacles(active.trigger);
+    const position=isCompact()
+      ? getGraphCompactPreviewPlacement(size,bounds,obstacles)
+      : getGraphPreviewPlacement(active.trigger.getBoundingClientRect(),size,bounds,obstacles);
     if(!position) {dismiss();return;}
     previewBox={left:position.x,top:position.y,right:position.x+size.width,bottom:position.y+size.height};
     const origin=container.getBoundingClientRect();

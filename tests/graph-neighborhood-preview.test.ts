@@ -1,14 +1,15 @@
 // @vitest-environment jsdom
+import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { createGraphNeighborhoodPreview, type GraphPreviewContent } from '../src/client/graph-neighborhood-preview';
 
 let destroy:()=>void;
 beforeEach(()=>vi.useFakeTimers());
-afterEach(()=>{destroy?.();vi.restoreAllMocks();vi.useRealTimers();document.body.innerHTML='';});
+afterEach(()=>{destroy?.();vi.restoreAllMocks();vi.useRealTimers();document.body.innerHTML='';document.head.querySelectorAll('style').forEach(style=>style.remove());});
 function pointer(element:Element,type:string,pointerType='mouse') {
   const event=new MouseEvent(type,{bubbles:true});Object.defineProperty(event,'pointerType',{value:pointerType});element.dispatchEvent(event);
 }
-function setup() {
+function setup(width=1024) {
   const container=document.createElement('main');document.body.append(container);
   const a=document.createElement('button'),b=document.createElement('button');a.textContent='Alpha';b.textContent='Beta';container.append(a,b);
   let position={left:200,top:180,right:280,bottom:240};
@@ -18,7 +19,7 @@ function setup() {
   const obstacles:{left:number;top:number;right:number;bottom:number}[]=[];
   const bounds={left:20,top:80,right:800,bottom:600};
   let available=true;
-  const preview=createGraphNeighborhoodPreview({container,canShow:()=>available,getBounds:()=>bounds,getObstacles:()=>obstacles});destroy=preview.destroy;
+  const preview=createGraphNeighborhoodPreview({container,canShow:()=>available,isCompact:()=>width<1024,getBounds:()=>bounds,getObstacles:()=>obstacles});destroy=preview.destroy;
   const content:GraphPreviewContent={title:'Alpha',meta:'30 notes',sections:[{label:'Most connected',items:[{label:'<img src=x onerror=alert(1)>'},{label:'Long note title'}]},{label:'Linked neighborhoods',items:[{label:'Beta',meta:'2 links'}]}]};
   preview.attach(a,()=>content);preview.attach(b,()=>({title:'My Memory',sections:[{items:[{label:'Beta',meta:'3 notes',current:true}],remaining:2}]}));
   const tip=()=>container.querySelector<HTMLElement>('[role="tooltip"]')!;
@@ -96,4 +97,41 @@ it('blocks new and pending previews while navigation is unavailable and dismisse
   pointer(a,'pointerenter');vi.advanceTimersByTime(250);expect(tip().hidden).toBe(true);
   setAvailable(true);a.blur();a.focus();expect(tip().hidden).toBe(false);
   setAvailable(false);preview.refresh();expect(tip().hidden).toBe(true);
+});
+
+it.each([390,768,1023])('uses the same lower-center slot for neighborhood and memory previews at %ipx',width=>{
+  const {a,b,tip,bounds}=setup(width);
+  bounds.right=width-20;
+  pointer(a,'pointerenter');vi.advanceTimersByTime(250);
+  expect(tip().hidden).toBe(false);
+  expect(Number.parseFloat(tip().style.left)).toBeCloseTo(width/2-110);
+  expect(tip().style.top).toBe('420px');
+  const first={left:tip().style.left,top:tip().style.top};
+  pointer(a,'pointerleave');pointer(b,'pointerenter');vi.advanceTimersByTime(250);
+  expect(tip().textContent).toContain('My Memory');expect(tip().hidden).toBe(false);
+  expect({left:tip().style.left,top:tip().style.top}).toEqual(first);
+});
+it('bottom-aligns different-height compact cards to the same slot and preserves keyboard descriptions',()=>{
+  const {a,b,tip,bounds}=setup(768);bounds.right=748;
+  vi.spyOn(tip(),'getBoundingClientRect').mockImplementation(()=>{
+    const height=tip().textContent?.includes('Alpha')?200:140;
+    return {x:0,y:0,left:0,top:0,right:220,bottom:height,width:220,height,toJSON(){}};
+  });
+  a.focus();expect(tip().hidden).toBe(false);expect(tip().style.top).toBe('400px');
+  expect(a.getAttribute('aria-describedby')).toBe(tip().id);
+  a.blur();b.focus();expect(tip().hidden).toBe(false);expect(tip().style.top).toBe('460px');
+  expect(b.getAttribute('aria-describedby')).toBe(tip().id);expect(a.hasAttribute('aria-describedby')).toBe(false);
+});
+it('retains adjacent preview placement at the desktop breakpoint',()=>{
+  const {a,tip}=setup(1024);a.focus();
+  expect(tip().hidden).toBe(false);expect(tip().style.left).toBe('290px');expect(tip().style.top).toBe('180px');
+});
+
+it('does not slide the shared preview slot when global reduced-motion styles set a transition duration',()=>{
+  const source=readFileSync('src/client/globals.css','utf8');
+  const style=document.createElement('style');
+  style.textContent='* { transition-duration:.15s !important; }'+source.match(/\.graph-neighborhood-preview \{[\s\S]*?\}/)![0];
+  document.head.append(style);
+  const {a,tip}=setup(768);a.focus();
+  expect(getComputedStyle(tip()).transitionProperty).toBe('none');
 });
