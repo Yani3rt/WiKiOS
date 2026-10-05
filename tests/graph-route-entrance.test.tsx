@@ -935,6 +935,27 @@ it.each([true,false])('reveals only the hovered note’s cross-neighborhood link
   await act(async()=>host.querySelector<HTMLButtonElement>('[aria-label="Close node details"]')!.click());await tick(time+400);
   expect(edge('c','d').hidden).toBe(true);
 });
+it.each([
+  {neural:true,hover:false},{neural:true,hover:true},
+  {neural:false,hover:false},{neural:false,hover:true},
+])('does not flash hidden cross-neighborhood links while selecting from open memory (neural: $neural, hover: $hover)',async({neural,hover})=>{
+  useTwoNeighborhoods();data.edges.push({source:'a',target:'e',weight:.01});
+  rendererCapabilities.neural=neural;
+  if(!neural) vi.spyOn(console,'warn').mockImplementation(()=>{});
+  reducedMotion=true;await mount();await act(async()=>completeLayout());await tick(1);await tick(2);
+  await clickMemory();await act(async()=>vi.advanceTimersByTime(100));reducedMotion=false;
+  if(hover) await act(async()=>latest().emit('enterNode',{node:'c'}));
+  const unrelated=latest().graph.edges().indexOf(latest().graph.edge('a','e')!);
+  expect(frame().edges[unrelated].hidden).toBe(true);
+  const startFrame=latest().frames.length;
+  await act(async()=>latest().emit('clickNode',{node:'c'}));const start=time;
+  for(const elapsed of [0,16,80,160,300,500]) {
+    await tick(start+elapsed);
+    expect(latest().frames.slice(startFrame).every(frame=>frame.edges[unrelated].hidden)).toBe(true);
+  }
+  expect(latest().edges.get(latest().graph.edge('c','d')!)?.hidden).toBe(false);
+  expect(visibleSlugs()).toEqual(['a','b','c','d']);
+});
 it('keeps cross-neighborhood links hidden throughout memory opening and route restoration',async()=>{
   await startMemoryOverview();reducedMotion=false;
   const bridge=latest().graph.edge('c','d')!;

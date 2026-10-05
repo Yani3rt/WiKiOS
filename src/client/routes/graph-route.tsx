@@ -1623,6 +1623,11 @@ function GraphView({ data }: { data: ColoredGraphData }) {
     };
     disclosureCallbackRef.current=updateDisclosure;
     const animateFocusIsolation = (nextSlug: string | null, disclosureDuration = 260, memory?:MemoryReveal) => {
+      // Selection lifts the memory edge filter. Seed isolation before disclosure
+      // can redraw, so previously hidden links never flash into the fade-out.
+      if(nextSlug) for(const edge of edgeVisibility.keys()) {
+        if(sigma.getEdgeDisplayData(edge)?.hidden) edgeVisibility.set(edge,0);
+      }
       updateDisclosure(disclosureDuration,memory);
       if (focusIsolationFrame !== null) {
         cancelAnimationFrame(focusIsolationFrame);
