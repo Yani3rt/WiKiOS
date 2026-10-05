@@ -44,7 +44,6 @@ import { MobileWorkspaceNav } from "@/components/mobile-workspace-nav";
 import { FindInNote } from "@/components/find-in-note";
 import { NotePreview } from "@/components/note-preview";
 import { VaultSwitcher } from "@/components/vault-switcher";
-import { WorkspaceStart } from "@/components/workspace-start";
 import { WorkspaceActivity } from "@/components/workspace-activity";
 import { WorkspaceConnections } from "@/components/workspace-connections";
 import { readWorkspacePreferences, writeWorkspacePreferences, togglePin, promoteRecent, recordReadingPosition, clampSidebarWidth, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH } from "../workspace-preferences";
@@ -867,7 +866,8 @@ function ExplorerWorkspaceView({data}: {data: WikiActivity}) {
   const [workspace, setWorkspace] = useState<ExplorerWorkspace>(() => {
     try { return normalizeExplorerWorkspaceSlugs(parseExplorerWorkspace(localStorage.getItem(storageKey) ?? "")); } catch { return EMPTY_EXPLORER_WORKSPACE; }
   });
-  const [view, setView] = useState<"notes" | "activity">("notes");
+  const [requestedView, setView] = useState<"notes" | "activity">("notes");
+  const view = workspace.activeSlug || urlSlug ? requestedView : "activity";
   const [hydrated, setHydrated] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [desktopSidebarVisible, setDesktopSidebarVisible] = useState(true);
@@ -877,7 +877,6 @@ function ExplorerWorkspaceView({data}: {data: WikiActivity}) {
   const previewRootRef = useRef<HTMLElement>(null);
   const workspaceRef = useRef<HTMLElement>(null);
   const workspaceScrollRef = useRef<HTMLDivElement>(null);
-  const focusStartReaderRef = useRef(false);
   const workspaceStateRef = useRef(workspace);
   const sidebarRef = useRef<HTMLElement>(null);
   const toggleButtonRef = useRef<HTMLButtonElement>(null);
@@ -1096,12 +1095,6 @@ function ExplorerWorkspaceView({data}: {data: WikiActivity}) {
     if (readerState.status !== "ready") return;
     setPreferences(current => ({...current, recentSlugs: promoteRecent(current.recentSlugs, readerState.slug)}));
   }, [readerState.status, readerState.slug]);
-
-  useLayoutEffect(() => {
-    if (!focusStartReaderRef.current || !workspace.activeSlug || view !== "notes") return;
-    workspaceScrollRef.current?.focus({preventScroll: true});
-    focusStartReaderRef.current = false;
-  }, [workspace.activeSlug, view]);
 
   useLayoutEffect(() => {
     if (readerState.status !== "ready" || view !== "notes") return;
@@ -1418,23 +1411,6 @@ function ExplorerWorkspaceView({data}: {data: WikiActivity}) {
               </div>
             );
           })}
-          {!workspace.activeSlug ? (
-            <div
-              ref={workspaceScrollRef}
-              className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
-            >
-              <WorkspaceStart
-                pages={pages}
-                recentSlugs={preferences.recentSlugs}
-                readingProgress={preferencesRef.current.readingProgress}
-                onSelect={slug => {
-                  focusStartReaderRef.current = true;
-                  selectSlug(slug);
-                }}
-                onBrowseNotes={showNoteTree}
-              />
-            </div>
-          ) : null}
           </div>
           {view === "activity" && <WorkspaceActivity pages={activityPages} recentSlugs={preferences.recentSlugs} onSelect={selectSlug}/>}
           {view === "notes" && visibleReaderState.status === "ready" && <div ref={connectionsRef} role={connectionsModal ? "dialog" : undefined} aria-modal={connectionsModal || undefined} aria-label={connectionsModal ? "Note connections" : undefined} className={`workspace-connections-container ${preferences.connectionsOpen ? "connections-desktop-open" : ""} ${mobileConnections ? "connections-mobile-open" : ""}`}>

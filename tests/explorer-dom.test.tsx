@@ -439,7 +439,7 @@ it('keeps the selected tab visible when navigating with mobile arrows', async ()
   scroll.mockRestore();
 });
 
-it("resumes the last closed note at its saved position with measured progress", async () => {
+it("shows Activity after the last tab closes and preserves reading position", async () => {
   HTMLElement.prototype.scrollTo = function(options?: ScrollToOptions | number, y?: number) { this.scrollTop = typeof options === "number" ? y ?? 0 : options?.top ?? 0; };
   await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Close Beta"]')!.click());
   const panel = container.querySelector<HTMLElement>('[role="tabpanel"]:not([hidden])')!;
@@ -450,29 +450,36 @@ it("resumes the last closed note at its saved position with measured progress", 
   await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Pin note"]')!.click());
   await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Close Alpha"]')!.click());
   expect(router.state.location.pathname).toBe("/explorer");
-  const resume = container.querySelector<HTMLButtonElement>(".workspace-resume");
-  expect(resume?.textContent).toContain("42% read");
+  expect(container.querySelector(".workspace-activity")).not.toBeNull();
+  expect(container.querySelector(".workspace-start")).toBeNull();
+  expect(container.querySelectorAll('[aria-label="Open notes"] [role="tab"]')).toHaveLength(0);
+  const resume = container.querySelector<HTMLButtonElement>('.activity-note[data-slug="Alpha"]');
   expect(container.querySelector('[aria-label="Explorer workspace"]')?.hasAttribute("inert")).toBe(false);
   resume!.focus();
   await act(async () => resume!.click());
   expect(router.state.location.pathname).toBe("/explorer/Alpha");
-  expect(document.activeElement).toBe(container.querySelector('[role="tabpanel"]:not([hidden])'));
   expect(container.querySelector<HTMLElement>('[role="tabpanel"]:not([hidden])')!.scrollTop).toBe(420);
   expect(readWorkspacePreferences(vaultId).readingProgress.Alpha).toBe(42);
 });
 
-it("shows saved reading history on a root visit with no tabs", async () => {
+it.each([{recentSlugs:[]}, {recentSlugs:["missing", "Beta", "Alpha"]}])("shows Activity on a root visit with no tabs and history $recentSlugs", async ({recentSlugs}) => {
   vaultId = "returning-vault";
-  writeWorkspacePreferences(vaultId, {...readWorkspacePreferences(vaultId), recentSlugs:["missing", "Beta", "Alpha"], scrollPositions:{Beta:300}, readingProgress:{Beta:30}});
+  writeWorkspacePreferences(vaultId, {...readWorkspacePreferences(vaultId), recentSlugs});
   await act(async () => router.navigate("/explorer"));
-  expect(container.querySelector(".workspace-reading-column")?.hasAttribute("hidden")).toBe(false);
-  expect(container.querySelector(".workspace-resume")?.textContent).toContain("Beta");
-  expect(container.querySelector(".workspace-resume")?.textContent).toContain("30% read");
-  const recent = container.querySelector<HTMLButtonElement>(".workspace-recent-note")!;
-  recent.focus();
-  await act(async () => recent.click());
+  expect(container.querySelector(".workspace-activity")).not.toBeNull();
+  expect(container.querySelector(".workspace-start")).toBeNull();
+  expect(container.querySelector('[aria-label="Explorer workspace"]')?.hasAttribute("inert")).toBe(false);
+  await act(async () => container.querySelector<HTMLButtonElement>('.activity-note[data-slug="Alpha"]')!.click());
   expect(router.state.location.pathname).toBe("/explorer/Alpha");
-  expect(document.activeElement).toBe(container.querySelector('[role="tabpanel"]:not([hidden])'));
+  expect(container.querySelector(".workspace-activity")).toBeNull();
+  expect(container.textContent).toContain("Body of Alpha");
+});
+
+it("keeps reading the remaining note when closing the active tab", async () => {
+  await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Close Alpha"]')!.click());
+  expect(router.state.location.pathname).toBe("/explorer/Beta");
+  expect(container.querySelector(".workspace-activity")).toBeNull();
+  expect(container.textContent).toContain("Body of Beta");
 });
 
 
