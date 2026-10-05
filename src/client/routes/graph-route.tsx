@@ -7,7 +7,7 @@ import { buildGraphNeighborhoodPreviews } from "../graph-neighborhood-preview-mo
 import { getGraphDetailLevel, isGraphLabelEligible, type GraphDetailLevel } from "../graph-semantic-zoom";
 import { GraphMotionCamera } from "../graph-motion-camera";
 import { GraphSearch } from "@/components/graph-search";
-import { createGraphCameraSettler, findGraphPointerTarget, getGraphFitGeometry, getGraphRevealGeometry, getGraphUsableViewport, type GraphBounds, type GraphPoint } from "../graph-camera";
+import { createGraphCameraSettler, findGraphPointerTarget, getGraphFitGeometry, getGraphRevealGeometry, getGraphUsableViewport, GRAPH_COMPACT_WIDTH, type GraphBounds, type GraphPoint } from "../graph-camera";
 import { focusVisibility, focusColor } from "../graph-focus-transition";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, redirect, useLoaderData, useNavigate } from "react-router-dom";
@@ -1059,6 +1059,7 @@ function GraphView({ data }: { data: ColoredGraphData }) {
   const [focusedSlug, setFocusedSlug] = useState<string | null>(savedView?.focusedSlug ?? null);
   const [detailPanelHeight, setDetailPanelHeight] = useState(0);
   const [detailPanelCollapsed, setDetailPanelCollapsed] = useState(savedView?.detailPanelCollapsed ?? false);
+  const detailPanelFitRequestedRef = useRef(false);
   const viewStateRef = useRef({focusedSlug, detailPanelCollapsed, activeGroup, search});
   useLayoutEffect(() => {
     viewStateRef.current = {focusedSlug, detailPanelCollapsed, activeGroup, search};
@@ -1101,6 +1102,27 @@ function GraphView({ data }: { data: ColoredGraphData }) {
   useEffect(() => {
     if (!restoringCameraRef.current) frameGraphCallbackRef.current?.();
   }, [focusedSlug, activeGroup, detailPanelHeight, detailPanelCollapsed, colorGroups]);
+
+  const handleDetailPanelToggle = useCallback((collapsed: boolean) => {
+    detailPanelFitRequestedRef.current = collapsed;
+    restoringCameraRef.current = false;
+    setDetailPanelCollapsed(collapsed);
+  }, []);
+
+  useEffect(() => {
+    if (!detailPanelFitRequestedRef.current) return;
+    detailPanelFitRequestedRef.current = false;
+    const sigma = sigmaRef.current;
+    if (!focusedSlug || !sigma || sigma.getDimensions().width >= GRAPH_COMPACT_WIDTH) return;
+    // Fit the settled viewport, not the old height at the start of the fold.
+    const body = detailPanelRef.current?.querySelector('.graph-detail-panel-body');
+    const animations = body?.getAnimations?.() ?? [];
+    let cancelled = false;
+    void Promise.allSettled(animations.map(animation => animation.finished)).then(() => {
+      if (!cancelled) frameGraphCallbackRef.current?.(360, true);
+    });
+    return () => { cancelled = true; };
+  }, [detailPanelCollapsed, focusedSlug]);
 
   const handleSearchSelect = useCallback((slug: string) => {
     restoringCameraRef.current = false;
@@ -1806,7 +1828,10 @@ function GraphView({ data }: { data: ColoredGraphData }) {
     };
     const returnToOverview=(forceFit=true)=>setMemoryView(false,forceFit);
     const hasMemoryContext=()=>Boolean(focusedRef.current || activeGroupRef.current!==null || expandedNeighborhoodRef.current);
-    const toggleMemory=()=>setMemoryView(!allNotesRef.current || hasMemoryContext());
+    const toggleMemory=()=>{
+      const returningToAllNotes=allNotesRef.current && hasMemoryContext();
+      setMemoryView(!allNotesRef.current || hasMemoryContext(),returningToAllNotes);
+    };
     overviewCallbackRef.current=returnToOverview;
     neighborhoodLayer=createGraphNeighborhoodLayer({
       container:shellRef.current!,sigma,groups:neighborhoods.groups,previews:buildGraphNeighborhoodPreviews(data,neighborhoods.groups),getGeometry:getNavigationGeometry,
@@ -2221,7 +2246,7 @@ function GraphView({ data }: { data: ColoredGraphData }) {
               connections={focusedConnections}
               panelRef={detailPanelRef}
               collapsed={detailPanelCollapsed}
-              onCollapsedChange={setDetailPanelCollapsed}
+              onCollapsedChange={handleDetailPanelToggle}
               onClose={handleInfoClose}
               onClickNeighbor={handleInfoNeighborClick}
               onHoverNeighbor={handleInfoNeighborHover}

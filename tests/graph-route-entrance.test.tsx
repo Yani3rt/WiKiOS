@@ -808,6 +808,69 @@ it.each([
   expect(visibleSlugs()).toEqual(['a','b','c']);expect(notePositions()).toEqual(positions);
 });
 
+it.each([
+  {width:588,height:1292,reduced:false,memory:'open'},
+  {width:390,height:844,reduced:true,memory:'neighborhood'},
+  {width:768,height:1024,reduced:false,memory:'open'},
+])('recenters the selected cluster after compact details finish folding (width: $width, reduced: $reduced, $memory)',async({width,height,reduced,memory})=>{
+  await startMemoryOverview();if(memory==='open') await clickMemory();else await clickNeighborhood('Alpha');
+  latest().dimensions={width,height};
+  for(const [index,slug] of ['a','b','c'].entries()) latest().graph.mergeNodeAttributes(slug,{x:index*10,y:index*50});
+  vi.spyOn(HTMLElement.prototype,'getBoundingClientRect').mockImplementation(function(this:HTMLElement){
+    const box=this.matches('aside[aria-labelledby="graph-node-details-title"]')
+      ? {left:12,right:width-12,top:this.dataset.collapsed==='true'?height-132:height*.48,bottom:height-12}
+      : {left:0,right:0,top:0,bottom:0};
+    return {...box,x:box.left,y:box.top,width:box.right-box.left,height:box.bottom-box.top,toJSON(){}};
+  });
+  vi.spyOn(HTMLElement.prototype,'offsetWidth','get').mockImplementation(function(this:HTMLElement){return this.matches('aside')?width-24:0;});
+  vi.spyOn(HTMLElement.prototype,'offsetHeight','get').mockImplementation(function(this:HTMLElement){return this.matches('aside')?this.getBoundingClientRect().height:0;});
+  latest().refresh();await act(async()=>latest().emit('clickNode',{node:'a'}));await tick(time+1);await tick(time+1);
+  const positions=notePositions(),camera={...latest().camera.state};reducedMotion=reduced;latest().camera.animate.mockClear();
+  let finishFold!:()=>void;
+  const finished=new Promise<void>(resolve=>{finishFold=resolve;});
+  const body=host.querySelector<HTMLElement>('#graph-node-details-body')!;
+  body.getAnimations=()=>reduced?[]:[{finished} as unknown as Animation];
+  await act(async()=>host.querySelector<HTMLButtonElement>('[aria-label="Collapse node details"]')!.click());await tick(time+1);
+  if(!reduced) {
+    // The final viewport must be measured after the CSS height transition, not before it.
+    expect(latest().camera.state).toEqual(camera);expect(latest().camera.animate).not.toHaveBeenCalled();
+    await act(async()=>finishFold());await tick(time+1);
+  }
+  await tick(time+600);await tick(time+1);
+  expect(latest().camera.animate).toHaveBeenCalledWith(expect.any(Object),expect.objectContaining({duration:reduced?0:360,easing:'quadraticInOut'}));
+  const points=['a','b','c'].map(slug=>latest().framedGraphToViewport(latest().getNodeDisplayData(slug)!));
+  expect((Math.min(...points.map(p=>p.x))+Math.max(...points.map(p=>p.x)))/2).toBeCloseTo(width/2);
+  expect((Math.min(...points.map(p=>p.y))+Math.max(...points.map(p=>p.y)))/2).toBeCloseTo((84+height-152)/2);
+  for(const point of points) {
+    expect(point.x).toBeGreaterThanOrEqual(20);expect(point.x).toBeLessThanOrEqual(width-20);
+    expect(point.y).toBeGreaterThanOrEqual(84);expect(point.y).toBeLessThanOrEqual(height-152);
+  }
+  expect(visibleSlugs()).toEqual(['a','b','c']);expect(notePositions()).toEqual(positions);
+  expect(host.querySelector('#graph-node-details-title')?.textContent).toBe('a');
+  expect(body.getAttribute('aria-hidden')).toBe('true');
+  // Reopening keeps the same selection and restores the accessible panel body.
+  body.getAnimations=()=>[];
+  await act(async()=>host.querySelector<HTMLButtonElement>('[aria-label="Expand node details"]')!.click());await tick(time+1);await tick(time+600);await tick(time+1);
+  expect(body.getAttribute('aria-hidden')).toBe('false');
+  expect(visibleSlugs()).toEqual(['a','b','c']);expect(notePositions()).toEqual(positions);
+});
+it('does not recenter desktop notes just because their details fold',async()=>{
+  await startMemoryOverview();await clickMemory();await act(async()=>latest().emit('clickNode',{node:'a'}));await tick(time+1);await tick(time+1);
+  const camera={...latest().camera.state};latest().camera.animate.mockClear();
+  await act(async()=>host.querySelector<HTMLButtonElement>('[aria-label="Collapse node details"]')!.click());await tick(time+1);await tick(time+600);
+  expect(latest().camera.state).toEqual(camera);expect(latest().camera.animate).not.toHaveBeenCalled();
+});
+it('cancels the pending compact fold Fit when the selected note is dismissed',async()=>{
+  await startMemoryOverview();await clickMemory();latest().dimensions={width:588,height:1292};
+  await act(async()=>latest().emit('clickNode',{node:'a'}));await tick(time+1);await tick(time+1);
+  let finishFold!:()=>void;const finished=new Promise<void>(resolve=>{finishFold=resolve;});
+  host.querySelector<HTMLElement>('#graph-node-details-body')!.getAnimations=()=>[{finished} as unknown as Animation];
+  await act(async()=>host.querySelector<HTMLButtonElement>('[aria-label="Collapse node details"]')!.click());await tick(time+1);
+  await act(async()=>host.querySelector<HTMLButtonElement>('[aria-label="Close node details"]')!.click());await tick(time+1);await tick(time+1);
+  latest().camera.animate.mockClear();await act(async()=>finishFold());await tick(time+1);
+  expect(latest().camera.animate).not.toHaveBeenCalled();expect(host.querySelector('#graph-node-details-title')).toBeNull();
+});
+
 it('refits the current note in open memory after a manual zoom-out',async()=>{
   await startMemoryOverview();await clickMemory();
   await act(async()=>latest().emit('clickNode',{node:'a'}));await tick(time+1);await tick(time+1);
@@ -1062,6 +1125,49 @@ it('returns selection and filters to all notes rather than collapsing an already
   await act(async()=>[...host.querySelectorAll<HTMLButtonElement>('.graph-color-legend button')].find(button=>button.textContent?.startsWith('Alpha'))!.click());await tick(time+1);
   await clickMemory();expect(visibleSlugs()).toEqual(allMemorySlugs);
   expect([...host.querySelectorAll<HTMLButtonElement>('.graph-color-legend button')].find(button=>button.textContent==='All')?.getAttribute('aria-pressed')).toBe('true');
+});
+it.each([
+  {width:1200,height:800,reduced:false},
+  {width:1200,height:800,reduced:true},
+  {width:768,height:1024,reduced:true},
+  {width:390,height:844,reduced:false},
+])('recenters and fits open memory when returning from a selected note (width: $width, reduced: $reduced)',async({width,height,reduced})=>{
+  await startMemoryOverview();await clickMemory();latest().dimensions={width,height};
+  for(const [index,slug] of latest().graph.nodes().entries()) latest().graph.mergeNodeAttributes(slug,{x:30+index*10,y:10+index*5});
+  latest().refresh();
+  await act(async()=>latest().emit('clickNode',{node:'a'}));await tick(time+1);await tick(time+1);
+  expect(visibleSlugs()).toEqual(['a','b','c']);
+  // All notes already fit but are tiny and off-center: revealing them alone is insufficient.
+  latest().camera.setState({x:.5,y:.5,ratio:8});latest().camera.animate.mockClear();
+  const positions=notePositions();reducedMotion=reduced;
+  await clickMemory();
+  expect(latest().camera.animate).toHaveBeenCalledWith(expect.any(Object),expect.objectContaining({duration:reduced?0:480,easing:'quadraticInOut'}));
+  expect(latest().camera.state.ratio).toBeLessThan(8);
+  const points=[latest().graphToViewport({x:0,y:0}),...latest().graph.nodes().map(slug=>latest().framedGraphToViewport(latest().getNodeDisplayData(slug)!))];
+  for(const point of points) {
+    expect(point.x).toBeGreaterThanOrEqual(20);expect(point.x).toBeLessThanOrEqual(width-20);
+    expect(point.y).toBeGreaterThanOrEqual(84);expect(point.y).toBeLessThanOrEqual(height-20);
+  }
+  expect((Math.min(...points.map(p=>p.x))+Math.max(...points.map(p=>p.x)))/2).toBeCloseTo(width/2);
+  expect((Math.min(...points.map(p=>p.y))+Math.max(...points.map(p=>p.y)))/2).toBeCloseTo((84+height-20)/2);
+  expect(visibleSlugs()).toEqual(allMemorySlugs);expect(notePositions()).toEqual(positions);
+  expect(host.querySelector('#graph-node-details-title')).toBeNull();
+  expect(host.querySelector('.graph-memory-hub')?.getAttribute('aria-label')).toBe('Show neighborhoods');
+  expect([...latest().edges.values()].filter(edge=>!edge.hidden)).toHaveLength(6);
+});
+it('keeps the return-to-open-memory Fit running through detail-panel viewport updates',async()=>{
+  await startMemoryOverview();await clickMemory();
+  await act(async()=>latest().emit('clickNode',{node:'a'}));await tick(time+1);await tick(time+1);
+  reducedMotion=false;latest().camera.animate.mockClear();let completeFit!:()=>void;
+  latest().camera.isAnimated=()=>true;
+  latest().camera.animate.mockImplementation(()=>new Promise<void>(resolve=>{completeFit=resolve;}));
+  await act(async()=>host.querySelector<HTMLButtonElement>('.graph-memory-hub')!.click());await tick(time+1);
+  expect(latest().camera.animate).toHaveBeenCalledWith(expect.any(Object),expect.objectContaining({duration:480}));
+  latest().camera.animate.mockClear();cancelMotion.mockClear();
+  await act(async()=>resizeGraph());await tick(time+1);
+  expect(cancelMotion).not.toHaveBeenCalled();expect(latest().camera.animate).not.toHaveBeenCalled();
+  await act(async()=>completeFit());await tick(time+601);await tick(time+1);
+  expect(visibleSlugs()).toEqual(allMemorySlugs);
 });
 it('closing note details or clicking empty background does not collapse all notes',async()=>{
   await startMemoryOverview();await clickMemory();
